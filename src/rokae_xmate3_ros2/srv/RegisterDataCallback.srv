@@ -1,0 +1,19 @@
+# RegisterDataCallback.srv - 注册机器人数据回调函数
+# 请求部分（Request）
+string data_topic           # 普通参数：要监听的数据源主题（如joint_state/cartesian_force）
+int32 CALLBACK_TYPE = 1     # 常量（全大写）：回调类型 1=周期回调 2=触发回调，默认1
+int32 CALLBACK_FREQ = 100   # 常量（全大写）：周期回调频率（Hz），默认100Hz
+int32 TIMEOUT = 5           # 常量（全大写）：注册超时时间（秒），默认5秒
+string callback_id          # 普通参数：回调函数唯一标识（用于注销）
+
+---
+# 响应部分（Response）
+bool success                # 普通参数：注册是否成功
+int32 error_code            # 普通参数：错误码：0=成功，非0=失败
+                            # 12001: 数据源主题不存在
+                            # 12002: 回调类型非法（非1/2）
+                            # 12003: 回调频率超出范围（1~1000Hz）
+                            # 12004: callback_id已存在
+                            # 12005: 注册超时
+string error_msg            # 普通参数：错误描述（成功时为空）
+builtin_interfaces/Time register_time # 普通参数：注册成功时间戳

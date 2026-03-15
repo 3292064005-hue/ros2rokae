@@ -1,0 +1,5 @@
+string name
+string save_as
+---
+bool success
+string message

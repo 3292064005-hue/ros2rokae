@@ -1,0 +1,7 @@
+# 开启碰撞检测
+float64[] sensitivity  # 6个关节灵敏度
+uint8 behaviour  # 对应rokae::StopLevel枚举
+float64 fallback  # 代码中使用request->fallback
+---
+bool success
+string message

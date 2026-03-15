@@ -1,0 +1,6 @@
+# 无请求参数
+---
+float64[6] joint_torque
+bool success
+string message
+

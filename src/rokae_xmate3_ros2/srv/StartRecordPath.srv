@@ -1,0 +1,5 @@
+# 开始路径录制
+int32 duration  # 代码中使用request->duration
+---
+bool success
+string message

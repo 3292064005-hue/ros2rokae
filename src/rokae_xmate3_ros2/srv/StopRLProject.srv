@@ -1,0 +1,17 @@
+# StopRLProject.srv - 停止强化学习（RL）工程
+# 请求部分（Request）
+string project_id           # RL工程唯一标识（启动时的project_id）
+bool FORCE_STOP = false     # 是否强制停止（忽略当前回合），默认false（基础类型常量，全大写合规）
+int32 TIMEOUT = 3           # 停止超时时间（秒），默认3秒（基础类型常量，全大写合规）
+
+---
+# 响应部分（Response）
+bool success                # 停止是否成功
+int32 error_code            # 错误码：0=成功，非0=失败
+                            # 8001: RL工程未启动
+                            # 8002: 工程ID不存在
+                            # 8003: 停止超时
+                            # 8004: 强制停止失败（资源占用）
+string error_msg            # 错误描述（成功时为空）
+int32 finished_episode      # 已完成的回合数（成功时返回）
+builtin_interfaces/Time stop_time # 工程停止时间戳

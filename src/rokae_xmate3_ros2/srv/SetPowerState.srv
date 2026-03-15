@@ -1,0 +1,6 @@
+# 请求
+bool on  # true-上电, false-下电
+---
+# 响应
+bool success
+string message  # 错误信息，与真机ec.message()一致

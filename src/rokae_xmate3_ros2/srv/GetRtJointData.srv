@@ -1,0 +1,19 @@
+# GetRtJointData.srv - 获取机器人实时关节数据
+# 请求部分（Request）
+float32 TIMEOUT = 0.5  # 请求超时时间（秒），默认0.5秒
+bool GET_FULL_DATA = true  # 是否获取完整数据（位置+速度+扭矩），默认true
+
+---
+# 响应部分（Response）
+bool success  # 请求是否成功
+int32 error_code  # 错误码：0=成功，非0=失败
+                 # 2001: 实时控制模式未激活
+                 # 2002: 数据获取超时
+                 # 2003: 关节数据异常
+string error_msg  # 错误描述信息（成功时为空）
+# 核心关节数据（6轴协作臂通用）
+float64[6] joint_position  # 关节位置（弧度）
+float64[6] joint_velocity  # 关节速度（弧度/秒）
+float64[6] joint_torque    # 关节扭矩（N·m）
+# 可选扩展：数据时间戳
+builtin_interfaces/Time stamp  # 数据采集时间戳

@@ -1,0 +1,6 @@
+# 设置软限位
+bool enable  # 是否开启软限位
+float64[12] limits  # 替换原float64[6][2]，6关节×2限位（下限/上限）
+---
+bool success
+string message

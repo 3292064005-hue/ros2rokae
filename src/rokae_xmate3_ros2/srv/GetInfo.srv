@@ -1,0 +1,10 @@
+# 获取机器人信息（无请求参数）
+---
+bool success
+string model
+string serial_number
+string firmware_version
+string sdk_version
+string robot_type  # 代码中使用result->robot_type
+int32 joint_num    # 代码中使用result->joint_num
+string message

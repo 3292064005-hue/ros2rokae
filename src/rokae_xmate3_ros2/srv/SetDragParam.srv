@@ -1,0 +1,21 @@
+# SetDragParam.srv - 设置机器人拖动参数（适配xMate3协作臂）
+# 请求部分（Request）
+int32 DRAG_SPACE = 0        # 拖动空间：0=关节空间 1=笛卡尔空间，默认0（基础类型常量，全大写合规）
+float32 DRAG_SPEED_SCALE = 0.5 # 拖动速度缩放系数（0.1~1.0），默认0.5（基础类型常量，全大写合规）
+float32 IMPEDANCE_STIFFNESS = 200.0 # 笛卡尔阻抗刚度（N/m），默认200（基础类型常量，全大写合规）
+bool ENABLE_ROTATION = true # 是否启用旋转拖动（笛卡尔空间），默认true（基础类型常量，全大写合规）
+
+---
+# 响应部分（Response）
+bool success                # 设置是否成功
+int32 error_code            # 错误码：0=成功，非0=失败
+                            # 10001: 拖动空间参数非法（非0/1）
+                            # 10002: 速度缩放系数超出范围
+                            # 10003: 阻抗刚度参数非法（≤0）
+                            # 10004: 拖动模式未激活，无法修改参数
+string error_msg            # 错误描述（成功时为空）
+# 返回当前生效的参数（验证设置结果）
+int32 current_drag_space
+float32 current_speed_scale
+float32 current_impedance_stiffness
+builtin_interfaces/Time set_time # 参数设置时间戳

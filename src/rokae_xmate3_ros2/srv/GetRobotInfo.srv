@@ -1,0 +1,7 @@
+---
+string id
+string version
+string type
+int32 joint_num
+bool success
+string message

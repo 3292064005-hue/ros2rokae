@@ -1,0 +1,6 @@
+# 无请求参数
+---
+# 响应：基坐标系位姿 [X,Y,Z,Rx,Ry,Rz]，单位m/rad
+float64[6] base_frame
+bool success
+string message

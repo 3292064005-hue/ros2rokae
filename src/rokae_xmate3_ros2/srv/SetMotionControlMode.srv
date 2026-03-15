@@ -1,0 +1,4 @@
+uint8 mode  # 0=NRT, 1=RT, 2=RL
+---
+bool success
+string message

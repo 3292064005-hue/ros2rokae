@@ -1,0 +1,14 @@
+# Goal
+uint8 space
+float64 rate
+float64 step
+uint32 index
+bool direction
+---
+# Result
+bool success
+string message
+---
+# Feedback
+float64 current_position
+bool is_moving

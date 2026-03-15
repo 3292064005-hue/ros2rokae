@@ -1,0 +1,17 @@
+# LoadRLProject.srv - 加载强化学习（RL）工程文件
+# 请求部分（Request）
+string project_path         # RL工程文件路径（绝对路径）
+bool OVERWRITE = false      # 是否覆盖已加载的工程（默认不覆盖）
+int32 TIMEOUT = 5           # 加载超时时间（秒），默认5秒
+
+---
+# 响应部分（Response）
+bool success                # 加载是否成功
+int32 error_code            # 错误码：0=成功
+                            # 5001: 工程文件不存在
+                            # 5002: 工程文件格式错误
+                            # 5003: 加载超时
+                            # 5004: 工程已加载且禁止覆盖
+string error_msg            # 错误描述
+string project_name         # 加载的工程名称
+float64 load_time           # 加载耗时（秒）

@@ -1,0 +1,4 @@
+rokae_xmate3_ros2/CartesianPosition target
+rokae_xmate3_ros2/CartesianPosition aux
+int32 speed
+int32 zone

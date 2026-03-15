@@ -1,0 +1,4 @@
+---
+string[] path_names
+bool success
+string message

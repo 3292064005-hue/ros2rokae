@@ -1,0 +1,20 @@
+# SetCollisionDetectionParam.srv - 设置碰撞检测参数
+# 请求部分（Request）
+float32 COLLISION_FORCE_THRESHOLD = 50.0  # 碰撞力阈值（N），默认50N（基础类型常量，全大写合规）
+float32 COLLISION_TORQUE_THRESHOLD = 10.0 # 碰撞扭矩阈值（N·m），默认10N·m（基础类型常量，全大写合规）
+int32 STOP_LEVEL = 1                      # 碰撞停止等级：0=无动作 1=减速 2=急停，默认1（基础类型常量，全大写合规）
+bool ENABLE_COLLISION_ALARM = true        # 是否启用碰撞报警，默认true（基础类型常量，全大写合规）
+
+---
+# 响应部分（Response）
+bool success                # 设置是否成功
+int32 error_code            # 错误码：0=成功，非0=失败
+                            # 9001: 阈值参数非法（≤0）
+                            # 9002: 停止等级超出范围
+                            # 9003: 机器人运动中无法修改
+string error_msg            # 错误描述（成功时为空）
+# 返回当前生效的参数（验证设置结果）
+float32 current_force_threshold
+float32 current_torque_threshold
+int32 current_stop_level
+builtin_interfaces/Time set_time # 参数设置时间戳

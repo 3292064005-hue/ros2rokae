@@ -1,0 +1,6 @@
+# SetControlMode.srv - 设置运动控制模式
+int32 mode  # 0=关节模式，1=笛卡尔模式
+---
+bool success  # 操作是否成功
+string message  # 提示信息
+

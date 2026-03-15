@@ -1,0 +1,21 @@
+# GetLogInfo.srv - 获取机器人控制器日志信息
+# 请求部分（Request）
+int32 LOG_TYPE = 0          # 常量（全大写）：日志类型 0=全部 1=错误 2=警告 3=信息，默认0
+string START_TIME = "2026-01-01 00:00:00" # 常量（全大写）：日志起始时间，默认全量查询
+string END_TIME = "2099-12-31 23:59:59"   # 常量（全大写）：日志结束时间，默认全量查询
+int32 MAX_LOG_COUNT = 100   # 常量（全大写）：最大返回日志条数，默认100条
+bool NEED_DETAIL = true     # 常量（全大写）：是否返回详细日志（含堆栈），默认true
+
+---
+# 响应部分（Response）
+bool success                # 普通参数：查询是否成功
+int32 error_code            # 普通参数：错误码：0=成功，非0=失败
+                            # 13001: 日志类型非法（非0-3）
+                            # 13002: 时间格式错误（需YYYY-MM-DD HH:MM:SS）
+                            # 13003: 起始时间晚于结束时间
+                            # 13004: 无符合条件的日志
+                            # 13005: 日志读取超时
+string error_msg            # 普通参数：错误描述（成功时为空）
+string[] log_list           # 普通参数：日志内容列表（数组不加默认值，合规）
+int32 actual_log_count      # 普通参数：实际返回的日志条数
+builtin_interfaces/Time query_time # 普通参数：查询完成时间戳

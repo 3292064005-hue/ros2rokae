@@ -1,0 +1,18 @@
+# CalcJointTorque.srv - 基于动力学模型计算关节扭矩
+# 请求部分（Request）
+float64[6] joint_pos        # 关节位置（弧度）
+float64[6] joint_vel        # 关节速度（弧度/秒）
+float64[6] joint_acc        # 关节加速度（弧度/秒²）
+float64[6] external_force   # 末端外力（N），默认全0（代码层赋值，不写在srv）
+bool USE_GRAVITY = true     # 是否考虑重力（默认开启）
+
+---
+# 响应部分（Response）
+bool success                # 计算是否成功
+int32 error_code            # 错误码：0=成功
+                            # 4001: 动力学模型未加载
+                            # 4002: 输入参数异常
+string error_msg            # 错误描述
+float64[6] joint_torque     # 计算出的关节扭矩（N·m）
+float64[6] gravity_torque   # 重力补偿扭矩（N·m）
+float64[6] coriolis_torque  # 科里奥利力扭矩（N·m）

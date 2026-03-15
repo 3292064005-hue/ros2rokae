@@ -1,0 +1,5 @@
+string name
+bool remove_all
+---
+bool success
+string message

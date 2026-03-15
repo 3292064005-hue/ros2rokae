@@ -1,0 +1,15 @@
+# MapCartesianToJointTorque.srv - 笛卡尔力映射为关节扭矩
+# 请求部分（Request）
+float64[6] cart_force       # 笛卡尔空间力/力矩（N/N·m）：[fx,fy,fz,mx,my,mz]
+float64[6] joint_pos        # 当前关节位置（弧度），用于雅克比矩阵计算
+bool USE_GRAVITY = true     # 是否考虑重力补偿（默认开启，基础类型常量合规）
+
+---
+# 响应部分（Response）
+bool success                # 映射是否成功
+int32 error_code            # 错误码：0=成功
+                            # 6001: 雅克比矩阵奇异
+                            # 6002: 关节位置异常
+string error_msg            # 错误描述
+float64[6] joint_torque     # 映射后的关节扭矩（N·m）
+builtin_interfaces/Time stamp # 计算时间戳

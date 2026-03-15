@@ -1,0 +1,8 @@
+# 请求：目标笛卡尔位姿 [X,Y,Z,Rx,Ry,Rz]，单位m/rad
+float64[6] target_posture
+---
+# 响应：逆解得到的6轴关节角度，单位rad
+float64[6] joint_positions
+bool success
+string message
+

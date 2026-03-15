@@ -1,0 +1,17 @@
+# Goal
+rokae_xmate3_ros2/MoveAbsJCommand[] absj_cmds
+rokae_xmate3_ros2/MoveJCommand[] j_cmds
+rokae_xmate3_ros2/MoveLCommand[] l_cmds
+rokae_xmate3_ros2/MoveCCommand[] c_cmds
+rokae_xmate3_ros2/MoveCFCommand[] cf_cmds
+rokae_xmate3_ros2/MoveSPCommand[] sp_cmds
+---
+# Result
+bool success
+string cmd_id
+string message
+---
+# Feedback
+float64 progress
+string current_state
+int32 current_cmd_index

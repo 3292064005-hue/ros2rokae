@@ -1,0 +1,5 @@
+# 设置Conf检查模式
+bool forced  # 代码中使用request->forced
+---
+bool success
+string message

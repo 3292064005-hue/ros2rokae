@@ -1,0 +1,20 @@
+# GenerateSTrajectory.srv - 生成机器人关节S型轨迹（平滑加减速）
+# 请求部分（Request）
+float64[6] start_joint_pos  # 起始关节位置（弧度）
+float64[6] target_joint_pos # 目标关节位置（弧度）
+float64 MAX_VELOCITY = 1.0  # 最大关节速度（弧度/秒），默认1.0
+float64 MAX_ACCELERATION = 0.5  # 最大关节加速度（弧度/秒²），默认0.5
+float64 BLEND_RADIUS = 0.01  # 轨迹融合半径（弧度），默认0.01
+bool IS_CARTESIAN = false   # 是否为笛卡尔空间轨迹（false=关节空间，true=笛卡尔）
+
+---
+# 响应部分（Response）
+bool success                # 轨迹生成是否成功
+int32 error_code            # 错误码：0=成功
+                            # 3001: 关节位置超出限位
+                            # 3002: 速度/加速度超限
+                            # 3003: 轨迹规划失败
+string error_msg            # 错误描述
+float64 total_time          # 轨迹总时长（秒）
+rokae_xmate3_ros2/JointPos6[] trajectory_points # 轨迹点数组（自定义msg封装）
+builtin_interfaces/Time stamp  # 轨迹生成时间戳

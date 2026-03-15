@@ -1,0 +1,15 @@
+# SendCustomData.srv - 发送自定义数据到机器人控制器
+# 请求部分（Request）
+string data_topic           # 普通参数（无默认值）：自定义数据主题
+string DATA_TYPE = "JSON"   # 常量（有默认值）：数据格式，全大写合规
+int32 TIMEOUT = 2           # 常量（有默认值）：发送超时，全大写合规
+bool NEED_RESPONSE = true   # 关键修正：常量名全大写（原need_response小写违规）
+string custom_data          # 普通参数（无默认值）：自定义数据内容
+
+---
+# 响应部分（Response）
+bool success                # 普通参数：发送是否成功
+int32 error_code            # 普通参数：错误码
+string error_msg            # 普通参数：错误描述
+string response_data        # 普通参数：控制器返回数据
+builtin_interfaces/Time send_time # 普通参数：发送时间戳

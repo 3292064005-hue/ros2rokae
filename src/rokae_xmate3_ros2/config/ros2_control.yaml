@@ -1,0 +1,28 @@
+# ========================================
+# xMate3 ROS2 Control 配置文件 (简化版)
+# ========================================
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+    use_sim_time: true
+
+# ========== 1. 关节状态广播器 ==========
+joint_state_broadcaster:
+  type: joint_state_broadcaster/JointStateBroadcaster
+  ros__parameters:
+    use_sim_time: true
+
+# ========== 2. 前向位置控制器 ==========
+forward_position_controller:
+  type: forward_command_controller/ForwardCommandController
+  ros__parameters:
+    use_sim_time: true
+    joints:
+      - xmate_joint_1
+      - xmate_joint_2
+      - xmate_joint_3
+      - xmate_joint_4
+      - xmate_joint_5
+      - xmate_joint_6
+    interface_name: position

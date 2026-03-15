@@ -1,0 +1,7 @@
+# 请求：坐标系类型
+uint8 coordinate_type
+---
+float64[6] posture
+bool success
+string message
+

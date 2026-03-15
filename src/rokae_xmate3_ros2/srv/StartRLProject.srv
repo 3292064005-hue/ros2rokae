@@ -1,0 +1,17 @@
+# StartRLProject.srv - 启动强化学习（RL）工程
+# 请求部分（Request）
+string project_id           # RL工程唯一标识（加载后返回的project_name）
+int32 EPISODE_COUNT = 100   # 运行回合数，默认100（基础类型常量合规）
+float32 STEP_TIMEOUT = 0.1  # 单步超时时间（秒），默认0.1（基础类型常量合规）
+bool AUTO_RESTART = false   # 回合结束后是否自动重启，默认false（基础类型常量合规）
+
+---
+# 响应部分（Response）
+bool success                # 启动是否成功
+int32 error_code            # 错误码：0=成功，非0=失败
+                            # 7001: RL工程未加载
+                            # 7002: 工程运行中无法重复启动
+                            # 7003: 回合数/超时参数非法
+string error_msg            # 错误描述信息（成功时为空）
+int32 current_episode       # 当前启动的回合数（成功时返回1）
+builtin_interfaces/Time start_time # 工程启动时间戳

@@ -1,0 +1,4 @@
+# Start.srv - 运动启动服务
+---
+bool success  # 操作是否成功
+string message  # 提示信息

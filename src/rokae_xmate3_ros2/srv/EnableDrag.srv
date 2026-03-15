@@ -1,0 +1,7 @@
+# 开启拖动
+uint8 space  # 代码中使用request->space
+uint8 type   # 代码中使用request->type
+---
+bool success
+string message
+

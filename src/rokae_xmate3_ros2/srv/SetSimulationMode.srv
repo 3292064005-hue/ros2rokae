@@ -1,0 +1,5 @@
+# 设置仿真模式
+bool state  # 代码中使用request->state
+---
+bool success
+string message

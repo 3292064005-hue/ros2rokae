@@ -1,0 +1,11 @@
+# Goal
+string name
+float64 rate
+---
+# Result
+bool success
+string message
+---
+# Feedback
+float64 progress
+int32 current_sample

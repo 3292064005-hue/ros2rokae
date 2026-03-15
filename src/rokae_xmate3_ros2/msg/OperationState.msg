@@ -1,0 +1,9 @@
+uint8 IDLE=0
+uint8 JOG=1
+uint8 RT_CONTROLLING=2
+uint8 DRAG=3
+uint8 RL_PROGRAM=4
+uint8 MOVING=5
+uint8 JOGGING=6
+uint8 UNKNOWN=255
+uint8 state

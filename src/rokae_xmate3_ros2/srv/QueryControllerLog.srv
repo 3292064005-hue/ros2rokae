@@ -1,0 +1,7 @@
+# 请求
+uint32 count
+uint8 level
+---
+bool success
+string message
+rokae_xmate3_ros2/LogInfo[] logs

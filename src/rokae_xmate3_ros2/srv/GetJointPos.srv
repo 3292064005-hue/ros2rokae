@@ -1,0 +1,6 @@
+# 无请求参数
+---
+# 响应：6轴关节角度，单位rad
+float64[6] joint_positions
+bool success
+string message

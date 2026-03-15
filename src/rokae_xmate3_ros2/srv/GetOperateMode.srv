@@ -1,0 +1,4 @@
+---
+rokae_xmate3_ros2/OperateMode mode
+bool success
+string message

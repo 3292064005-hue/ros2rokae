@@ -1,0 +1,7 @@
+# 连接机器人服务请求
+string remote_ip
+string local_ip
+---
+# 响应
+bool success
+string message

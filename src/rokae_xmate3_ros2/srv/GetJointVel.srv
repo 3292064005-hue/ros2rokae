@@ -1,0 +1,5 @@
+# 无请求参数
+---
+float64[6] joint_vel
+bool success
+string message

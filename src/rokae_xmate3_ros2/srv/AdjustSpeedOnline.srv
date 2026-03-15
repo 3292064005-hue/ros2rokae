@@ -1,0 +1,5 @@
+# 在线调整速度
+float64 scale  # 代码中使用request->scale
+---
+bool success
+string message

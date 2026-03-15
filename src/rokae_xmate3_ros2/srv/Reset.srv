@@ -1,0 +1,4 @@
+# Reset.srv - 运动重置服务
+---
+bool success
+string message
