@@ -321,11 +321,6 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
             return dist_a < dist_b;
         });
 
-    // 兜底：如果没有有效解，返回当前关节
-    if (unique_solutions.empty()) {
-        unique_solutions.push_back(current_joints);
-    }
-
     return unique_solutions;
 }
 
@@ -333,8 +328,11 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
 std::vector<double> xMate3Kinematics::inverseKinematics(
         const std::vector<double>& target,
         const std::vector<double>& current_joints) {
-    // 直接调用多解函数，返回排序后的第一个最优解
-    return inverseKinematicsMultiSolution(target, current_joints)[0];
+    const auto solutions = inverseKinematicsMultiSolution(target, current_joints);
+    if (solutions.empty()) {
+        return {};
+    }
+    return solutions.front();
 }
 // -------------------------- 逆运动学 - 优化迭代参数 --------------------------
 
@@ -361,18 +359,48 @@ MatrixXd xMate3Kinematics::computeJacobian(const std::vector<double>& joints)
 
 // -------------------------- 奇异位检测：关节4和6共轴检测 --------------------------
 bool xMate3Kinematics::isNearSingularity(const std::vector<double>& joints) {
-    // 对于xMate3，腕部奇异发生在关节5接近0时（关节4和6共轴）
-    // 关节5是第5个关节，索引为4
-    return fabs(joints[4]) < SINGULARITY_THRESHOLD;
+    if (joints.size() < 6) {
+        return true;
+    }
+
+    // 腕部奇异：关节5接近0时，关节4与6接近共轴。
+    if (std::fabs(joints[4]) < WRIST_SINGULARITY_THRESHOLD) {
+        return true;
+    }
+
+    // 同时结合整体雅可比条件数，避免只盯着腕部奇异。
+    const MatrixXd jacobian = computeJacobian(joints);
+    JacobiSVD<MatrixXd> svd(jacobian, ComputeThinU | ComputeThinV);
+    if (svd.singularValues().size() == 0) {
+        return true;
+    }
+
+    const double min_sigma = svd.singularValues().tail(1)(0);
+    return min_sigma < JACOBIAN_SINGULARITY_THRESHOLD;
 }
 
 double xMate3Kinematics::computeSingularityMeasure(const std::vector<double>& joints) {
-    // 计算奇异度：当joint5接近0时，返回接近1的值
-    double j5 = fabs(joints[4]);
-    if (j5 < SINGULARITY_THRESHOLD) {
-        return 1.0 - (j5 / SINGULARITY_THRESHOLD);
+    if (joints.size() < 6) {
+        return 1.0;
     }
-    return 0.0;
+
+    double wrist_measure = 0.0;
+    const double j5 = std::fabs(joints[4]);
+    if (j5 < WRIST_SINGULARITY_THRESHOLD) {
+        wrist_measure = 1.0 - (j5 / WRIST_SINGULARITY_THRESHOLD);
+    }
+
+    const MatrixXd jacobian = computeJacobian(joints);
+    JacobiSVD<MatrixXd> svd(jacobian, ComputeThinU | ComputeThinV);
+    if (svd.singularValues().size() == 0) {
+        return 1.0;
+    }
+
+    const double min_sigma = svd.singularValues().tail(1)(0);
+    const double jacobian_measure = std::clamp(
+        1.0 - (min_sigma / JACOBIAN_SINGULARITY_THRESHOLD), 0.0, 1.0);
+
+    return std::max(wrist_measure, jacobian_measure);
 }
 
 bool xMate3Kinematics::avoidSingularity(std::vector<double>& joints) {
@@ -381,19 +409,22 @@ bool xMate3Kinematics::avoidSingularity(std::vector<double>& joints) {
         return true;
     }
 
-    // 尝试将关节5调整到远离奇异位的位置
-    // 优先选择与当前位置符号相同的方向
-    double current_j5 = joints[4];
-    double target_offset = SINGULARITY_AVOIDANCE_OFFSET;
-
-    if (current_j5 >= 0) {
-        joints[4] = std::max(target_offset, joint_limits_min_[4]);
-    } else {
-        joints[4] = std::min(-target_offset, joint_limits_max_[4]);
-    }
-
-    // 确保在限位范围内
+    // 优先把腕部拉离 joint5=0 的共轴奇异位置。
+    const double current_j5 = joints[4];
+    const double target_offset = SINGULARITY_AVOIDANCE_OFFSET;
+    joints[4] = current_j5 >= 0.0 ? std::max(target_offset, joint_limits_min_[4])
+                                  : std::min(-target_offset, joint_limits_max_[4]);
     joints[4] = std::clamp(joints[4], joint_limits_min_[4], joint_limits_max_[4]);
+
+    // 如果整体雅可比仍然接近奇异，再补一个轻微的肘部/腕部扰动，帮助种子跳出坏分支。
+    if (computeSingularityMeasure(joints) > 0.7) {
+        joints[2] = std::clamp(joints[2] + (joints[2] >= 0.0 ? 0.12 : -0.12),
+                               joint_limits_min_[2], joint_limits_max_[2]);
+        joints[3] = std::clamp(joints[3] + (joints[3] >= 0.0 ? 0.08 : -0.08),
+                               joint_limits_min_[3], joint_limits_max_[3]);
+        joints[5] = std::clamp(joints[5] + (joints[5] >= 0.0 ? 0.1 : -0.1),
+                               joint_limits_min_[5], joint_limits_max_[5]);
+    }
 
     return true;
 }

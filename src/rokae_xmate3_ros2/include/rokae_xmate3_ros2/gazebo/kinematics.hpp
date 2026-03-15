@@ -80,7 +80,8 @@ private:
     Vector6d computePoseError(const Matrix4d& T_target, const Matrix4d& T_current);
 
     // 奇异位检测阈值
-    static constexpr double SINGULARITY_THRESHOLD = 0.15;
+    static constexpr double WRIST_SINGULARITY_THRESHOLD = 0.15;
+    static constexpr double JACOBIAN_SINGULARITY_THRESHOLD = 0.08;
     static constexpr double SINGULARITY_AVOIDANCE_OFFSET = 0.2;
 };
 

@@ -230,8 +230,12 @@ struct CartesianPosition {
    * @brief 笛卡尔点位偏移量（手册8.2.4）
    */
   struct Offset {
-    enum class Type { Offs, RelTool } type;
-    Frame frame;
+    enum class Type {
+      None = 0,
+      Offs = 1,
+      RelTool = 2
+    } type = Type::None;
+    Frame frame{};
   };
 };
 
@@ -394,6 +398,7 @@ struct MoveSPCommand {
   bool direction = true;
   int speed = 100;
   int zone = 0;
+  CartesianPosition::Offset targetOffset;
 };
 
 /**
@@ -409,4 +414,3 @@ struct LogInfo {
 } // namespace rokae
 
 #endif // ROKAE_TYPES_H
-

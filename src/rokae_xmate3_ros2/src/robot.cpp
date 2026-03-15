@@ -144,6 +144,12 @@ bool xMateRobot::Impl::wait_for_service(rclcpp::ClientBase::SharedPtr client, st
     return true;
 }
 
+void xMateRobot::Impl::pump_callbacks() {
+    if (node_ && rclcpp::ok()) {
+        rclcpp::spin_some(node_);
+    }
+}
+
 // ==================== xMateRobot对外接口实现 ====================
 // 构造函数
 xMateRobot::xMateRobot(const std::string& node_name)
@@ -388,6 +394,7 @@ void xMateRobot::setOperateMode(rokae::OperateMode mode, std::error_code& ec) {
 
 // 获取运行状态
 rokae::OperationState xMateRobot::operationState(std::error_code& ec) {
+    impl_->pump_callbacks();
     std::lock_guard<std::mutex> lock(impl_->state_mutex_);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -667,6 +674,10 @@ rokae::JointPosition xMateRobot::calcIk(const rokae::CartesianPosition& posture,
     request->target_posture[3] = posture.rx;
     request->target_posture[4] = posture.ry;
     request->target_posture[5] = posture.rz;
+    request->elbow = posture.elbow;
+    request->has_elbow = posture.hasElbow;
+    request->conf_data.assign(posture.confData.begin(), posture.confData.end());
+    request->external = posture.external;
     
     auto future = impl_->xmate3_robot_calc_ik_client_->async_send_request(request);
     if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
@@ -1839,6 +1850,38 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
 }
 
 // helper to convert application commands into action goal parts
+static rokae_xmate3_ros2::msg::CartesianPosition toMsg(const rokae::CartesianPosition &pose) {
+    rokae_xmate3_ros2::msg::CartesianPosition m;
+    m.x = pose.x;
+    m.y = pose.y;
+    m.z = pose.z;
+    m.rx = pose.rx;
+    m.ry = pose.ry;
+    m.rz = pose.rz;
+    m.elbow = pose.elbow;
+    m.has_elbow = pose.hasElbow;
+    m.conf_data.assign(pose.confData.begin(), pose.confData.end());
+    m.external = pose.external;
+    return m;
+}
+
+static int32_t offsetTypeToMsg(rokae::CartesianPosition::Offset::Type type) {
+    switch (type) {
+        case rokae::CartesianPosition::Offset::Type::Offs:
+            return 1;
+        case rokae::CartesianPosition::Offset::Type::RelTool:
+            return 2;
+        case rokae::CartesianPosition::Offset::Type::None:
+        default:
+            return 0;
+    }
+}
+
+static std::array<double, 6> frameToPose(const rokae::Frame &frame) {
+    return {frame.trans[0], frame.trans[1], frame.trans[2],
+            frame.rpy[0], frame.rpy[1], frame.rpy[2]};
+}
+
 static rokae_xmate3_ros2::msg::MoveAbsJCommand toMsg(const rokae::MoveAbsJCommand &cmd) {
     rokae_xmate3_ros2::msg::MoveAbsJCommand m;
     m.target.joints = cmd.target.joints;
@@ -1849,80 +1892,58 @@ static rokae_xmate3_ros2::msg::MoveAbsJCommand toMsg(const rokae::MoveAbsJComman
 }
 static rokae_xmate3_ros2::msg::MoveJCommand toMsg(const rokae::MoveJCommand &cmd) {
     rokae_xmate3_ros2::msg::MoveJCommand m;
-    m.target.x = cmd.target.x;
-    m.target.y = cmd.target.y;
-    m.target.z = cmd.target.z;
-    m.target.rx = cmd.target.rx;
-    m.target.ry = cmd.target.ry;
-    m.target.rz = cmd.target.rz;
+    m.target = toMsg(cmd.target);
     m.speed = cmd.speed;
     m.zone = cmd.zone;
-    // offset omitted for simplicity
+    m.offset_type = offsetTypeToMsg(cmd.offset.type);
+    m.offset_pose = frameToPose(cmd.offset.frame);
     return m;
 }
 static rokae_xmate3_ros2::msg::MoveLCommand toMsg(const rokae::MoveLCommand &cmd) {
     rokae_xmate3_ros2::msg::MoveLCommand m;
-    m.target.x = cmd.target.x;
-    m.target.y = cmd.target.y;
-    m.target.z = cmd.target.z;
-    m.target.rx = cmd.target.rx;
-    m.target.ry = cmd.target.ry;
-    m.target.rz = cmd.target.rz;
+    m.target = toMsg(cmd.target);
     m.speed = cmd.speed;
     m.zone = cmd.zone;
+    m.offset_type = offsetTypeToMsg(cmd.offset.type);
+    m.offset_pose = frameToPose(cmd.offset.frame);
     return m;
 }
 static rokae_xmate3_ros2::msg::MoveCCommand toMsg(const rokae::MoveCCommand &cmd) {
     rokae_xmate3_ros2::msg::MoveCCommand m;
-    m.target.x = cmd.target.x;
-    m.target.y = cmd.target.y;
-    m.target.z = cmd.target.z;
-    m.target.rx = cmd.target.rx;
-    m.target.ry = cmd.target.ry;
-    m.target.rz = cmd.target.rz;
-    m.aux.x = cmd.aux.x;
-    m.aux.y = cmd.aux.y;
-    m.aux.z = cmd.aux.z;
-    m.aux.rx = cmd.aux.rx;
-    m.aux.ry = cmd.aux.ry;
-    m.aux.rz = cmd.aux.rz;
+    m.target = toMsg(cmd.target);
+    m.aux = toMsg(cmd.aux);
     m.speed = cmd.speed;
     m.zone = cmd.zone;
+    m.target_offset_type = offsetTypeToMsg(cmd.targetOffset.type);
+    m.target_offset_pose = frameToPose(cmd.targetOffset.frame);
+    m.aux_offset_type = offsetTypeToMsg(cmd.auxOffset.type);
+    m.aux_offset_pose = frameToPose(cmd.auxOffset.frame);
     return m;
 }
 static rokae_xmate3_ros2::msg::MoveCFCommand toMsg(const rokae::MoveCFCommand &cmd) {
     rokae_xmate3_ros2::msg::MoveCFCommand m;
-    m.target.x = cmd.target.x;
-    m.target.y = cmd.target.y;
-    m.target.z = cmd.target.z;
-    m.target.rx = cmd.target.rx;
-    m.target.ry = cmd.target.ry;
-    m.target.rz = cmd.target.rz;
-    m.aux.x = cmd.aux.x;
-    m.aux.y = cmd.aux.y;
-    m.aux.z = cmd.aux.z;
-    m.aux.rx = cmd.aux.rx;
-    m.aux.ry = cmd.aux.ry;
-    m.aux.rz = cmd.aux.rz;
+    m.target = toMsg(cmd.target);
+    m.aux = toMsg(cmd.aux);
     m.speed = cmd.speed;
     m.zone = cmd.zone;
     m.angle = cmd.angle;
+    m.target_offset_type = offsetTypeToMsg(cmd.targetOffset.type);
+    m.target_offset_pose = frameToPose(cmd.targetOffset.frame);
+    m.aux_offset_type = offsetTypeToMsg(cmd.auxOffset.type);
+    m.aux_offset_pose = frameToPose(cmd.auxOffset.frame);
     return m;
 }
 static rokae_xmate3_ros2::msg::MoveSPCommand toMsg(const rokae::MoveSPCommand &cmd) {
     rokae_xmate3_ros2::msg::MoveSPCommand m;
-    m.target.x = cmd.target.x;
-    m.target.y = cmd.target.y;
-    m.target.z = cmd.target.z;
-    m.target.rx = cmd.target.rx;
-    m.target.ry = cmd.target.ry;
-    m.target.rz = cmd.target.rz;
+    m.target = toMsg(cmd.target);
     m.speed = cmd.speed;
     m.zone = cmd.zone;
     m.radius = cmd.radius;
     m.radius_step = cmd.radius_step;
     m.angle = cmd.angle;
     m.direction = cmd.direction;
+    m.offset_type = offsetTypeToMsg(cmd.targetOffset.type);
+    m.offset_pose = frameToPose(cmd.targetOffset.frame);
     return m;
 }
 

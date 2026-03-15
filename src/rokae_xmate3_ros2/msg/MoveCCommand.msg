@@ -2,3 +2,7 @@ rokae_xmate3_ros2/CartesianPosition target
 rokae_xmate3_ros2/CartesianPosition aux
 int32 speed
 int32 zone
+int32 target_offset_type
+float64[6] target_offset_pose
+int32 aux_offset_type
+float64[6] aux_offset_pose

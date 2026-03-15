@@ -196,6 +196,7 @@ private:
         void clearCache();
         // 将本地缓存的命令通过 MoveAppend action 发送到控制器
         bool flushCachedCommands(std::error_code &ec);
+        void pump_callbacks();
 
         // ==================== 服务客户端（与cpp实现1:1匹配） ====================
         // 基础连接与信息

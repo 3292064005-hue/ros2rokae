@@ -4,3 +4,7 @@ float64 z
 float64 rx
 float64 ry
 float64 rz
+float64 elbow
+bool has_elbow
+int32[] conf_data
+float64[] external

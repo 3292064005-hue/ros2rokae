@@ -57,6 +57,14 @@ std::vector<double> slerpAttitude(
     return quat2Rpy(q_slerp);
 }
 
+double signedAngleAroundAxis(const Vector3d& from, const Vector3d& to, const Vector3d& axis) {
+    const Vector3d from_n = from.normalized();
+    const Vector3d to_n = to.normalized();
+    const double sin_term = axis.normalized().dot(from_n.cross(to_n));
+    const double cos_term = std::clamp(from_n.dot(to_n), -1.0, 1.0);
+    return std::atan2(sin_term, cos_term);
+}
+
 /**
  * @brief 三点法计算圆弧的圆心、半径、旋转轴
  */
@@ -248,10 +256,21 @@ std::vector<std::vector<double>> TrajectoryPlanner::planCircularArc(
         return trajectory; // 三点共线，返回空轨迹
     }
 
-    // 计算圆弧总角度与弧长
+    // 计算必须经过辅助点的有向圆弧角度，避免退化成始终走短弧。
     Vector3d v_start = p1 - center;
+    Vector3d v_aux = p2 - center;
     Vector3d v_end = p3 - center;
-    const double total_angle = acos(std::clamp(v_start.dot(v_end) / (v_start.norm() * v_end.norm()), -1.0, 1.0));
+    double aux_angle = signedAngleAroundAxis(v_start, v_aux, rotate_axis);
+    double total_angle = signedAngleAroundAxis(v_start, v_end, rotate_axis);
+    if (aux_angle < 0.0) {
+        aux_angle += 2.0 * M_PI;
+    }
+    if (total_angle < 0.0) {
+        total_angle += 2.0 * M_PI;
+    }
+    if (total_angle < aux_angle) {
+        total_angle += 2.0 * M_PI;
+    }
     const double arc_length = radius * total_angle;
 
     // 时间规划（圆弧运动降速至0.5m/s）

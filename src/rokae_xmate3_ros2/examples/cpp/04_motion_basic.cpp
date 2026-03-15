@@ -2,29 +2,37 @@
  * @file 04_motion_basic.cpp
  * @brief 第4.4节 - 基础运动控制示例
  *
- * 本示例演示：
- * - 设置运动控制模式
- * - 运动队列重置
- * - 设置默认速度和转弯区
- * - MoveAbsJ: 轴空间绝对运动
- * - 启动/停止运动
+ * 这个版本不再演示大跨步的单点跳转，而是采用：
+ * - 先进入安全准备位
+ * - 再执行带 blending 的多段关节运动
+ * - 最后回到安全停靠位
+ *
+ * 这样更接近真实示教/生产里的基础运动用法，也更容易观察轨迹执行质量。
  */
 
-#include <iostream>
-#include <iomanip>
-#include <thread>
+#include <array>
 #include <chrono>
+#include <iomanip>
+#include <iostream>
+#include <string>
 #include <system_error>
+#include <thread>
+#include <vector>
+
 #include "rokae_xmate3_ros2/robot.hpp"
 
 using namespace std;
 using namespace chrono_literals;
 
-void waitForIdle(rokae::ros2::xMateRobot& robot, std::error_code& ec, int timeout_sec = 30) {
+namespace {
+
+using JointTarget = array<double, 6>;
+
+void waitForIdle(rokae::ros2::xMateRobot &robot, std::error_code &ec, int timeout_sec = 60) {
     cout << "    等待运动完成..." << endl;
-    auto start = chrono::steady_clock::now();
+    const auto start = chrono::steady_clock::now();
     while (chrono::steady_clock::now() - start < chrono::seconds(timeout_sec)) {
-        auto state = robot.operationState(ec);
+        const auto state = robot.operationState(ec);
         if (!ec && state == rokae::OperationState::idle) {
             cout << "    运动完成!" << endl;
             return;
@@ -34,27 +42,78 @@ void waitForIdle(rokae::ros2::xMateRobot& robot, std::error_code& ec, int timeou
     cout << "    等待超时!" << endl;
 }
 
-void printJointPos(rokae::ros2::xMateRobot& robot, std::error_code& ec) {
-    auto joints = robot.jointPos(ec);
-    if (!ec) {
-        cout << "    关节位置: [";
-        for (size_t i = 0; i < 6; ++i) {
-            cout << fixed << setprecision(4) << joints[i];
-            if (i < 5) cout << ", ";
-        }
-        cout << "]" << endl;
+void printJointPos(rokae::ros2::xMateRobot &robot, std::error_code &ec) {
+    const auto joints = robot.jointPos(ec);
+    if (ec) {
+        return;
     }
+    cout << "    关节位置: [";
+    for (size_t i = 0; i < joints.size(); ++i) {
+        cout << fixed << setprecision(4) << joints[i];
+        if (i + 1 < joints.size()) {
+            cout << ", ";
+        }
+    }
+    cout << "]" << endl;
 }
+
+void appendMoveAbsJ(rokae::ros2::xMateRobot &robot,
+                    const JointTarget &target,
+                    int speed,
+                    int zone,
+                    std::error_code &ec) {
+    rokae::MoveAbsJCommand cmd;
+    cmd.target.joints.assign(target.begin(), target.end());
+    cmd.speed = speed;
+    cmd.zone = zone;
+    robot.moveAbsJ(cmd, ec);
+}
+
+bool runSequence(rokae::ros2::xMateRobot &robot,
+                 const vector<JointTarget> &targets,
+                 int speed,
+                 int blend_zone,
+                 std::error_code &ec,
+                 const string &label) {
+    cout << "    执行序列: " << label << endl;
+    robot.moveReset(ec);
+    if (ec) {
+        return false;
+    }
+
+    for (size_t i = 0; i < targets.size(); ++i) {
+        const int zone = (i + 1 == targets.size()) ? 0 : blend_zone;
+        appendMoveAbsJ(robot, targets[i], speed, zone, ec);
+        if (ec) {
+            return false;
+        }
+    }
+
+    robot.moveStart(ec);
+    if (ec) {
+        return false;
+    }
+    waitForIdle(robot, ec, 90);
+    printJointPos(robot, ec);
+    return !ec;
+}
+
+}  // namespace
 
 int main() {
     cout << "==========================================" << endl;
     cout << "  示例 4: 基础运动控制" << endl;
-    cout << "  (对应SDK手册第4.4节)" << endl;
+    cout << "  (优化版 - 更平滑的关节路径执行)" << endl;
     cout << "==========================================" << endl;
 
-    error_code ec;
+    std::error_code ec;
 
-    // 1. 初始化连接
+    const JointTarget ready_pose = {0.0, 0.45, 0.08, 0.0, 0.72, 0.0};
+    const JointTarget left_pose = {0.20, 0.32, 0.18, 0.12, 0.88, 0.06};
+    const JointTarget right_pose = {-0.22, 0.56, 0.12, -0.08, 0.74, -0.06};
+    const JointTarget center_pose = {0.0, 0.50, 0.05, 0.0, 0.82, 0.0};
+    const JointTarget park_pose = {0.0, 0.35, 0.0, 0.0, 0.65, 0.0};
+
     cout << "\n[1] 初始化连接..." << endl;
     rokae::ros2::xMateRobot robot;
     robot.connectToRobot(ec);
@@ -64,94 +123,46 @@ int main() {
     }
     robot.setPowerState(true, ec);
     robot.setOperateMode(rokae::OperateMode::automatic, ec);
-    cout << "    已连接、上电、自动模式" << endl;
-
-    // 2. 设置运动控制模式为非实时指令模式
-    cout << "\n[2] 设置运动控制模式..." << endl;
     robot.setMotionControlMode(rokae::MotionControlMode::NrtCommand, ec);
-    if (!ec) {
-        cout << "    已设置为非实时指令模式 (NrtCommand)" << endl;
+    if (ec) {
+        cerr << "初始化失败: " << ec.message() << endl;
+        return 1;
+    }
+    cout << "    已连接、上电、自动模式、非实时指令模式" << endl;
+
+    cout << "\n[2] 设置默认运动参数..." << endl;
+    robot.setDefaultSpeed(20, ec);
+    robot.setDefaultZone(8, ec);
+    robot.setDefaultConfOpt(false, ec);
+    if (ec) {
+        cerr << "设置默认参数失败: " << ec.message() << endl;
+        return 1;
+    }
+    cout << "    默认速度: 20%, 默认转弯区: 8mm" << endl;
+
+    cout << "\n[3] 当前关节位置..." << endl;
+    printJointPos(robot, ec);
+
+    cout << "\n[4] 进入安全准备位..." << endl;
+    if (!runSequence(robot, {ready_pose}, 18, 0, ec, "ready pose")) {
+        cerr << "准备位运动失败: " << ec.message() << endl;
+        return 1;
     }
 
-    // 3. 重置运动队列
-    cout << "\n[3] 重置运动队列..." << endl;
-    robot.moveReset(ec);
-    cout << "    运动队列已清空" << endl;
-
-    // 4. 设置默认运动参数
-    cout << "\n[4] 设置默认运动参数..." << endl;
-    robot.setDefaultSpeed(50, ec);   // 50% 速度
-    robot.setDefaultZone(5, ec);     // 5mm 转弯区
-    robot.setDefaultConfOpt(false, ec);  // 不强制轴配置
-    cout << "    速度: 50%, 转弯区: 5mm" << endl;
-
-    // 5. 获取初始位置
-    cout << "\n[5] 初始位置..." << endl;
-    printJointPos(robot, ec);
-
-    // 6. MoveAbsJ - 轴空间绝对运动
-    cout << "\n[6] MoveAbsJ - 轴空间绝对运动..." << endl;
-    rokae::MoveAbsJCommand absj_cmd;
-    absj_cmd.target.joints = {0.3, 0.2, -0.1, 0.0, 0.3, 0.0};
-    absj_cmd.speed = 30;   // 30% 速度
-    absj_cmd.zone = 0;      // 精确到位 (fine point)
-
-    robot.moveAbsJ(absj_cmd, ec);
-    if (!ec) {
-        cout << "    MoveAbsJ指令已添加到队列" << endl;
+    cout << "\n[5] 执行带 blending 的基础关节路径..." << endl;
+    if (!runSequence(robot, {left_pose, right_pose, center_pose}, 16, 12, ec,
+                     "left -> right -> center")) {
+        cerr << "基础路径执行失败: " << ec.message() << endl;
+        return 1;
     }
 
-    // 7. 启动运动
-    cout << "\n[7] 启动运动执行..." << endl;
-    robot.moveStart(ec);
-    if (!ec) {
-        cout << "    运动已启动" << endl;
-        waitForIdle(robot, ec);
+    cout << "\n[6] 精确回到安全停靠位..." << endl;
+    if (!runSequence(robot, {park_pose}, 14, 0, ec, "park pose")) {
+        cerr << "停靠位运动失败: " << ec.message() << endl;
+        return 1;
     }
 
-    // 8. 显示新位置
-    cout << "\n[8] 运动后位置..." << endl;
-    printJointPos(robot, ec);
-
-    // 9. 第二次MoveAbsJ - 移动到另一个位置
-    cout << "\n[9] 第二次MoveAbsJ..." << endl;
-    robot.moveReset(ec);
-
-    rokae::MoveAbsJCommand absj_cmd2;
-    absj_cmd2.target.joints = {-0.2, 0.4, 0.1, 0.2, -0.3, 0.1};
-    absj_cmd2.speed = 40;
-    absj_cmd2.zone = 5;
-
-    robot.moveAbsJ(absj_cmd2, ec);
-    robot.moveStart(ec);
-    waitForIdle(robot, ec);
-
-    cout << "    第二个位置:" << endl;
-    printJointPos(robot, ec);
-
-    // 10. 回到零位
-    cout << "\n[10] 回到零位..." << endl;
-    robot.moveReset(ec);
-
-    rokae::MoveAbsJCommand home_cmd;
-    home_cmd.target.joints = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    home_cmd.speed = 30;
-    home_cmd.zone = 0;
-
-    robot.moveAbsJ(home_cmd, ec);
-    robot.moveStart(ec);
-    waitForIdle(robot, ec);
-
-    cout << "    已回到零位:" << endl;
-    printJointPos(robot, ec);
-
-    // 11. 测试在线速度调整
-    cout << "\n[11] 测试在线速度调整 (可选)..." << endl;
-    cout << "    (本示例跳过实际调整)" << endl;
-    // robot.adjustSpeedOnline(0.5, ec);  // 降速到50%
-
-    // 12. 清理
-    cout << "\n[12] 清理..." << endl;
+    cout << "\n[7] 清理..." << endl;
     robot.setPowerState(false, ec);
     robot.disconnectFromRobot(ec);
 

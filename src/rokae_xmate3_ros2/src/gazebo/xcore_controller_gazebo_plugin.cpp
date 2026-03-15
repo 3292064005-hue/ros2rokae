@@ -16,6 +16,10 @@
 #include <queue>
 #include <memory>
 #include <map>
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <optional>
 #include <vector>
 #include <mutex>
 
@@ -80,7 +84,340 @@
 #include "rokae_xmate3_ros2/srv/query_path_lists.hpp"
 #include "rokae_xmate3_ros2/action/move_append.hpp"
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 namespace gazebo {
+
+namespace {
+
+constexpr int kOffsetNone = 0;
+constexpr int kOffsetOffs = 1;
+constexpr int kOffsetRelTool = 2;
+constexpr double kConfAngleStrictToleranceDeg = 45.0;
+constexpr double kJointBranchJumpThreshold = 0.75;
+constexpr double kTrajectorySampleDt = 0.001;
+
+double NormalizeAngle(double value) {
+    while (value > M_PI) {
+        value -= 2.0 * M_PI;
+    }
+    while (value < -M_PI) {
+        value += 2.0 * M_PI;
+    }
+    return value;
+}
+
+std::vector<double> MsgPoseToVector(const rokae_xmate3_ros2::msg::CartesianPosition &pose) {
+    return {pose.x, pose.y, pose.z, pose.rx, pose.ry, pose.rz};
+}
+
+std::vector<double> ArrayPoseToVector(const std::array<double, 6> &pose) {
+    return {pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]};
+}
+
+Eigen::Matrix4d PoseToTransform(const std::vector<double> &pose) {
+    Eigen::Matrix3d rx;
+    Eigen::Matrix3d ry;
+    Eigen::Matrix3d rz;
+    rx << 1, 0, 0,
+          0, std::cos(pose[3]), -std::sin(pose[3]),
+          0, std::sin(pose[3]), std::cos(pose[3]);
+    ry << std::cos(pose[4]), 0, std::sin(pose[4]),
+          0, 1, 0,
+          -std::sin(pose[4]), 0, std::cos(pose[4]);
+    rz << std::cos(pose[5]), -std::sin(pose[5]), 0,
+          std::sin(pose[5]), std::cos(pose[5]), 0,
+          0, 0, 1;
+
+    Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
+    transform.block<3, 3>(0, 0) = rz * ry * rx;
+    transform(0, 3) = pose[0];
+    transform(1, 3) = pose[1];
+    transform(2, 3) = pose[2];
+    return transform;
+}
+
+std::vector<double> TransformToPose(const Eigen::Matrix4d &transform) {
+    std::vector<double> pose(6, 0.0);
+    pose[0] = transform(0, 3);
+    pose[1] = transform(1, 3);
+    pose[2] = transform(2, 3);
+    pose[4] = std::atan2(-transform(2, 0),
+                         std::sqrt(transform(0, 0) * transform(0, 0) +
+                                   transform(1, 0) * transform(1, 0)));
+    if (std::fabs(pose[4] - M_PI / 2.0) < 1e-3) {
+        pose[5] = 0.0;
+        pose[3] = std::atan2(transform(1, 2), transform(1, 1));
+    } else if (std::fabs(pose[4] + M_PI / 2.0) < 1e-3) {
+        pose[5] = 0.0;
+        pose[3] = std::atan2(-transform(1, 2), transform(1, 1));
+    } else {
+        pose[5] = std::atan2(transform(1, 0), transform(0, 0));
+        pose[3] = std::atan2(transform(2, 1), transform(2, 2));
+    }
+    pose[3] = NormalizeAngle(pose[3]);
+    pose[4] = NormalizeAngle(pose[4]);
+    pose[5] = NormalizeAngle(pose[5]);
+    return pose;
+}
+
+std::vector<double> ApplyOffset(const std::vector<double> &pose, int offset_type, const std::array<double, 6> &offset_pose) {
+    if (offset_type == kOffsetNone) {
+        return pose;
+    }
+    const auto offset = ArrayPoseToVector(offset_pose);
+    if (offset_type == kOffsetOffs) {
+        std::vector<double> result = pose;
+        for (size_t i = 0; i < result.size(); ++i) {
+            result[i] += offset[i];
+        }
+        return result;
+    }
+    return TransformToPose(PoseToTransform(pose) * PoseToTransform(offset));
+}
+
+double NormalizeDegree(double value) {
+    while (value > 180.0) {
+        value -= 360.0;
+    }
+    while (value < -180.0) {
+        value += 360.0;
+    }
+    return value;
+}
+
+double ShortestDegreeDistance(double lhs, double rhs) {
+    return std::fabs(NormalizeDegree(lhs - rhs));
+}
+
+double MaxJointStep(const std::vector<double> &lhs, const std::vector<double> &rhs) {
+    double max_step = 0.0;
+    for (size_t i = 0; i < 6 && i < lhs.size() && i < rhs.size(); ++i) {
+        max_step = std::max(max_step, std::fabs(lhs[i] - rhs[i]));
+    }
+    return max_step;
+}
+
+struct TrajectoryTrackingSample {
+    std::vector<double> position;
+    std::vector<double> velocity;
+    bool finished = false;
+};
+
+TrajectoryTrackingSample SampleJointTrajectory(
+    const std::vector<std::vector<double>> &trajectory,
+    double elapsed_time,
+    double sample_dt) {
+
+    TrajectoryTrackingSample sample;
+    if (trajectory.empty()) {
+        sample.finished = true;
+        return sample;
+    }
+
+    sample.position = trajectory.back();
+    sample.velocity.assign(sample.position.size(), 0.0);
+
+    if (trajectory.size() == 1 || sample_dt <= 1e-9) {
+        sample.finished = true;
+        return sample;
+    }
+
+    const double max_time = static_cast<double>(trajectory.size() - 1) * sample_dt;
+    const double clamped_time = std::clamp(elapsed_time, 0.0, max_time);
+    const double sample_index = clamped_time / sample_dt;
+    const size_t index = static_cast<size_t>(std::floor(sample_index));
+    if (index >= trajectory.size() - 1) {
+        sample.finished = clamped_time >= max_time;
+        return sample;
+    }
+
+    const double alpha = sample_index - static_cast<double>(index);
+    sample.position.resize(trajectory[index].size(), 0.0);
+    sample.velocity.resize(trajectory[index].size(), 0.0);
+    for (size_t i = 0; i < trajectory[index].size(); ++i) {
+        const double p0 = trajectory[index][i];
+        const double p1 = trajectory[index + 1][i];
+        sample.position[i] = p0 + alpha * (p1 - p0);
+        sample.velocity[i] = (p1 - p0) / sample_dt;
+    }
+    sample.finished = clamped_time >= max_time;
+    return sample;
+}
+
+struct ConfScore {
+    double penalty = 0.0;
+    bool strict_match = true;
+    bool has_request = false;
+};
+
+ConfScore ScoreRequestedConf(const std::vector<double> &candidate, const std::vector<int> &requested_conf) {
+    ConfScore score;
+    for (size_t i = 0; i < 6 && i < candidate.size() && i < requested_conf.size(); ++i) {
+        const int requested = requested_conf[i];
+        if (requested == 0) {
+            continue;
+        }
+
+        score.has_request = true;
+        if (std::abs(requested) <= 2) {
+            const int sign = std::fabs(candidate[i]) < 1e-6 ? 0 : (candidate[i] > 0.0 ? 1 : -1);
+            if (sign != requested) {
+                score.penalty += 180.0;
+                score.strict_match = false;
+            }
+            continue;
+        }
+
+        const double candidate_deg = candidate[i] * 180.0 / M_PI;
+        const double delta_deg = ShortestDegreeDistance(candidate_deg, static_cast<double>(requested));
+        score.penalty += delta_deg;
+        if (delta_deg > kConfAngleStrictToleranceDeg) {
+            score.strict_match = false;
+        }
+    }
+    return score;
+}
+
+bool ViolatesSoftLimit(const std::vector<double> &joints,
+                       const std::array<std::array<double, 2>, 6> &soft_limits) {
+    for (size_t i = 0; i < 6 && i < joints.size(); ++i) {
+        if (joints[i] < soft_limits[i][0] || joints[i] > soft_limits[i][1]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+double CartesianErrorScore(const std::vector<double> &expected, const std::vector<double> &actual) {
+    const double pos_error = std::sqrt(
+        std::pow(actual[0] - expected[0], 2) +
+        std::pow(actual[1] - expected[1], 2) +
+        std::pow(actual[2] - expected[2], 2));
+    const double ori_error =
+        std::fabs(NormalizeAngle(actual[3] - expected[3])) +
+        std::fabs(NormalizeAngle(actual[4] - expected[4])) +
+        std::fabs(NormalizeAngle(actual[5] - expected[5]));
+    return pos_error * 1000.0 + ori_error * 100.0;
+}
+
+struct IkSelection {
+    bool success = false;
+    std::vector<double> joints;
+    std::string message;
+};
+
+IkSelection SelectIkSolution(
+    xMate3Kinematics &kinematics,
+    const std::vector<std::vector<double>> &candidates,
+    const std::vector<double> &target_pose,
+    const std::vector<double> &seed_joints,
+    const std::vector<int> &requested_conf,
+    bool strict_conf,
+    bool avoid_singularity,
+    bool soft_limit_enabled,
+    const std::array<std::array<double, 2>, 6> &soft_limits) {
+
+    IkSelection best;
+    IkSelection fallback_singular;
+    double best_score = std::numeric_limits<double>::infinity();
+    double fallback_singular_score = std::numeric_limits<double>::infinity();
+
+    for (const auto &candidate : candidates) {
+        if (candidate.size() < 6) {
+            continue;
+        }
+        if (soft_limit_enabled && ViolatesSoftLimit(candidate, soft_limits)) {
+            continue;
+        }
+
+        const auto fk_pose = kinematics.forwardKinematicsRPY(candidate);
+        const auto conf_score = ScoreRequestedConf(candidate, requested_conf);
+        if (conf_score.has_request && strict_conf && !conf_score.strict_match) {
+            continue;
+        }
+
+        double joint_distance = 0.0;
+        for (size_t i = 0; i < 6 && i < seed_joints.size(); ++i) {
+            joint_distance += std::fabs(candidate[i] - seed_joints[i]);
+        }
+        const bool near_singularity = kinematics.isNearSingularity(candidate);
+        const double singularity_measure = kinematics.computeSingularityMeasure(candidate);
+        const double score =
+            CartesianErrorScore(target_pose, fk_pose) +
+            joint_distance * 2.0 +
+            conf_score.penalty +
+            singularity_measure * 40.0;
+
+        if (avoid_singularity && near_singularity) {
+            if (score < fallback_singular_score) {
+                fallback_singular.success = true;
+                fallback_singular.joints = candidate;
+                fallback_singular_score = score;
+            }
+            continue;
+        }
+
+        if (score < best_score) {
+            best.success = true;
+            best.joints = candidate;
+            best_score = score;
+        }
+    }
+
+    if (!best.success && fallback_singular.success) {
+        fallback_singular.message = "selected a near-singular IK branch because no better branch was available";
+        return fallback_singular;
+    }
+
+    if (!best.success) {
+        best.message = (!requested_conf.empty() && strict_conf)
+                           ? "no IK solution matches requested confData"
+                           : "no valid IK solution";
+    }
+    return best;
+}
+
+bool BuildJointTrajectoryFromCartesian(
+    xMate3Kinematics &kinematics,
+    const std::vector<std::vector<double>> &cartesian_trajectory,
+    const std::vector<double> &initial_seed,
+    const std::vector<int> &requested_conf,
+    bool strict_conf,
+    bool avoid_singularity,
+    bool soft_limit_enabled,
+    const std::array<std::array<double, 2>, 6> &soft_limits,
+    std::vector<std::vector<double>> &joint_trajectory,
+    std::vector<double> &last_joints,
+    std::string &error_message) {
+
+    joint_trajectory.clear();
+    last_joints = initial_seed;
+
+    for (const auto &pose : cartesian_trajectory) {
+        const auto candidates = kinematics.inverseKinematicsMultiSolution(pose, last_joints);
+        const auto selected = SelectIkSolution(
+            kinematics, candidates, pose, last_joints, requested_conf, strict_conf,
+            avoid_singularity, soft_limit_enabled, soft_limits);
+        if (!selected.success) {
+            error_message = selected.message;
+            return false;
+        }
+        if (!joint_trajectory.empty() &&
+            MaxJointStep(last_joints, selected.joints) > kJointBranchJumpThreshold) {
+            error_message = "IK branch changed discontinuously along Cartesian path";
+            return false;
+        }
+        joint_trajectory.push_back(selected.joints);
+        last_joints = selected.joints;
+    }
+
+    return !joint_trajectory.empty();
+}
+
+}  // namespace
 
 class XCoreControllerPlugin : public ModelPlugin {
 public:
@@ -164,6 +501,8 @@ private:
     std::mutex motion_queue_mutex_;
     std::unique_ptr<MotionCommand> current_cmd_;
     std::vector<double> hold_position_;
+    double current_update_dt_ = kTrajectorySampleDt;
+    double last_sim_time_ = -1.0;
 
     // ROS2 发布器
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
@@ -512,11 +851,20 @@ void XCoreControllerPlugin::InitServices() {
             for (int i = 0; i < 6 && i < joint_num_; ++i) {
                 current[i] = joints_[i]->Position(0);
             }
-            auto result = kinematics_->inverseKinematics(target, current);
-            for (size_t i = 0; i < 6 && i < result.size(); ++i) {
-                res->joint_positions[i] = result[i];
+            const auto candidates = kinematics_->inverseKinematicsMultiSolution(target, current);
+            const auto selected = SelectIkSolution(
+                *kinematics_, candidates, target, current, req->conf_data,
+                default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_);
+            if (!selected.success) {
+                res->success = false;
+                res->message = selected.message;
+                return;
+            }
+            for (size_t i = 0; i < 6 && i < selected.joints.size(); ++i) {
+                res->joint_positions[i] = selected.joints[i];
             }
             res->success = true;
+            res->message.clear();
         });
 
     // ==================== 工具与坐标系服务 ====================
@@ -888,7 +1236,9 @@ void XCoreControllerPlugin::ExecuteMoveAppend(
         current_joints[i] = joints_[i]->Position(0);
     }
 
-    size_t total_cmds = goal->absj_cmds.size() + goal->j_cmds.size() + goal->l_cmds.size();
+    size_t total_cmds = goal->absj_cmds.size() + goal->j_cmds.size() + goal->l_cmds.size() +
+                        goal->c_cmds.size() + goal->cf_cmds.size() + goal->sp_cmds.size();
+    std::string planning_error;
 
     {
         std::lock_guard<std::mutex> lock(motion_queue_mutex_);
@@ -896,11 +1246,17 @@ void XCoreControllerPlugin::ExecuteMoveAppend(
             MotionCommand motion_cmd;
             motion_cmd.type = MotionType::MOVE_ABSJ;
             motion_cmd.target_joints.assign(cmd.target.joints.begin(), cmd.target.joints.end());
+            if (soft_limit_enabled_ && ViolatesSoftLimit(motion_cmd.target_joints, soft_limits_)) {
+                planning_error = "MoveAbsJ target violates soft limit";
+                break;
+            }
             motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
             motion_cmd.zone = cmd.zone;
             motion_cmd.trajectory = TrajectoryPlanner::planJointMove(
-                current_joints, motion_cmd.target_joints, motion_cmd.speed);
+                current_joints, motion_cmd.target_joints, motion_cmd.speed, kTrajectorySampleDt);
             motion_cmd.current_point = 0;
+            motion_cmd.trajectory_dt = kTrajectorySampleDt;
+            motion_cmd.trajectory_elapsed = 0.0;
             motion_cmd.fine_tuning_steps = 0;
             motion_cmd.in_fine_tuning = false;
             motion_queue_.push(motion_cmd);
@@ -908,54 +1264,30 @@ void XCoreControllerPlugin::ExecuteMoveAppend(
         }
 
         for (const auto& cmd : goal->j_cmds) {
+            if (!planning_error.empty()) {
+                break;
+            }
             MotionCommand motion_cmd;
             motion_cmd.type = MotionType::MOVE_J;
-            motion_cmd.target_cartesian = {cmd.target.x, cmd.target.y, cmd.target.z,
-                                            cmd.target.rx, cmd.target.ry, cmd.target.rz};
+            motion_cmd.target_cartesian = ApplyOffset(
+                MsgPoseToVector(cmd.target), cmd.offset_type, cmd.offset_pose);
             motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
             motion_cmd.zone = cmd.zone;
-
-            // 使用多解求解，选择最优解（优先选择远离奇异位的解）
-            auto candidate_solutions = kinematics_->inverseKinematicsMultiSolution(
+            const auto candidate_solutions = kinematics_->inverseKinematicsMultiSolution(
                 motion_cmd.target_cartesian, current_joints);
-
-            // 从候选解中选择最优的
-            std::vector<double> best_joints;
-            double best_score = std::numeric_limits<double>::max();
-
-            for (const auto& candidate : candidate_solutions) {
-                // 验证正运动学精度
-                auto fk_check = kinematics_->forwardKinematicsRPY(candidate);
-                double pos_error = sqrt(pow(fk_check[0]-motion_cmd.target_cartesian[0], 2) +
-                                       pow(fk_check[1]-motion_cmd.target_cartesian[1], 2) +
-                                       pow(fk_check[2]-motion_cmd.target_cartesian[2], 2));
-
-                // 计算综合评分：位置误差 + 奇异度惩罚 + 关节运动距离
-                double singularity_measure = kinematics_->computeSingularityMeasure(candidate);
-                double joint_distance = 0.0;
-                for (int j = 0; j < 6; ++j) {
-                    joint_distance += fabs(candidate[j] - current_joints[j]);
-                }
-
-                double score = pos_error * 100.0 +        // 位置误差权重高
-                              singularity_measure * 10.0 +  // 奇异位惩罚
-                              joint_distance * 0.1;          // 运动距离权重低
-
-                if (score < best_score) {
-                    best_score = score;
-                    best_joints = candidate;
-                }
+            const auto selected = SelectIkSolution(
+                *kinematics_, candidate_solutions, motion_cmd.target_cartesian, current_joints,
+                cmd.target.conf_data, default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_);
+            if (!selected.success) {
+                planning_error = "MoveJ planning failed: " + selected.message;
+                break;
             }
-
-            // 如果没有找到合适的解，使用第一个解
-            if (best_joints.empty()) {
-                best_joints = candidate_solutions[0];
-            }
-
-            motion_cmd.target_joints = best_joints;
+            motion_cmd.target_joints = selected.joints;
             motion_cmd.trajectory = TrajectoryPlanner::planJointMove(
-                current_joints, motion_cmd.target_joints, motion_cmd.speed);
+                current_joints, motion_cmd.target_joints, motion_cmd.speed, kTrajectorySampleDt);
             motion_cmd.current_point = 0;
+            motion_cmd.trajectory_dt = kTrajectorySampleDt;
+            motion_cmd.trajectory_elapsed = 0.0;
             motion_cmd.fine_tuning_steps = 0;
             motion_cmd.in_fine_tuning = false;
             motion_queue_.push(motion_cmd);
@@ -963,86 +1295,146 @@ void XCoreControllerPlugin::ExecuteMoveAppend(
         }
 
         for (const auto& cmd : goal->l_cmds) {
+            if (!planning_error.empty()) {
+                break;
+            }
             MotionCommand motion_cmd;
             motion_cmd.type = MotionType::MOVE_L;
-            motion_cmd.target_cartesian = {cmd.target.x, cmd.target.y, cmd.target.z,
-                                            cmd.target.rx, cmd.target.ry, cmd.target.rz};
+            motion_cmd.target_cartesian = ApplyOffset(
+                MsgPoseToVector(cmd.target), cmd.offset_type, cmd.offset_pose);
             motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
             motion_cmd.zone = cmd.zone;
-
-            auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
-            auto cart_trajectory = TrajectoryPlanner::planCartesianLine(
-                current_pose, motion_cmd.target_cartesian, motion_cmd.speed);
-
-            // ========== 改进版：带奇异位处理的笛卡尔轨迹逆运动学求解 ==========
-            std::vector<double> last_valid_joints = current_joints;
-            int consecutive_failures = 0;
-            const int max_consecutive_failures = 3;
-
-            for (size_t i = 0; i < cart_trajectory.size(); ++i) {
-                const auto& pose = cart_trajectory[i];
-
-                // 获取多解，选择最优的
-                auto candidate_solutions = kinematics_->inverseKinematicsMultiSolution(pose, last_valid_joints);
-
-                bool found_valid = false;
-                for (const auto& candidate : candidate_solutions) {
-                    // 验证这个解的正运动学是否接近目标
-                    auto fk_check = kinematics_->forwardKinematicsRPY(candidate);
-                    double pos_error = sqrt(pow(fk_check[0]-pose[0], 2) +
-                                           pow(fk_check[1]-pose[1], 2) +
-                                           pow(fk_check[2]-pose[2], 2));
-
-                    if (pos_error < 0.01) {  // 1cm误差容差
-                        // 检查这个解是否离奇异位较远
-                        if (!kinematics_->isNearSingularity(candidate)) {
-                            motion_cmd.trajectory.push_back(candidate);
-                            last_valid_joints = candidate;
-                            current_joints = candidate;
-                            found_valid = true;
-                            consecutive_failures = 0;
-                            break;
-                        }
-                    }
-                }
-
-                // 如果所有候选解都在奇异位附近，选误差最小的
-                if (!found_valid && !candidate_solutions.empty()) {
-                    motion_cmd.trajectory.push_back(candidate_solutions[0]);
-                    last_valid_joints = candidate_solutions[0];
-                    current_joints = candidate_solutions[0];
-                    found_valid = true;
-                    consecutive_failures = 0;
-                }
-
-                // 如果完全失败，使用关节空间插值作为fallback
-                if (!found_valid) {
-                    consecutive_failures++;
-                    if (consecutive_failures <= max_consecutive_failures && i > 0 && !motion_cmd.target_joints.empty()) {
-                        // 尝试从前一个有效点插值
-                        std::vector<double> interpolated_joints(6);
-                        double alpha = static_cast<double>(consecutive_failures) / (max_consecutive_failures + 1);
-                        for (int j = 0; j < 6; ++j) {
-                            interpolated_joints[j] = last_valid_joints[j] + alpha * (motion_cmd.target_joints[j] - last_valid_joints[j]);
-                        }
-                        motion_cmd.trajectory.push_back(interpolated_joints);
-                        current_joints = interpolated_joints;
-                    } else {
-                        // 太多失败，直接用最后一个有效点
-                        motion_cmd.trajectory.push_back(last_valid_joints);
-                        current_joints = last_valid_joints;
-                    }
-                }
+            const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
+            const auto cart_trajectory = TrajectoryPlanner::planCartesianLine(
+                current_pose, motion_cmd.target_cartesian, motion_cmd.speed, kTrajectorySampleDt);
+            std::string error_message;
+            std::vector<double> last_joints;
+            if (!BuildJointTrajectoryFromCartesian(
+                    *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
+                    default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
+                    motion_cmd.trajectory, last_joints, error_message)) {
+                planning_error = "MoveL planning failed: " + error_message;
+                break;
             }
-            // 设置目标关节为轨迹最后一点
-            if (!motion_cmd.trajectory.empty()) {
-                motion_cmd.target_joints = motion_cmd.trajectory.back();
-            }
+            motion_cmd.target_joints = last_joints;
             motion_cmd.current_point = 0;
+            motion_cmd.trajectory_dt = kTrajectorySampleDt;
+            motion_cmd.trajectory_elapsed = 0.0;
             motion_cmd.fine_tuning_steps = 0;
             motion_cmd.in_fine_tuning = false;
             motion_queue_.push(motion_cmd);
+            current_joints = motion_cmd.target_joints;
         }
+
+        for (const auto& cmd : goal->c_cmds) {
+            if (!planning_error.empty()) {
+                break;
+            }
+            MotionCommand motion_cmd;
+            motion_cmd.type = MotionType::MOVE_C;
+            motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
+            motion_cmd.zone = cmd.zone;
+            const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
+            motion_cmd.target_cartesian = ApplyOffset(
+                MsgPoseToVector(cmd.target), cmd.target_offset_type, cmd.target_offset_pose);
+            motion_cmd.aux_cartesian = ApplyOffset(
+                MsgPoseToVector(cmd.aux), cmd.aux_offset_type, cmd.aux_offset_pose);
+            const auto cart_trajectory = TrajectoryPlanner::planCircularArc(
+                current_pose, motion_cmd.aux_cartesian, motion_cmd.target_cartesian, motion_cmd.speed,
+                kTrajectorySampleDt);
+            std::string error_message;
+            std::vector<double> last_joints;
+            if (!BuildJointTrajectoryFromCartesian(
+                    *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
+                    default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
+                    motion_cmd.trajectory, last_joints, error_message)) {
+                planning_error = "MoveC planning failed: " + error_message;
+                break;
+            }
+            motion_cmd.target_joints = last_joints;
+            motion_cmd.current_point = 0;
+            motion_cmd.trajectory_dt = kTrajectorySampleDt;
+            motion_cmd.trajectory_elapsed = 0.0;
+            motion_cmd.fine_tuning_steps = 0;
+            motion_cmd.in_fine_tuning = false;
+            motion_queue_.push(motion_cmd);
+            current_joints = motion_cmd.target_joints;
+        }
+
+        for (const auto& cmd : goal->cf_cmds) {
+            if (!planning_error.empty()) {
+                break;
+            }
+            MotionCommand motion_cmd;
+            motion_cmd.type = MotionType::MOVE_CF;
+            motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
+            motion_cmd.zone = cmd.zone;
+            const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
+            motion_cmd.target_cartesian = ApplyOffset(
+                MsgPoseToVector(cmd.target), cmd.target_offset_type, cmd.target_offset_pose);
+            motion_cmd.aux_cartesian = ApplyOffset(
+                MsgPoseToVector(cmd.aux), cmd.aux_offset_type, cmd.aux_offset_pose);
+            const auto cart_trajectory = TrajectoryPlanner::planCircularContinuous(
+                current_pose, motion_cmd.aux_cartesian, motion_cmd.target_cartesian,
+                cmd.angle, motion_cmd.speed, kTrajectorySampleDt);
+            std::string error_message;
+            std::vector<double> last_joints;
+            if (!BuildJointTrajectoryFromCartesian(
+                    *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
+                    default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
+                    motion_cmd.trajectory, last_joints, error_message)) {
+                planning_error = "MoveCF planning failed: " + error_message;
+                break;
+            }
+            motion_cmd.target_joints = last_joints;
+            motion_cmd.current_point = 0;
+            motion_cmd.trajectory_dt = kTrajectorySampleDt;
+            motion_cmd.trajectory_elapsed = 0.0;
+            motion_cmd.fine_tuning_steps = 0;
+            motion_cmd.in_fine_tuning = false;
+            motion_queue_.push(motion_cmd);
+            current_joints = motion_cmd.target_joints;
+        }
+
+        for (const auto& cmd : goal->sp_cmds) {
+            if (!planning_error.empty()) {
+                break;
+            }
+            MotionCommand motion_cmd;
+            motion_cmd.type = MotionType::MOVE_SP;
+            motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
+            motion_cmd.zone = cmd.zone;
+            const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
+            motion_cmd.target_cartesian = ApplyOffset(
+                MsgPoseToVector(cmd.target), cmd.offset_type, cmd.offset_pose);
+            const auto cart_trajectory = TrajectoryPlanner::planSpiralMove(
+                current_pose, motion_cmd.target_cartesian, cmd.radius, cmd.radius_step,
+                cmd.angle, cmd.direction, motion_cmd.speed, kTrajectorySampleDt);
+            std::string error_message;
+            std::vector<double> last_joints;
+            if (!BuildJointTrajectoryFromCartesian(
+                    *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
+                    default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
+                    motion_cmd.trajectory, last_joints, error_message)) {
+                planning_error = "MoveSP planning failed: " + error_message;
+                break;
+            }
+            motion_cmd.target_joints = last_joints;
+            motion_cmd.current_point = 0;
+            motion_cmd.trajectory_dt = kTrajectorySampleDt;
+            motion_cmd.trajectory_elapsed = 0.0;
+            motion_cmd.fine_tuning_steps = 0;
+            motion_cmd.in_fine_tuning = false;
+            motion_queue_.push(motion_cmd);
+            current_joints = motion_cmd.target_joints;
+        }
+    }
+
+    if (!planning_error.empty()) {
+        result->success = false;
+        result->message = planning_error;
+        goal_handle->abort(result);
+        return;
     }
 
     motion_running_ = true;
@@ -1092,6 +1484,19 @@ void XCoreControllerPlugin::ExecuteMoveAppend(
 }
 
 void XCoreControllerPlugin::OnUpdate() {
+    double sim_dt = kTrajectorySampleDt;
+    if (model_ && model_->GetWorld()) {
+        const double sim_time = model_->GetWorld()->SimTime().Double();
+        if (last_sim_time_ >= 0.0) {
+            const double candidate_dt = sim_time - last_sim_time_;
+            if (candidate_dt > 1e-6 && candidate_dt < 0.1) {
+                sim_dt = candidate_dt;
+            }
+        }
+        last_sim_time_ = sim_time;
+    }
+    current_update_dt_ = sim_dt;
+
     // ========== 【最高优先级】强制设置初始姿态（仅执行一次） ==========
     if (!initial_pose_set_ && joint_num_ > 0) {
         gzmsg << "[xCore Controller] Setting initial joint pose..." << std::endl;
@@ -1190,6 +1595,9 @@ void XCoreControllerPlugin::ExecuteMotion() {
             current_cmd_ = std::make_unique<MotionCommand>(motion_queue_.front());
             motion_queue_.pop();
             current_cmd_->current_point = 0;
+            current_cmd_->trajectory_dt =
+                current_cmd_->trajectory_dt > 1e-9 ? current_cmd_->trajectory_dt : kTrajectorySampleDt;
+            current_cmd_->trajectory_elapsed = 0.0;
             current_cmd_->fine_tuning_steps = 0;
             current_cmd_->in_fine_tuning = false;
         }
@@ -1201,56 +1609,41 @@ void XCoreControllerPlugin::ExecuteMotion() {
             current_cmd_->target_joints = current_cmd_->trajectory.back();
         }
 
-        if (!current_cmd_->in_fine_tuning) {
-            // 阶段1：正常轨迹跟踪
-            if (current_cmd_->current_point < current_cmd_->trajectory.size()) {
-                const auto& target = current_cmd_->trajectory[current_cmd_->current_point];
-                for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                    double current_pos = joints_[i]->Position(0);
-                    double target_pos = target[i];
-                    double error = target_pos - current_pos;
-                    double kp = 200.0;
-                    double kd = 50.0;
-                    double vel = joints_[i]->GetVelocity(0);
-                    double force = kp * error - kd * vel;
-                    joints_[i]->SetForce(0, force);
-                }
-                current_cmd_->current_point++;
-            } else {
-                // 轨迹完成，进入精调阶段
-                current_cmd_->in_fine_tuning = true;
-                current_cmd_->fine_tuning_steps = 0;
-            }
-        } else {
-            // 阶段2：精调阶段 - 直接跟踪最终目标
-            const int max_fine_tuning_steps = 200;  // 约2秒精调时间
-            double max_error = 0.0;
+        if (!current_cmd_->trajectory.empty()) {
+            const double effective_dt =
+                current_update_dt_ * std::clamp(speed_scale_, 0.05, 2.0);
+            current_cmd_->trajectory_elapsed += effective_dt;
+            const auto sample = SampleJointTrajectory(
+                current_cmd_->trajectory, current_cmd_->trajectory_elapsed, current_cmd_->trajectory_dt);
+            current_cmd_->current_point = static_cast<size_t>(
+                std::min(current_cmd_->trajectory.size() - 1,
+                         static_cast<size_t>(current_cmd_->trajectory_elapsed / current_cmd_->trajectory_dt)));
 
             for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                double current_pos = joints_[i]->Position(0);
-                double target_pos = current_cmd_->target_joints[i];
-                double error = target_pos - current_pos;
-                max_error = std::max(max_error, std::fabs(error));
-
-                // 精调阶段使用更高增益
-                double kp = 300.0;
-                double kd = 80.0;
-                double vel = joints_[i]->GetVelocity(0);
-                double force = kp * error - kd * vel;
-                joints_[i]->SetForce(0, force);
+                const double target_pos = sample.position[i];
+                const double target_vel = sample.velocity[i];
+                joints_[i]->SetPosition(0, target_pos, true);
+                joints_[i]->SetVelocity(0, target_vel);
+                joints_[i]->SetForce(0, 0.0);
             }
 
-            current_cmd_->fine_tuning_steps++;
-
-            // 检查是否完成精调
-            const double position_tolerance = 0.001;  // 1mrad精度
-            if (max_error < position_tolerance || current_cmd_->fine_tuning_steps >= max_fine_tuning_steps) {
-                // 精调完成
+            if (sample.finished) {
                 for (int i = 0; i < 6 && i < joint_num_; ++i) {
                     hold_position_[i] = current_cmd_->target_joints[i];
+                    joints_[i]->SetPosition(0, current_cmd_->target_joints[i], true);
+                    joints_[i]->SetVelocity(0, 0.0);
+                    joints_[i]->SetForce(0, 0.0);
                 }
                 current_cmd_.reset();
             }
+        } else {
+            for (int i = 0; i < 6 && i < joint_num_; ++i) {
+                joints_[i]->SetPosition(0, current_cmd_->target_joints[i], true);
+                joints_[i]->SetVelocity(0, 0.0);
+                joints_[i]->SetForce(0, 0.0);
+                hold_position_[i] = current_cmd_->target_joints[i];
+            }
+            current_cmd_.reset();
         }
     } else {
         std::lock_guard<std::mutex> lock(motion_queue_mutex_);
@@ -1259,13 +1652,9 @@ void XCoreControllerPlugin::ExecuteMotion() {
         }
         // 上电无指令时的位置保持
         for (int i = 0; i < 6 && i < joint_num_; ++i) {
-            double current_pos = joints_[i]->Position(0);
-            double error = hold_position_[i] - current_pos;
-            double vel = joints_[i]->GetVelocity(0);
-            double kp = 200.0;
-            double kd = 50.0;
-            double force = kp * error - kd * vel;
-            joints_[i]->SetForce(0, force);
+            joints_[i]->SetPosition(0, hold_position_[i], true);
+            joints_[i]->SetVelocity(0, 0.0);
+            joints_[i]->SetForce(0, 0.0);
         }
     }
 }
