@@ -9,27 +9,52 @@
  * - 多个指令的队列执行
  */
 
+#include <array>
 #include <iostream>
 #include <iomanip>
 #include <thread>
 #include <chrono>
+#include <cmath>
 #include <system_error>
 #include "rokae_xmate3_ros2/robot.hpp"
 
 using namespace std;
 using namespace chrono_literals;
 
-void waitForIdle(rokae::ros2::xMateRobot& robot, std::error_code& ec, int timeout_sec = 60) {
+void waitForIdle(rokae::ros2::xMateRobot& robot,
+                 const array<double, 6>& initial_joints,
+                 std::error_code& ec,
+                 int timeout_sec = 60) {
     cout << "    等待运动完成..." << endl;
     auto start = chrono::steady_clock::now();
+    bool seen_active_state = false;
     while (chrono::steady_clock::now() - start < chrono::seconds(timeout_sec)) {
         auto state = robot.operationState(ec);
-        if (!ec && state == rokae::OperationState::idle) {
+        if (ec) {
+            return;
+        }
+        const auto current_joints = robot.jointPos(ec);
+        if (ec) {
+            return;
+        }
+        bool joint_changed = false;
+        for (size_t i = 0; i < initial_joints.size(); ++i) {
+            if (fabs(current_joints[i] - initial_joints[i]) > 1e-3) {
+                joint_changed = true;
+                break;
+            }
+        }
+        if (state != rokae::OperationState::idle && state != rokae::OperationState::unknown) {
+            seen_active_state = true;
+        }
+        if ((seen_active_state && state == rokae::OperationState::idle) ||
+            (!seen_active_state && joint_changed && state == rokae::OperationState::idle)) {
             cout << "    运动完成!" << endl;
             return;
         }
         this_thread::sleep_for(100ms);
     }
+    ec = make_error_code(errc::timed_out);
     cout << "    等待超时!" << endl;
 }
 
@@ -81,8 +106,21 @@ int main() {
     start_cmd.speed = 30;
     start_cmd.zone = 0;
     robot.moveAbsJ(start_cmd, ec);
+    const auto start_joints = robot.jointPos(ec);
+    if (ec) {
+        cerr << "读取起始关节失败: " << ec.message() << endl;
+        return 1;
+    }
     robot.moveStart(ec);
-    waitForIdle(robot, ec);
+    if (ec) {
+        cerr << "启动失败: " << ec.message() << endl;
+        return 1;
+    }
+    waitForIdle(robot, start_joints, ec);
+    if (ec) {
+        cerr << "起始位运动失败: " << ec.message() << endl;
+        return 1;
+    }
 
     cout << "    起始位置:" << endl;
     printCartesianPos(robot, ec);
@@ -106,8 +144,21 @@ int main() {
         cout << "    MoveJ指令已添加" << endl;
     }
 
+    const auto movej_start_joints = robot.jointPos(ec);
+    if (ec) {
+        cerr << "读取MoveJ起始关节失败: " << ec.message() << endl;
+        return 1;
+    }
     robot.moveStart(ec);
-    waitForIdle(robot, ec);
+    if (ec) {
+        cerr << "MoveJ启动失败: " << ec.message() << endl;
+        return 1;
+    }
+    waitForIdle(robot, movej_start_joints, ec);
+    if (ec) {
+        cerr << "MoveJ执行失败: " << ec.message() << endl;
+        return 1;
+    }
 
     cout << "    MoveJ后位置:" << endl;
     printCartesianPos(robot, ec);
@@ -129,8 +180,21 @@ int main() {
     robot.moveL(l_cmd1, ec);
     cout << "    MoveL指令1已添加" << endl;
 
+    const auto movel_start_joints = robot.jointPos(ec);
+    if (ec) {
+        cerr << "读取MoveL起始关节失败: " << ec.message() << endl;
+        return 1;
+    }
     robot.moveStart(ec);
-    waitForIdle(robot, ec);
+    if (ec) {
+        cerr << "MoveL启动失败: " << ec.message() << endl;
+        return 1;
+    }
+    waitForIdle(robot, movel_start_joints, ec);
+    if (ec) {
+        cerr << "MoveL执行失败: " << ec.message() << endl;
+        return 1;
+    }
 
     cout << "    MoveL后位置:" << endl;
     printCartesianPos(robot, ec);
@@ -177,8 +241,21 @@ int main() {
 
     cout << "    3条MoveL指令已添加到队列" << endl;
 
+    const auto movel_queue_start_joints = robot.jointPos(ec);
+    if (ec) {
+        cerr << "读取MoveL队列起始关节失败: " << ec.message() << endl;
+        return 1;
+    }
     robot.moveStart(ec);
-    waitForIdle(robot, ec, 90);
+    if (ec) {
+        cerr << "MoveL队列启动失败: " << ec.message() << endl;
+        return 1;
+    }
+    waitForIdle(robot, movel_queue_start_joints, ec, 90);
+    if (ec) {
+        cerr << "MoveL队列执行失败: " << ec.message() << endl;
+        return 1;
+    }
 
     cout << "    队列执行完毕位置:" << endl;
     printCartesianPos(robot, ec);
@@ -223,8 +300,21 @@ int main() {
     home_cmd.speed = 30;
     home_cmd.zone = 0;
     robot.moveAbsJ(home_cmd, ec);
+    const auto home_start_joints = robot.jointPos(ec);
+    if (ec) {
+        cerr << "读取回零起始关节失败: " << ec.message() << endl;
+        return 1;
+    }
     robot.moveStart(ec);
-    waitForIdle(robot, ec);
+    if (ec) {
+        cerr << "回零启动失败: " << ec.message() << endl;
+        return 1;
+    }
+    waitForIdle(robot, home_start_joints, ec);
+    if (ec) {
+        cerr << "回零执行失败: " << ec.message() << endl;
+        return 1;
+    }
 
     // 9. 清理
     cout << "\n[9] 清理..." << endl;

@@ -38,7 +38,7 @@ struct MotionCommand {
     // 轨迹插补数据
     std::vector<std::vector<double>> trajectory;  // 插补后的轨迹点
     size_t current_point;                         // 当前执行到的轨迹点
-    double trajectory_dt = 0.001;                // 轨迹采样周期（秒）
+    double trajectory_dt = 0.01;                 // 轨迹采样周期（秒）
     double trajectory_elapsed = 0.0;             // 已执行轨迹时间（秒）
     int fine_tuning_steps;                        // 精调阶段计数
     bool in_fine_tuning;                          // 是否在精调阶段

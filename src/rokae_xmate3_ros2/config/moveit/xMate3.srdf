@@ -19,7 +19,6 @@
   <!-- ======================================== -->
   <!-- End Effectors -->
   <!-- ======================================== -->
-  <end_effector name="end_effector" parent_link="xMate3_link6" group="end_effector" parent_group="xmate3_arm"/>
 
   <!-- ======================================== -->
   <!-- Disable Collisions -->

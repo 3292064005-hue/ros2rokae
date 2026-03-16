@@ -334,6 +334,99 @@ std::vector<double> xMate3Kinematics::inverseKinematics(
     }
     return solutions.front();
 }
+
+std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
+        const std::vector<double>& target,
+        const std::vector<double>& seed_joints) {
+    if (target.size() < 6 || seed_joints.size() < 6) {
+        return {};
+    }
+
+    Matrix4d T_target = rpyToTransform(target);
+    const int max_iter = 140;
+    const double position_tolerance = 1e-5;
+    const double orientation_tolerance = 1e-3;
+    const double orientation_weight = 0.8;
+    const double max_joint_step = 0.03;
+    const double min_lambda = 0.02;
+    const double max_lambda = 0.5;
+    const double solution_valid_threshold = 5e-3;
+
+    std::vector<double> joints = seed_joints;
+    if (isNearSingularity(joints)) {
+        avoidSingularity(joints);
+    }
+
+    double best_score = std::numeric_limits<double>::infinity();
+    std::vector<double> best_joints = joints;
+
+    for (int iter = 0; iter < max_iter; ++iter) {
+        Matrix4d T_current = forwardKinematics(joints);
+        Vector6d error = computePoseError(T_target, T_current);
+
+        const double pos_err = error.head<3>().norm();
+        const double ori_err = error.tail<3>().norm();
+        const double current_score = pos_err + orientation_weight * ori_err;
+        if (current_score < best_score) {
+            best_score = current_score;
+            best_joints = joints;
+        }
+
+        if (pos_err < position_tolerance && ori_err < orientation_tolerance) {
+            break;
+        }
+
+        const bool near_singular = isNearSingularity(joints);
+        const double singularity_measure = computeSingularityMeasure(joints);
+        MatrixXd J = computeJacobian(joints);
+        Matrix6d W = Matrix6d::Identity();
+        W(3,3) = W(4,4) = W(5,5) = orientation_weight;
+        if (near_singular) {
+            W(3,3) *= 0.3;
+            W(4,4) *= 0.3;
+            W(5,5) *= 0.3;
+        }
+
+        Vector6d err_w = error;
+        err_w.tail<3>() *= W(3,3);
+        MatrixXd Jw = W * J;
+        const double lambda_base = min_lambda + max_lambda * (1.0 - static_cast<double>(iter) / max_iter);
+        const double lambda = lambda_base * (1.0 + 2.0 * singularity_measure);
+        MatrixXd JJt = Jw * Jw.transpose();
+        Vector6d delta_q = Jw.transpose() * (JJt + lambda * lambda * Matrix6d::Identity()).inverse() * err_w;
+
+        const double step_scale = near_singular ? 0.6 : 1.0;
+        for (int i = 0; i < 6; ++i) {
+            double step = delta_q(i);
+            step = std::clamp(step, -max_joint_step * step_scale, max_joint_step * step_scale);
+            joints[i] += step;
+            joints[i] = std::clamp(joints[i], joint_limits_min_[i], joint_limits_max_[i]);
+        }
+    }
+
+    Matrix4d T_final = forwardKinematics(joints);
+    Vector6d final_error = computePoseError(T_target, T_final);
+    double final_pos_err = final_error.head<3>().norm();
+    double final_ori_err = final_error.tail<3>().norm();
+    double final_score = final_pos_err + orientation_weight * final_ori_err;
+
+    Matrix4d T_best = forwardKinematics(best_joints);
+    Vector6d best_error = computePoseError(T_target, T_best);
+    const double best_pos_err = best_error.head<3>().norm();
+    const double best_ori_err = best_error.tail<3>().norm();
+    const double best_final_score = best_pos_err + orientation_weight * best_ori_err;
+    if (best_final_score < final_score) {
+        joints = best_joints;
+        final_pos_err = best_pos_err;
+        final_ori_err = best_ori_err;
+    }
+
+    if (final_pos_err > solution_valid_threshold || final_ori_err > solution_valid_threshold) {
+        return {};
+    }
+
+    return joints;
+}
 // -------------------------- 逆运动学 - 优化迭代参数 --------------------------
 
 // -------------------------- 核心修复：位姿误差有限差分雅可比 --------------------------

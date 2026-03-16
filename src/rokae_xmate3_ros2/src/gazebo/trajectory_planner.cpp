@@ -199,7 +199,7 @@ std::vector<std::vector<double>> TrajectoryPlanner::planCartesianLine(
     // 时间规划（适配xMate3额定末端最大线速度1m/s）
     const double max_vel = 1.0 * speed_percent / 100.0;
     const double total_time = displacement / max_vel;
-    const int num_points = std::max(10, static_cast<int>(std::ceil(total_time / dt)));
+    const int num_points = std::clamp(static_cast<int>(std::ceil(total_time / dt)), 10, 25);
 
     // 拆分起点/终点姿态
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};

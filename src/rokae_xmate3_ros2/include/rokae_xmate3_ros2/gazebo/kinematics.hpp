@@ -43,6 +43,12 @@ public:
      */
     std::vector<double> inverseKinematics(const std::vector<double>& target, 
                                           const std::vector<double>& current_joints);
+
+    /**
+     * @brief 单种子快速逆运动学，优先用于笛卡尔路径连续求解
+     */
+    std::vector<double> inverseKinematicsSeededFast(const std::vector<double>& target,
+                                                    const std::vector<double>& seed_joints);
     
     /**
      * @brief 计算雅可比矩阵

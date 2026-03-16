@@ -167,6 +167,69 @@ void xMateRobot::Impl::pump_callbacks() {
     }
 }
 
+void xMateRobot::Impl::resetMoveAppendState() {
+    std::lock_guard<std::mutex> lock(action_mutex_);
+    move_append_result_ready_ = false;
+    move_append_result_code_ = rclcpp_action::ResultCode::UNKNOWN;
+    move_append_result_success_ = true;
+    move_append_result_message_.clear();
+}
+
+void xMateRobot::Impl::handleMoveAppendResult(
+    const rclcpp_action::ClientGoalHandle<rokae_xmate3_ros2::action::MoveAppend>::WrappedResult &result) {
+    {
+        std::lock_guard<std::mutex> lock(action_mutex_);
+        move_append_result_ready_ = true;
+        move_append_result_code_ = result.code;
+        move_append_result_success_ = result.result ? result.result->success : false;
+        move_append_result_message_ = result.result ? result.result->message : std::string();
+        if (move_append_result_message_.empty()) {
+            switch (result.code) {
+                case rclcpp_action::ResultCode::ABORTED:
+                    move_append_result_message_ = "MoveAppend action aborted";
+                    break;
+                case rclcpp_action::ResultCode::CANCELED:
+                    move_append_result_message_ = "MoveAppend action canceled";
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        active_goal_handles_.clear();
+    }
+}
+
+bool xMateRobot::Impl::checkMoveAppendFailure(std::error_code &ec) {
+    std::string message;
+    rclcpp_action::ResultCode result_code = rclcpp_action::ResultCode::UNKNOWN;
+    bool result_success = true;
+    {
+        std::lock_guard<std::mutex> lock(action_mutex_);
+        if (!move_append_result_ready_) {
+            return false;
+        }
+        result_code = move_append_result_code_;
+        result_success = move_append_result_success_;
+        message = move_append_result_message_;
+    }
+
+    if (result_code == rclcpp_action::ResultCode::SUCCEEDED && result_success) {
+        return false;
+    }
+
+    if (message.empty()) {
+        message = "MoveAppend action failed";
+    }
+    ec = std::make_error_code(
+        result_code == rclcpp_action::ResultCode::CANCELED ? std::errc::operation_canceled
+                                                            : std::errc::operation_not_permitted);
+    RCLCPP_ERROR(node_->get_logger(), "MoveAppend执行失败: %s", message.c_str());
+    return true;
+}
+
 // ==================== xMateRobot对外接口实现 ====================
 // 构造函数
 xMateRobot::xMateRobot(const std::string& node_name)
@@ -422,6 +485,9 @@ void xMateRobot::setOperateMode(rokae::OperateMode mode, std::error_code& ec) {
 // 获取运行状态
 rokae::OperationState xMateRobot::operationState(std::error_code& ec) {
     impl_->pump_callbacks();
+    if (impl_->checkMoveAppendFailure(ec)) {
+        return rokae::OperationState::unknown;
+    }
     std::lock_guard<std::mutex> lock(impl_->state_mutex_);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -520,6 +586,17 @@ std::array<double, 6> xMateRobot::jointPos(std::error_code& ec) {
         ec = std::make_error_code(std::errc::not_connected);
         return pos;
     }
+
+    impl_->pump_callbacks();
+    {
+        std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+        if (impl_->last_joint_state_.position.size() >= pos.size()) {
+            std::copy_n(impl_->last_joint_state_.position.begin(), pos.size(), pos.begin());
+            ec.clear();
+            return pos;
+        }
+    }
+
     if (!impl_->wait_for_service(impl_->xmate3_robot_get_joint_pos_client_, ec)) {
         return pos;
     }
@@ -534,7 +611,6 @@ std::array<double, 6> xMateRobot::jointPos(std::error_code& ec) {
         ec = std::make_error_code(std::errc::operation_not_permitted);
         return pos;
     }
-    // 核心修正：和.srv文件字段名严格匹配，如joint_positions
     std::copy(result->joint_positions.begin(), result->joint_positions.end(), pos.begin());
     ec.clear();
     return pos;
@@ -547,6 +623,16 @@ std::array<double, 6> xMateRobot::jointVel(std::error_code& ec) {
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return vel;
+    }
+
+    impl_->pump_callbacks();
+    {
+        std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+        if (impl_->last_joint_state_.velocity.size() >= vel.size()) {
+            std::copy_n(impl_->last_joint_state_.velocity.begin(), vel.size(), vel.begin());
+            ec.clear();
+            return vel;
+        }
     }
 
     if (!impl_->wait_for_service(impl_->xmate3_robot_get_joint_vel_client_, ec)) {
@@ -579,6 +665,16 @@ std::array<double, 6> xMateRobot::jointTorque(std::error_code& ec) {
         return torque;
     }
 
+    impl_->pump_callbacks();
+    {
+        std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+        if (impl_->last_joint_state_.effort.size() >= torque.size()) {
+            std::copy_n(impl_->last_joint_state_.effort.begin(), torque.size(), torque.begin());
+            ec.clear();
+            return torque;
+        }
+    }
+
     if (!impl_->wait_for_service(impl_->xmate3_robot_get_joint_torque_client_, ec)) {
         return torque;
     }
@@ -609,26 +705,19 @@ std::array<double, 6> xMateRobot::posture(rokae::CoordinateType ct, std::error_c
         return pose;
     }
 
-    if (!impl_->wait_for_service(impl_->xmate3_robot_get_posture_client_, ec)) {
+    rokae::JointPosition joints(6, 0.0);
+    const auto cached_joints = jointPos(ec);
+    if (ec) {
+        return pose;
+    }
+    joints.joints.assign(cached_joints.begin(), cached_joints.end());
+    const auto fk_pose = calcFk(joints, ec);
+    if (ec) {
         return pose;
     }
 
-    auto request = std::make_shared<rokae_xmate3_ros2::srv::GetPosture::Request>();
-    request->coordinate_type = static_cast<uint8_t>(ct);
-
-    auto future = impl_->xmate3_robot_get_posture_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
-        ec = std::make_error_code(std::errc::io_error);
-        return pose;
-    }
-
-    auto result = future.get();
-    if (!result->success) {
-        ec = std::make_error_code(std::errc::operation_not_permitted);
-        return pose;
-    }
-
-    std::copy(result->posture.begin(), result->posture.end(), pose.begin());
+    (void)ct;
+    pose = {fk_pose.x, fk_pose.y, fk_pose.z, fk_pose.rx, fk_pose.ry, fk_pose.rz};
     ec.clear();
     return pose;
 }
@@ -641,31 +730,17 @@ rokae::CartesianPosition xMateRobot::cartPosture(rokae::CoordinateType ct, std::
         return cart_pose;
     }
 
-    if (!impl_->wait_for_service(impl_->xmate3_robot_get_cart_posture_client_, ec)) {
+    const auto pose = posture(ct, ec);
+    if (ec) {
         return cart_pose;
     }
 
-    auto request = std::make_shared<rokae_xmate3_ros2::srv::GetCartPosture::Request>();
-    request->coordinate_type = static_cast<uint8_t>(ct);
-
-    auto future = impl_->xmate3_robot_get_cart_posture_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
-        ec = std::make_error_code(std::errc::io_error);
-        return cart_pose;
-    }
-
-    auto result = future.get();
-    if (!result->success) {
-        ec = std::make_error_code(std::errc::operation_not_permitted);
-        return cart_pose;
-    }
-
-    cart_pose.x = result->x;
-    cart_pose.y = result->y;
-    cart_pose.z = result->z;
-    cart_pose.rx = result->rx;
-    cart_pose.ry = result->ry;
-    cart_pose.rz = result->rz;
+    cart_pose.x = pose[0];
+    cart_pose.y = pose[1];
+    cart_pose.z = pose[2];
+    cart_pose.rx = pose[3];
+    cart_pose.ry = pose[4];
+    cart_pose.rz = pose[5];
     ec.clear();
     return cart_pose;
 }
@@ -899,7 +974,7 @@ void xMateRobot::enableCollisionDetection(const std::array<double, 6>& sensitivi
     }
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::EnableCollisionDetection::Request>();
-    std::copy(sensitivity.begin(), sensitivity.end(), request->sensitivity.begin());
+    request->sensitivity.assign(sensitivity.begin(), sensitivity.end());
     request->behaviour = static_cast<uint8_t>(behaviour);
     request->fallback = fallback;
 
@@ -1150,6 +1225,11 @@ void xMateRobot::moveStart(std::error_code& ec) {
     if (!result->success) {
         ec = std::make_error_code(std::errc::operation_not_permitted);
         RCLCPP_ERROR(impl_->node_->get_logger(), "启动运动失败: %s", result->message.c_str());
+        return;
+    }
+
+    impl_->pump_callbacks();
+    if (impl_->checkMoveAppendFailure(ec)) {
         return;
     }
 
@@ -1818,9 +1898,12 @@ void xMateRobot::Impl::cacheCommand(const rokae_xmate3_ros2::action::MoveAppend:
 }
 
 void xMateRobot::Impl::clearCache() {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-    cached_goal_ = rokae_xmate3_ros2::action::MoveAppend::Goal();
-    active_goal_handles_.clear();
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        cached_goal_ = rokae_xmate3_ros2::action::MoveAppend::Goal();
+        active_goal_handles_.clear();
+    }
+    resetMoveAppendState();
 }
 
 bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
@@ -1856,9 +1939,15 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
     }
 
     RCLCPP_INFO(node_->get_logger(), "已发送 %zu 条运动指令", total_cmds);
+    resetMoveAppendState();
+
+    rclcpp_action::Client<rokae_xmate3_ros2::action::MoveAppend>::SendGoalOptions send_goal_options;
+    send_goal_options.result_callback = [this](const auto &wrapped_result) {
+        handleMoveAppendResult(wrapped_result);
+    };
 
     // 发送goal（异步，但等待goal被接受）
-    auto send_future = move_append_action_client_->async_send_goal(goal_to_send);
+    auto send_future = move_append_action_client_->async_send_goal(goal_to_send, send_goal_options);
 
     // 等待goal被接受
     if (rclcpp::spin_until_future_complete(node_, send_future, 5s) !=
@@ -1885,7 +1974,11 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
     RCLCPP_INFO(node_->get_logger(), "等待运动开始...");
     auto start_wait = std::chrono::steady_clock::now();
     bool motion_started = false;
-    while (std::chrono::steady_clock::now() - start_wait < std::chrono::seconds(2)) {
+    while (std::chrono::steady_clock::now() - start_wait < std::chrono::seconds(5)) {
+        rclcpp::spin_some(node_);
+        if (checkMoveAppendFailure(ec)) {
+            return false;
+        }
         {
             std::lock_guard<std::mutex> lock(state_mutex_);
             if (last_operation_state_.state == rokae_xmate3_ros2::msg::OperationState::MOVING) {
@@ -1893,13 +1986,15 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
                 break;
             }
         }
-        rclcpp::spin_some(node_);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     if (motion_started) {
         RCLCPP_INFO(node_->get_logger(), "运动已开始!");
     } else {
+        if (checkMoveAppendFailure(ec)) {
+            return false;
+        }
         RCLCPP_WARN(node_->get_logger(), "等待运动开始超时，继续执行...");
     }
 

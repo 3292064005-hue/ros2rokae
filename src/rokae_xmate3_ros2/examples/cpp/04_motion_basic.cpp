@@ -12,6 +12,7 @@
 
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <string>
@@ -28,17 +29,40 @@ namespace {
 
 using JointTarget = array<double, 6>;
 
-void waitForIdle(rokae::ros2::xMateRobot &robot, std::error_code &ec, int timeout_sec = 60) {
+void waitForIdle(rokae::ros2::xMateRobot &robot,
+                 const array<double, 6> &initial_joints,
+                 std::error_code &ec,
+                 int timeout_sec = 60) {
     cout << "    等待运动完成..." << endl;
     const auto start = chrono::steady_clock::now();
+    bool seen_active_state = false;
     while (chrono::steady_clock::now() - start < chrono::seconds(timeout_sec)) {
         const auto state = robot.operationState(ec);
-        if (!ec && state == rokae::OperationState::idle) {
+        if (ec) {
+            return;
+        }
+        const auto current_joints = robot.jointPos(ec);
+        if (ec) {
+            return;
+        }
+        bool joint_changed = false;
+        for (size_t i = 0; i < initial_joints.size(); ++i) {
+            if (fabs(current_joints[i] - initial_joints[i]) > 1e-3) {
+                joint_changed = true;
+                break;
+            }
+        }
+        if (state != rokae::OperationState::idle && state != rokae::OperationState::unknown) {
+            seen_active_state = true;
+        }
+        if ((seen_active_state && state == rokae::OperationState::idle) ||
+            (!seen_active_state && joint_changed && state == rokae::OperationState::idle)) {
             cout << "    运动完成!" << endl;
             return;
         }
         this_thread::sleep_for(100ms);
     }
+    ec = make_error_code(errc::timed_out);
     cout << "    等待超时!" << endl;
 }
 
@@ -89,11 +113,15 @@ bool runSequence(rokae::ros2::xMateRobot &robot,
         }
     }
 
+    const auto joints_before_start = robot.jointPos(ec);
+    if (ec) {
+        return false;
+    }
     robot.moveStart(ec);
     if (ec) {
         return false;
     }
-    waitForIdle(robot, ec, 90);
+    waitForIdle(robot, joints_before_start, ec, 90);
     printJointPos(robot, ec);
     return !ec;
 }

@@ -9,10 +9,12 @@
  * - 状态监控
  */
 
+#include <array>
 #include <iostream>
 #include <iomanip>
 #include <thread>
 #include <chrono>
+#include <cmath>
 #include <system_error>
 #include "rokae_xmate3_ros2/robot.hpp"
 
@@ -25,15 +27,38 @@ void printSeparator(const string& title) {
     cout << "==========================================" << endl;
 }
 
-void waitForIdle(rokae::ros2::xMateRobot& robot, std::error_code& ec, int timeout_sec = 60) {
+void waitForIdle(rokae::ros2::xMateRobot& robot,
+                 const array<double, 6>& initial_joints,
+                 std::error_code& ec,
+                 int timeout_sec = 60) {
     auto start = chrono::steady_clock::now();
+    bool seen_active_state = false;
     while (chrono::steady_clock::now() - start < chrono::seconds(timeout_sec)) {
         auto state = robot.operationState(ec);
-        if (!ec && state == rokae::OperationState::idle) {
+        if (ec) {
+            return;
+        }
+        const auto current_joints = robot.jointPos(ec);
+        if (ec) {
+            return;
+        }
+        bool joint_changed = false;
+        for (size_t i = 0; i < initial_joints.size(); ++i) {
+            if (fabs(current_joints[i] - initial_joints[i]) > 1e-3) {
+                joint_changed = true;
+                break;
+            }
+        }
+        if (state != rokae::OperationState::idle && state != rokae::OperationState::unknown) {
+            seen_active_state = true;
+        }
+        if ((seen_active_state && state == rokae::OperationState::idle) ||
+            (!seen_active_state && joint_changed && state == rokae::OperationState::idle)) {
             return;
         }
         this_thread::sleep_for(100ms);
     }
+    ec = make_error_code(errc::timed_out);
 }
 
 void printJointState(rokae::ros2::xMateRobot& robot, std::error_code& ec) {
@@ -114,11 +139,15 @@ int main() {
         cmd.zone = 0;
         robot.moveAbsJ(cmd, ec);
     }
+    const auto prep_start_joints = robot.jointPos(ec);
+    if (ec) {
+        cerr << "    failed to read start joints: " << ec.message() << endl;
+    }
     robot.moveStart(ec);
     if (ec) {
         cerr << "    moveStart failed: " << ec.message() << endl;
     }
-    waitForIdle(robot, ec);
+    waitForIdle(robot, prep_start_joints, ec);
     printJointState(robot, ec);
 
     cout << "\n[2.2] MoveJ - 笛卡尔目标点动..." << endl;
@@ -135,11 +164,15 @@ int main() {
         cmd.zone = 5;
         robot.moveJ(cmd, ec);
     }
+    const auto movej_start_joints = robot.jointPos(ec);
+    if (ec) {
+        cerr << "    failed to read start joints: " << ec.message() << endl;
+    }
     robot.moveStart(ec);
     if (ec) {
         cerr << "    moveStart failed: " << ec.message() << endl;
     }
-    waitForIdle(robot, ec);
+    waitForIdle(robot, movej_start_joints, ec);
     printJointState(robot, ec);
 
     // ========== 阶段3: 直线运动队列 ==========
@@ -191,11 +224,15 @@ int main() {
     }
 
     cout << "      3条指令已添加到队列" << endl;
+    const auto movel_start_joints = robot.jointPos(ec);
+    if (ec) {
+        cerr << "    failed to read start joints: " << ec.message() << endl;
+    }
     robot.moveStart(ec);
     if (ec) {
         cerr << "    moveStart failed: " << ec.message() << endl;
     }
-    waitForIdle(robot, ec, 90);
+    waitForIdle(robot, movel_start_joints, ec, 90);
     printJointState(robot, ec);
 
     // ========== 阶段4: IO控制 ==========
@@ -268,11 +305,15 @@ int main() {
         cmd.zone = 0;
         robot.moveAbsJ(cmd, ec);
     }
+    const auto home_start_joints = robot.jointPos(ec);
+    if (ec) {
+        cerr << "    failed to read start joints: " << ec.message() << endl;
+    }
     robot.moveStart(ec);
     if (ec) {
         cerr << "    moveStart failed: " << ec.message() << endl;
     }
-    waitForIdle(robot, ec);
+    waitForIdle(robot, home_start_joints, ec);
     cout << "\n      已回到零位:" << endl;
     printJointState(robot, ec);
 

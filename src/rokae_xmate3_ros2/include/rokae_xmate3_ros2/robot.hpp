@@ -239,10 +239,19 @@ private:
         rokae_xmate3_ros2::action::MoveAppend::Goal cached_goal_;  // 单个合并的goal
         rclcpp_action::Client<rokae_xmate3_ros2::action::MoveAppend>::SharedPtr move_append_action_client_;
         std::vector<rclcpp_action::ClientGoalHandle<rokae_xmate3_ros2::action::MoveAppend>::SharedPtr> active_goal_handles_;
+        std::mutex action_mutex_;
+        bool move_append_result_ready_ = false;
+        rclcpp_action::ResultCode move_append_result_code_ = rclcpp_action::ResultCode::UNKNOWN;
+        bool move_append_result_success_ = true;
+        std::string move_append_result_message_;
 
         // 缓存相关公用方法（外部由xMateRobot调用）
         void cacheCommand(const rokae_xmate3_ros2::action::MoveAppend::Goal &goal);
         void clearCache();
+        void resetMoveAppendState();
+        void handleMoveAppendResult(
+            const rclcpp_action::ClientGoalHandle<rokae_xmate3_ros2::action::MoveAppend>::WrappedResult &result);
+        bool checkMoveAppendFailure(std::error_code &ec);
         // 将本地缓存的命令通过 MoveAppend action 发送到控制器
         bool flushCachedCommands(std::error_code &ec);
         void pump_callbacks();

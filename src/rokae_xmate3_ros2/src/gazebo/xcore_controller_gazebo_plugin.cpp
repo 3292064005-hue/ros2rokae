@@ -10,8 +10,10 @@
 #include <gazebo/physics/physics.hh>
 #include <gazebo/common/common.hh>
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <atomic>
 #include <thread>
 #include <queue>
 #include <memory>
@@ -121,7 +123,7 @@ constexpr int kOffsetOffs = 1;
 constexpr int kOffsetRelTool = 2;
 constexpr double kConfAngleStrictToleranceDeg = 45.0;
 constexpr double kJointBranchJumpThreshold = 0.75;
-constexpr double kTrajectorySampleDt = 0.001;
+constexpr double kTrajectorySampleDt = 0.01;
 
 double NormalizeAngle(double value) {
     while (value > M_PI) {
@@ -421,21 +423,40 @@ bool BuildJointTrajectoryFromCartesian(
     last_joints = initial_seed;
 
     for (const auto &pose : cartesian_trajectory) {
-        const auto candidates = kinematics.inverseKinematicsMultiSolution(pose, last_joints);
-        const auto selected = SelectIkSolution(
-            kinematics, candidates, pose, last_joints, requested_conf, strict_conf,
-            avoid_singularity, soft_limit_enabled, soft_limits);
-        if (!selected.success) {
-            error_message = selected.message;
-            return false;
+        std::vector<double> resolved_joints;
+
+        const auto fast_solution = kinematics.inverseKinematicsSeededFast(pose, last_joints);
+        if (!fast_solution.empty()) {
+            const auto conf_score = ScoreRequestedConf(fast_solution, requested_conf);
+            const bool conf_ok = !conf_score.has_request || !strict_conf || conf_score.strict_match;
+            const bool soft_limit_ok = !soft_limit_enabled || !ViolatesSoftLimit(fast_solution, soft_limits);
+            const bool singularity_ok = !avoid_singularity || !kinematics.isNearSingularity(fast_solution);
+            const bool continuity_ok = joint_trajectory.empty() ||
+                MaxJointStep(last_joints, fast_solution) <= kJointBranchJumpThreshold;
+            if (conf_ok && soft_limit_ok && singularity_ok && continuity_ok) {
+                resolved_joints = fast_solution;
+            }
         }
+
+        if (resolved_joints.empty()) {
+            const auto candidates = kinematics.inverseKinematicsMultiSolution(pose, last_joints);
+            const auto selected = SelectIkSolution(
+                kinematics, candidates, pose, last_joints, requested_conf, strict_conf,
+                avoid_singularity, soft_limit_enabled, soft_limits);
+            if (!selected.success) {
+                error_message = selected.message;
+                return false;
+            }
+            resolved_joints = selected.joints;
+        }
+
         if (!joint_trajectory.empty() &&
-            MaxJointStep(last_joints, selected.joints) > kJointBranchJumpThreshold) {
+            MaxJointStep(last_joints, resolved_joints) > kJointBranchJumpThreshold) {
             error_message = "IK branch changed discontinuously along Cartesian path";
             return false;
         }
-        joint_trajectory.push_back(selected.joints);
-        last_joints = selected.joints;
+        joint_trajectory.push_back(resolved_joints);
+        last_joints = resolved_joints;
     }
 
     return !joint_trajectory.empty();
@@ -446,6 +467,7 @@ bool BuildJointTrajectoryFromCartesian(
 class XCoreControllerPlugin : public ModelPlugin {
 public:
     XCoreControllerPlugin() : ModelPlugin() {}
+    ~XCoreControllerPlugin() override;
 
     void Load(physics::ModelPtr _model, sdf::ElementPtr _sdf) override;
 
@@ -456,6 +478,10 @@ private:
     void InitActionServers();
     void OnUpdate();
     void ExecuteMotion();
+    void RefreshJointStateCache();
+    void GetCachedJointState(std::array<double, 6> &position,
+                             std::array<double, 6> &velocity,
+                             std::array<double, 6> &torque);
     void PublishJointStates();
     void PublishOperationState();
     void ExecuteMoveAppend(const std::shared_ptr<rclcpp_action::ServerGoalHandle<rokae_xmate3_ros2::action::MoveAppend>> goal_handle);
@@ -470,6 +496,8 @@ private:
 
     // ROS2 对象
     rclcpp::Node::SharedPtr node_;
+    std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
+    std::thread executor_thread_;
     std::unique_ptr<xMate3Kinematics> kinematics_;
 
     // 状态变量
@@ -537,6 +565,10 @@ private:
     std::vector<double> hold_position_;
     double current_update_dt_ = kTrajectorySampleDt;
     double last_sim_time_ = -1.0;
+    std::mutex joint_state_cache_mutex_;
+    std::array<double, 6> cached_joint_position_{};
+    std::array<double, 6> cached_joint_velocity_{};
+    std::array<double, 6> cached_joint_torque_{};
 
     // ROS2 发布器
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
@@ -695,6 +727,20 @@ void XCoreControllerPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     gzmsg << "[xCore Controller] Plugin loaded successfully, joints: " << joint_num_ << std::endl;
 }
 
+XCoreControllerPlugin::~XCoreControllerPlugin() {
+    if (executor_) {
+        executor_->cancel();
+    }
+    if (executor_thread_.joinable()) {
+        executor_thread_.join();
+    }
+    if (executor_ && node_) {
+        executor_->remove_node(node_);
+    }
+    executor_.reset();
+    node_.reset();
+}
+
 void XCoreControllerPlugin::InitROS2() {
     if (!rclcpp::ok()) {
         int argc = 0;
@@ -704,10 +750,20 @@ void XCoreControllerPlugin::InitROS2() {
 
     node_ = std::make_shared<rclcpp::Node>("xcore_gazebo_controller");
     kinematics_ = std::make_unique<xMate3Kinematics>();
+    executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+    executor_->add_node(node_);
 
     InitPublishers();
     InitServices();
     InitActionServers();
+
+    executor_thread_ = std::thread([this]() {
+        try {
+            executor_->spin();
+        } catch (const std::exception &e) {
+            RCLCPP_ERROR(node_->get_logger(), "ROS executor stopped unexpectedly: %s", e.what());
+        }
+    });
 }
 
 void XCoreControllerPlugin::InitPublishers() {
@@ -748,8 +804,12 @@ void XCoreControllerPlugin::InitServices() {
             }
             this->power_on_ = req->on;
             if (this->power_on_) {
+                std::array<double, 6> cached_pos{};
+                std::array<double, 6> cached_vel{};
+                std::array<double, 6> cached_torque{};
+                GetCachedJointState(cached_pos, cached_vel, cached_torque);
                 for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                    hold_position_[i] = joints_[i]->Position(0);
+                    hold_position_[i] = cached_pos[i];
                 }
             }
             res->success = true;
@@ -820,8 +880,12 @@ void XCoreControllerPlugin::InitServices() {
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetJointPos::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::GetJointPos::Response> res) {
             (void)req;
+            std::array<double, 6> cached_pos{};
+            std::array<double, 6> cached_vel{};
+            std::array<double, 6> cached_torque{};
+            GetCachedJointState(cached_pos, cached_vel, cached_torque);
             for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                res->joint_positions[i] = joints_[i]->Position(0);
+                res->joint_positions[i] = cached_pos[i];
             }
             res->success = true;
         });
@@ -831,8 +895,12 @@ void XCoreControllerPlugin::InitServices() {
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetJointVel::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::GetJointVel::Response> res) {
             (void)req;
+            std::array<double, 6> cached_pos{};
+            std::array<double, 6> cached_vel{};
+            std::array<double, 6> cached_torque{};
+            GetCachedJointState(cached_pos, cached_vel, cached_torque);
             for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                res->joint_vel[i] = joints_[i]->GetVelocity(0);
+                res->joint_vel[i] = cached_vel[i];
             }
             res->success = true;
         });
@@ -842,8 +910,12 @@ void XCoreControllerPlugin::InitServices() {
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetJointTorque::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::GetJointTorque::Response> res) {
             (void)req;
+            std::array<double, 6> cached_pos{};
+            std::array<double, 6> cached_vel{};
+            std::array<double, 6> cached_torque{};
+            GetCachedJointState(cached_pos, cached_vel, cached_torque);
             for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                res->joint_torque[i] = joints_[i]->GetForce(0);
+                res->joint_torque[i] = cached_torque[i];
             }
             res->success = true;
         });
@@ -853,10 +925,11 @@ void XCoreControllerPlugin::InitServices() {
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetPosture::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::GetPosture::Response> res) {
             (void)req;
-            std::vector<double> joints(6);
-            for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                joints[i] = joints_[i]->Position(0);
-            }
+            std::array<double, 6> cached_pos{};
+            std::array<double, 6> cached_vel{};
+            std::array<double, 6> cached_torque{};
+            GetCachedJointState(cached_pos, cached_vel, cached_torque);
+            std::vector<double> joints(cached_pos.begin(), cached_pos.end());
             auto pose = kinematics_->forwardKinematicsRPY(joints);
             for (int i = 0; i < 6; ++i) res->posture[i] = pose[i];
             res->success = true;
@@ -867,10 +940,11 @@ void XCoreControllerPlugin::InitServices() {
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetCartPosture::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::GetCartPosture::Response> res) {
             (void)req;
-            std::vector<double> joints(6);
-            for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                joints[i] = joints_[i]->Position(0);
-            }
+            std::array<double, 6> cached_pos{};
+            std::array<double, 6> cached_vel{};
+            std::array<double, 6> cached_torque{};
+            GetCachedJointState(cached_pos, cached_vel, cached_torque);
+            std::vector<double> joints(cached_pos.begin(), cached_pos.end());
             auto pose = kinematics_->forwardKinematicsRPY(joints);
             res->x = pose[0]; res->y = pose[1]; res->z = pose[2];
             res->rx = pose[3]; res->ry = pose[4]; res->rz = pose[5];
@@ -901,10 +975,11 @@ void XCoreControllerPlugin::InitServices() {
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::CalcIk::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::CalcIk::Response> res) {
             std::vector<double> target(req->target_posture.begin(), req->target_posture.end());
-            std::vector<double> current(6);
-            for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                current[i] = joints_[i]->Position(0);
-            }
+            std::array<double, 6> cached_pos{};
+            std::array<double, 6> cached_vel{};
+            std::array<double, 6> cached_torque{};
+            GetCachedJointState(cached_pos, cached_vel, cached_torque);
+            std::vector<double> current(cached_pos.begin(), cached_pos.end());
             const auto candidates = kinematics_->inverseKinematicsMultiSolution(target, current);
             const auto selected = SelectIkSolution(
                 *kinematics_, candidates, target, current, req->conf_data,
@@ -1049,8 +1124,12 @@ void XCoreControllerPlugin::InitServices() {
                 std::swap(motion_queue_, empty);
             }
             current_cmd_.reset();
+            std::array<double, 6> cached_pos{};
+            std::array<double, 6> cached_vel{};
+            std::array<double, 6> cached_torque{};
+            GetCachedJointState(cached_pos, cached_vel, cached_torque);
             for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                hold_position_[i] = joints_[i]->Position(0);
+                hold_position_[i] = cached_pos[i];
             }
             res->success = true;
         });
@@ -1122,10 +1201,14 @@ void XCoreControllerPlugin::InitServices() {
                 res->error_msg = "realtime control mode is not active";
                 return;
             }
+            std::array<double, 6> cached_pos{};
+            std::array<double, 6> cached_vel{};
+            std::array<double, 6> cached_torque{};
+            GetCachedJointState(cached_pos, cached_vel, cached_torque);
             for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                res->joint_position[i] = joints_[i]->Position(0);
-                res->joint_velocity[i] = joints_[i]->GetVelocity(0);
-                res->joint_torque[i] = joints_[i]->GetForce(0);
+                res->joint_position[i] = cached_pos[i];
+                res->joint_velocity[i] = cached_vel[i];
+                res->joint_torque[i] = cached_torque[i];
             }
             res->stamp = ToBuiltinTime(node_->get_clock()->now());
             res->success = true;
@@ -1312,7 +1395,7 @@ void XCoreControllerPlugin::InitServices() {
                std::shared_ptr<rokae_xmate3_ros2::srv::GenerateSTrajectory::Response> res) {
             std::vector<double> start(req->start_joint_pos.begin(), req->start_joint_pos.end());
             std::vector<double> target(req->target_joint_pos.begin(), req->target_joint_pos.end());
-            auto trajectory = TrajectoryPlanner::planJointMove(start, target, 32.0, 0.001);
+            auto trajectory = TrajectoryPlanner::planJointMove(start, target, 32.0, kTrajectorySampleDt);
             if (trajectory.empty()) {
                 res->success = false;
                 res->error_code = 3003;
@@ -1327,7 +1410,7 @@ void XCoreControllerPlugin::InitServices() {
                 }
                 res->trajectory_points.push_back(joint_msg);
             }
-            res->total_time = trajectory.size() > 1 ? (trajectory.size() - 1) * 0.001 : 0.0;
+            res->total_time = trajectory.size() > 1 ? (trajectory.size() - 1) * kTrajectorySampleDt : 0.0;
             res->stamp = ToBuiltinTime(node_->get_clock()->now());
             res->success = true;
             res->error_code = 0;
@@ -1365,11 +1448,14 @@ void XCoreControllerPlugin::InitServices() {
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetEndTorque::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::GetEndTorque::Response> res) {
             (void)req;
-            std::vector<double> joints(6, 0.0);
+            std::array<double, 6> cached_pos{};
+            std::array<double, 6> cached_vel{};
+            std::array<double, 6> cached_torque{};
+            GetCachedJointState(cached_pos, cached_vel, cached_torque);
+            std::vector<double> joints(cached_pos.begin(), cached_pos.end());
             Eigen::Matrix<double, 6, 1> tau = Eigen::Matrix<double, 6, 1>::Zero();
-            for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                joints[i] = joints_[i]->Position(0);
-                tau(i) = joints_[i]->GetForce(0);
+            for (int i = 0; i < 6; ++i) {
+                tau(i) = cached_torque[i];
             }
             Eigen::MatrixXd J = kinematics_->computeJacobian(joints);
             Eigen::Matrix<double, 6, 1> wrench = J.transpose().completeOrthogonalDecomposition().solve(tau);
@@ -1515,8 +1601,12 @@ void XCoreControllerPlugin::InitServices() {
                std::shared_ptr<rokae_xmate3_ros2::srv::DisableDrag::Response> res) {
             (void)req;
             drag_mode_ = false;
+            std::array<double, 6> cached_pos{};
+            std::array<double, 6> cached_vel{};
+            std::array<double, 6> cached_torque{};
+            GetCachedJointState(cached_pos, cached_vel, cached_torque);
             for (int i = 0; i < 6 && i < joint_num_; ++i) {
-                hold_position_[i] = joints_[i]->Position(0);
+                hold_position_[i] = cached_pos[i];
             }
             res->success = true;
         });
@@ -1634,212 +1724,222 @@ void XCoreControllerPlugin::ExecuteMoveAppend(
     const auto goal = goal_handle->get_goal();
     auto result = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
 
-    std::vector<double> current_joints(6);
-    for (int i = 0; i < 6 && i < joint_num_; ++i) {
-        current_joints[i] = joints_[i]->Position(0);
-    }
+    std::array<double, 6> cached_pos{};
+    std::array<double, 6> cached_vel{};
+    std::array<double, 6> cached_torque{};
+    GetCachedJointState(cached_pos, cached_vel, cached_torque);
+    std::vector<double> current_joints(cached_pos.begin(), cached_pos.end());
 
     size_t total_cmds = goal->absj_cmds.size() + goal->j_cmds.size() + goal->l_cmds.size() +
                         goal->c_cmds.size() + goal->cf_cmds.size() + goal->sp_cmds.size();
     std::string planning_error;
+    std::vector<MotionCommand> planned_commands;
+    planned_commands.reserve(total_cmds);
 
-    {
-        std::lock_guard<std::mutex> lock(motion_queue_mutex_);
-        for (const auto& cmd : goal->absj_cmds) {
-            MotionCommand motion_cmd;
-            motion_cmd.type = MotionType::MOVE_ABSJ;
-            motion_cmd.target_joints.assign(cmd.target.joints.begin(), cmd.target.joints.end());
-            if (soft_limit_enabled_ && ViolatesSoftLimit(motion_cmd.target_joints, soft_limits_)) {
-                planning_error = "MoveAbsJ target violates soft limit";
-                break;
-            }
-            motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
-            motion_cmd.zone = cmd.zone;
-            motion_cmd.trajectory = TrajectoryPlanner::planJointMove(
-                current_joints, motion_cmd.target_joints, motion_cmd.speed, kTrajectorySampleDt);
-            motion_cmd.current_point = 0;
-            motion_cmd.trajectory_dt = kTrajectorySampleDt;
-            motion_cmd.trajectory_elapsed = 0.0;
-            motion_cmd.fine_tuning_steps = 0;
-            motion_cmd.in_fine_tuning = false;
-            motion_queue_.push(motion_cmd);
-            current_joints = motion_cmd.target_joints;
+    for (const auto& cmd : goal->absj_cmds) {
+        MotionCommand motion_cmd;
+        motion_cmd.type = MotionType::MOVE_ABSJ;
+        motion_cmd.target_joints.assign(cmd.target.joints.begin(), cmd.target.joints.end());
+        if (soft_limit_enabled_ && ViolatesSoftLimit(motion_cmd.target_joints, soft_limits_)) {
+            planning_error = "MoveAbsJ target violates soft limit";
+            break;
         }
+        motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
+        motion_cmd.zone = cmd.zone;
+        motion_cmd.trajectory = TrajectoryPlanner::planJointMove(
+            current_joints, motion_cmd.target_joints, motion_cmd.speed, kTrajectorySampleDt);
+        motion_cmd.current_point = 0;
+        motion_cmd.trajectory_dt = kTrajectorySampleDt;
+        motion_cmd.trajectory_elapsed = 0.0;
+        motion_cmd.fine_tuning_steps = 0;
+        motion_cmd.in_fine_tuning = false;
+        planned_commands.push_back(motion_cmd);
+        current_joints = motion_cmd.target_joints;
+    }
 
-        for (const auto& cmd : goal->j_cmds) {
-            if (!planning_error.empty()) {
-                break;
-            }
-            MotionCommand motion_cmd;
-            motion_cmd.type = MotionType::MOVE_J;
-            motion_cmd.target_cartesian = ApplyOffset(
-                MsgPoseToVector(cmd.target), cmd.offset_type, cmd.offset_pose);
-            motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
-            motion_cmd.zone = cmd.zone;
-            const auto candidate_solutions = kinematics_->inverseKinematicsMultiSolution(
-                motion_cmd.target_cartesian, current_joints);
-            const auto selected = SelectIkSolution(
-                *kinematics_, candidate_solutions, motion_cmd.target_cartesian, current_joints,
-                cmd.target.conf_data, default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_);
-            if (!selected.success) {
-                planning_error = "MoveJ planning failed: " + selected.message;
-                break;
-            }
-            motion_cmd.target_joints = selected.joints;
-            motion_cmd.trajectory = TrajectoryPlanner::planJointMove(
-                current_joints, motion_cmd.target_joints, motion_cmd.speed, kTrajectorySampleDt);
-            motion_cmd.current_point = 0;
-            motion_cmd.trajectory_dt = kTrajectorySampleDt;
-            motion_cmd.trajectory_elapsed = 0.0;
-            motion_cmd.fine_tuning_steps = 0;
-            motion_cmd.in_fine_tuning = false;
-            motion_queue_.push(motion_cmd);
-            current_joints = motion_cmd.target_joints;
+    for (const auto& cmd : goal->j_cmds) {
+        if (!planning_error.empty()) {
+            break;
         }
+        MotionCommand motion_cmd;
+        motion_cmd.type = MotionType::MOVE_J;
+        motion_cmd.target_cartesian = ApplyOffset(
+            MsgPoseToVector(cmd.target), cmd.offset_type, cmd.offset_pose);
+        motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
+        motion_cmd.zone = cmd.zone;
+        const auto candidate_solutions = kinematics_->inverseKinematicsMultiSolution(
+            motion_cmd.target_cartesian, current_joints);
+        const auto selected = SelectIkSolution(
+            *kinematics_, candidate_solutions, motion_cmd.target_cartesian, current_joints,
+            cmd.target.conf_data, default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_);
+        if (!selected.success) {
+            planning_error = "MoveJ planning failed: " + selected.message;
+            break;
+        }
+        motion_cmd.target_joints = selected.joints;
+        motion_cmd.trajectory = TrajectoryPlanner::planJointMove(
+            current_joints, motion_cmd.target_joints, motion_cmd.speed, kTrajectorySampleDt);
+        motion_cmd.current_point = 0;
+        motion_cmd.trajectory_dt = kTrajectorySampleDt;
+        motion_cmd.trajectory_elapsed = 0.0;
+        motion_cmd.fine_tuning_steps = 0;
+        motion_cmd.in_fine_tuning = false;
+        planned_commands.push_back(motion_cmd);
+        current_joints = motion_cmd.target_joints;
+    }
 
-        for (const auto& cmd : goal->l_cmds) {
-            if (!planning_error.empty()) {
-                break;
-            }
-            MotionCommand motion_cmd;
-            motion_cmd.type = MotionType::MOVE_L;
-            motion_cmd.target_cartesian = ApplyOffset(
-                MsgPoseToVector(cmd.target), cmd.offset_type, cmd.offset_pose);
-            motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
-            motion_cmd.zone = cmd.zone;
-            const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
-            const auto cart_trajectory = TrajectoryPlanner::planCartesianLine(
-                current_pose, motion_cmd.target_cartesian, motion_cmd.speed, kTrajectorySampleDt);
-            std::string error_message;
-            std::vector<double> last_joints;
-            if (!BuildJointTrajectoryFromCartesian(
-                    *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
-                    default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
-                    motion_cmd.trajectory, last_joints, error_message)) {
-                planning_error = "MoveL planning failed: " + error_message;
-                break;
-            }
-            motion_cmd.target_joints = last_joints;
-            motion_cmd.current_point = 0;
-            motion_cmd.trajectory_dt = kTrajectorySampleDt;
-            motion_cmd.trajectory_elapsed = 0.0;
-            motion_cmd.fine_tuning_steps = 0;
-            motion_cmd.in_fine_tuning = false;
-            motion_queue_.push(motion_cmd);
-            current_joints = motion_cmd.target_joints;
+    for (const auto& cmd : goal->l_cmds) {
+        if (!planning_error.empty()) {
+            break;
         }
+        MotionCommand motion_cmd;
+        motion_cmd.type = MotionType::MOVE_L;
+        motion_cmd.target_cartesian = ApplyOffset(
+            MsgPoseToVector(cmd.target), cmd.offset_type, cmd.offset_pose);
+        motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
+        motion_cmd.zone = cmd.zone;
+        const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
+        const auto cart_trajectory = TrajectoryPlanner::planCartesianLine(
+            current_pose, motion_cmd.target_cartesian, motion_cmd.speed, kTrajectorySampleDt);
+        std::string error_message;
+        std::vector<double> last_joints;
+        if (!BuildJointTrajectoryFromCartesian(
+                *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
+                default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
+                motion_cmd.trajectory, last_joints, error_message)) {
+            planning_error = "MoveL planning failed: " + error_message;
+            break;
+        }
+        motion_cmd.target_joints = last_joints;
+        RCLCPP_INFO(node_->get_logger(), "MoveL关节轨迹已生成: %zu 个点", motion_cmd.trajectory.size());
+        motion_cmd.current_point = 0;
+        motion_cmd.trajectory_dt = kTrajectorySampleDt;
+        motion_cmd.trajectory_elapsed = 0.0;
+        motion_cmd.fine_tuning_steps = 0;
+        motion_cmd.in_fine_tuning = false;
+        planned_commands.push_back(motion_cmd);
+        current_joints = motion_cmd.target_joints;
+    }
 
-        for (const auto& cmd : goal->c_cmds) {
-            if (!planning_error.empty()) {
-                break;
-            }
-            MotionCommand motion_cmd;
-            motion_cmd.type = MotionType::MOVE_C;
-            motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
-            motion_cmd.zone = cmd.zone;
-            const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
-            motion_cmd.target_cartesian = ApplyOffset(
-                MsgPoseToVector(cmd.target), cmd.target_offset_type, cmd.target_offset_pose);
-            motion_cmd.aux_cartesian = ApplyOffset(
-                MsgPoseToVector(cmd.aux), cmd.aux_offset_type, cmd.aux_offset_pose);
-            const auto cart_trajectory = TrajectoryPlanner::planCircularArc(
-                current_pose, motion_cmd.aux_cartesian, motion_cmd.target_cartesian, motion_cmd.speed,
-                kTrajectorySampleDt);
-            std::string error_message;
-            std::vector<double> last_joints;
-            if (!BuildJointTrajectoryFromCartesian(
-                    *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
-                    default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
-                    motion_cmd.trajectory, last_joints, error_message)) {
-                planning_error = "MoveC planning failed: " + error_message;
-                break;
-            }
-            motion_cmd.target_joints = last_joints;
-            motion_cmd.current_point = 0;
-            motion_cmd.trajectory_dt = kTrajectorySampleDt;
-            motion_cmd.trajectory_elapsed = 0.0;
-            motion_cmd.fine_tuning_steps = 0;
-            motion_cmd.in_fine_tuning = false;
-            motion_queue_.push(motion_cmd);
-            current_joints = motion_cmd.target_joints;
+    for (const auto& cmd : goal->c_cmds) {
+        if (!planning_error.empty()) {
+            break;
         }
+        MotionCommand motion_cmd;
+        motion_cmd.type = MotionType::MOVE_C;
+        motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
+        motion_cmd.zone = cmd.zone;
+        const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
+        motion_cmd.target_cartesian = ApplyOffset(
+            MsgPoseToVector(cmd.target), cmd.target_offset_type, cmd.target_offset_pose);
+        motion_cmd.aux_cartesian = ApplyOffset(
+            MsgPoseToVector(cmd.aux), cmd.aux_offset_type, cmd.aux_offset_pose);
+        const auto cart_trajectory = TrajectoryPlanner::planCircularArc(
+            current_pose, motion_cmd.aux_cartesian, motion_cmd.target_cartesian, motion_cmd.speed,
+            kTrajectorySampleDt);
+        std::string error_message;
+        std::vector<double> last_joints;
+        if (!BuildJointTrajectoryFromCartesian(
+                *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
+                default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
+                motion_cmd.trajectory, last_joints, error_message)) {
+            planning_error = "MoveC planning failed: " + error_message;
+            break;
+        }
+        motion_cmd.target_joints = last_joints;
+        motion_cmd.current_point = 0;
+        motion_cmd.trajectory_dt = kTrajectorySampleDt;
+        motion_cmd.trajectory_elapsed = 0.0;
+        motion_cmd.fine_tuning_steps = 0;
+        motion_cmd.in_fine_tuning = false;
+        planned_commands.push_back(motion_cmd);
+        current_joints = motion_cmd.target_joints;
+    }
 
-        for (const auto& cmd : goal->cf_cmds) {
-            if (!planning_error.empty()) {
-                break;
-            }
-            MotionCommand motion_cmd;
-            motion_cmd.type = MotionType::MOVE_CF;
-            motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
-            motion_cmd.zone = cmd.zone;
-            const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
-            motion_cmd.target_cartesian = ApplyOffset(
-                MsgPoseToVector(cmd.target), cmd.target_offset_type, cmd.target_offset_pose);
-            motion_cmd.aux_cartesian = ApplyOffset(
-                MsgPoseToVector(cmd.aux), cmd.aux_offset_type, cmd.aux_offset_pose);
-            const auto cart_trajectory = TrajectoryPlanner::planCircularContinuous(
-                current_pose, motion_cmd.aux_cartesian, motion_cmd.target_cartesian,
-                cmd.angle, motion_cmd.speed, kTrajectorySampleDt);
-            std::string error_message;
-            std::vector<double> last_joints;
-            if (!BuildJointTrajectoryFromCartesian(
-                    *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
-                    default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
-                    motion_cmd.trajectory, last_joints, error_message)) {
-                planning_error = "MoveCF planning failed: " + error_message;
-                break;
-            }
-            motion_cmd.target_joints = last_joints;
-            motion_cmd.current_point = 0;
-            motion_cmd.trajectory_dt = kTrajectorySampleDt;
-            motion_cmd.trajectory_elapsed = 0.0;
-            motion_cmd.fine_tuning_steps = 0;
-            motion_cmd.in_fine_tuning = false;
-            motion_queue_.push(motion_cmd);
-            current_joints = motion_cmd.target_joints;
+    for (const auto& cmd : goal->cf_cmds) {
+        if (!planning_error.empty()) {
+            break;
         }
+        MotionCommand motion_cmd;
+        motion_cmd.type = MotionType::MOVE_CF;
+        motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
+        motion_cmd.zone = cmd.zone;
+        const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
+        motion_cmd.target_cartesian = ApplyOffset(
+            MsgPoseToVector(cmd.target), cmd.target_offset_type, cmd.target_offset_pose);
+        motion_cmd.aux_cartesian = ApplyOffset(
+            MsgPoseToVector(cmd.aux), cmd.aux_offset_type, cmd.aux_offset_pose);
+        const auto cart_trajectory = TrajectoryPlanner::planCircularContinuous(
+            current_pose, motion_cmd.aux_cartesian, motion_cmd.target_cartesian,
+            cmd.angle, motion_cmd.speed, kTrajectorySampleDt);
+        std::string error_message;
+        std::vector<double> last_joints;
+        if (!BuildJointTrajectoryFromCartesian(
+                *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
+                default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
+                motion_cmd.trajectory, last_joints, error_message)) {
+            planning_error = "MoveCF planning failed: " + error_message;
+            break;
+        }
+        motion_cmd.target_joints = last_joints;
+        motion_cmd.current_point = 0;
+        motion_cmd.trajectory_dt = kTrajectorySampleDt;
+        motion_cmd.trajectory_elapsed = 0.0;
+        motion_cmd.fine_tuning_steps = 0;
+        motion_cmd.in_fine_tuning = false;
+        planned_commands.push_back(motion_cmd);
+        current_joints = motion_cmd.target_joints;
+    }
 
-        for (const auto& cmd : goal->sp_cmds) {
-            if (!planning_error.empty()) {
-                break;
-            }
-            MotionCommand motion_cmd;
-            motion_cmd.type = MotionType::MOVE_SP;
-            motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
-            motion_cmd.zone = cmd.zone;
-            const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
-            motion_cmd.target_cartesian = ApplyOffset(
-                MsgPoseToVector(cmd.target), cmd.offset_type, cmd.offset_pose);
-            const auto cart_trajectory = TrajectoryPlanner::planSpiralMove(
-                current_pose, motion_cmd.target_cartesian, cmd.radius, cmd.radius_step,
-                cmd.angle, cmd.direction, motion_cmd.speed, kTrajectorySampleDt);
-            std::string error_message;
-            std::vector<double> last_joints;
-            if (!BuildJointTrajectoryFromCartesian(
-                    *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
-                    default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
-                    motion_cmd.trajectory, last_joints, error_message)) {
-                planning_error = "MoveSP planning failed: " + error_message;
-                break;
-            }
-            motion_cmd.target_joints = last_joints;
-            motion_cmd.current_point = 0;
-            motion_cmd.trajectory_dt = kTrajectorySampleDt;
-            motion_cmd.trajectory_elapsed = 0.0;
-            motion_cmd.fine_tuning_steps = 0;
-            motion_cmd.in_fine_tuning = false;
-            motion_queue_.push(motion_cmd);
-            current_joints = motion_cmd.target_joints;
+    for (const auto& cmd : goal->sp_cmds) {
+        if (!planning_error.empty()) {
+            break;
         }
+        MotionCommand motion_cmd;
+        motion_cmd.type = MotionType::MOVE_SP;
+        motion_cmd.speed = cmd.speed > 0 ? cmd.speed : default_speed_;
+        motion_cmd.zone = cmd.zone;
+        const auto current_pose = kinematics_->forwardKinematicsRPY(current_joints);
+        motion_cmd.target_cartesian = ApplyOffset(
+            MsgPoseToVector(cmd.target), cmd.offset_type, cmd.offset_pose);
+        const auto cart_trajectory = TrajectoryPlanner::planSpiralMove(
+            current_pose, motion_cmd.target_cartesian, cmd.radius, cmd.radius_step,
+            cmd.angle, cmd.direction, motion_cmd.speed, kTrajectorySampleDt);
+        std::string error_message;
+        std::vector<double> last_joints;
+        if (!BuildJointTrajectoryFromCartesian(
+                *kinematics_, cart_trajectory, current_joints, cmd.target.conf_data,
+                default_conf_opt_forced_, true, soft_limit_enabled_, soft_limits_,
+                motion_cmd.trajectory, last_joints, error_message)) {
+            planning_error = "MoveSP planning failed: " + error_message;
+            break;
+        }
+        motion_cmd.target_joints = last_joints;
+        motion_cmd.current_point = 0;
+        motion_cmd.trajectory_dt = kTrajectorySampleDt;
+        motion_cmd.trajectory_elapsed = 0.0;
+        motion_cmd.fine_tuning_steps = 0;
+        motion_cmd.in_fine_tuning = false;
+        planned_commands.push_back(motion_cmd);
+        current_joints = motion_cmd.target_joints;
     }
 
     if (!planning_error.empty()) {
+        RCLCPP_ERROR(node_->get_logger(), "MoveAppend规划失败: %s", planning_error.c_str());
         result->success = false;
         result->message = planning_error;
         goal_handle->abort(result);
         return;
     }
 
+    {
+        std::lock_guard<std::mutex> lock(motion_queue_mutex_);
+        for (const auto& cmd : planned_commands) {
+            motion_queue_.push(cmd);
+        }
+    }
+
+    RCLCPP_INFO(node_->get_logger(), "MoveAppend规划完成，准备执行 %zu 条指令", total_cmds);
     motion_running_ = true;
 
     size_t last_queue_size;
@@ -1886,6 +1986,30 @@ void XCoreControllerPlugin::ExecuteMoveAppend(
     motion_running_ = false;
 }
 
+void XCoreControllerPlugin::RefreshJointStateCache() {
+    std::array<double, 6> position{};
+    std::array<double, 6> velocity{};
+    std::array<double, 6> torque{};
+    for (int i = 0; i < 6 && i < joint_num_; ++i) {
+        position[i] = joints_[i]->Position(0);
+        velocity[i] = joints_[i]->GetVelocity(0);
+        torque[i] = joints_[i]->GetForce(0);
+    }
+    std::lock_guard<std::mutex> lock(joint_state_cache_mutex_);
+    cached_joint_position_ = position;
+    cached_joint_velocity_ = velocity;
+    cached_joint_torque_ = torque;
+}
+
+void XCoreControllerPlugin::GetCachedJointState(std::array<double, 6> &position,
+                                                std::array<double, 6> &velocity,
+                                                std::array<double, 6> &torque) {
+    std::lock_guard<std::mutex> lock(joint_state_cache_mutex_);
+    position = cached_joint_position_;
+    velocity = cached_joint_velocity_;
+    torque = cached_joint_torque_;
+}
+
 void XCoreControllerPlugin::OnUpdate() {
     double sim_dt = kTrajectorySampleDt;
     if (model_ && model_->GetWorld()) {
@@ -1919,6 +2043,13 @@ void XCoreControllerPlugin::OnUpdate() {
         gzmsg << "[xCore Controller] Initial pose set successfully!" << std::endl;
     }
 
+    // 运动控制/抱闸逻辑（必须在初始姿态设置完成后执行）
+    if (!drag_mode_ && initial_pose_set_) {
+        ExecuteMotion();
+    }
+
+    RefreshJointStateCache();
+
     // 原有发布逻辑
     static auto last_pub_time = node_->now();
     auto now = node_->now();
@@ -1930,19 +2061,13 @@ void XCoreControllerPlugin::OnUpdate() {
 
     // 路径录制逻辑
     if (is_recording_path_) {
-        std::vector<double> joints(6);
-        for (int i = 0; i < 6 && i < joint_num_; ++i) {
-            joints[i] = joints_[i]->Position(0);
-        }
-        recorded_path_.push_back(joints);
+        std::array<double, 6> cached_pos{};
+        std::array<double, 6> cached_vel{};
+        std::array<double, 6> cached_torque{};
+        GetCachedJointState(cached_pos, cached_vel, cached_torque);
+        recorded_path_.emplace_back(cached_pos.begin(), cached_pos.end());
     }
 
-    // 运动控制/抱闸逻辑（必须在初始姿态设置完成后执行）
-    if (!drag_mode_ && initial_pose_set_) {
-        ExecuteMotion();
-    }
-
-    rclcpp::spin_some(node_);
 }
 
 void XCoreControllerPlugin::ExecuteMotion() {
@@ -2067,11 +2192,16 @@ void XCoreControllerPlugin::PublishJointStates() {
     msg.header.stamp = node_->now();
     msg.header.frame_id = "base_link";
 
+    std::array<double, 6> cached_pos{};
+    std::array<double, 6> cached_vel{};
+    std::array<double, 6> cached_torque{};
+    GetCachedJointState(cached_pos, cached_vel, cached_torque);
+
     for (size_t i = 0; i < joint_names_.size() && i < joints_.size(); ++i) {
         msg.name.push_back(joint_names_[i]);
-        msg.position.push_back(joints_[i]->Position(0));
-        msg.velocity.push_back(joints_[i]->GetVelocity(0));
-        msg.effort.push_back(joints_[i]->GetForce(0));
+        msg.position.push_back(cached_pos[i]);
+        msg.velocity.push_back(cached_vel[i]);
+        msg.effort.push_back(cached_torque[i]);
     }
 
     joint_state_pub_->publish(msg);
