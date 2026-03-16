@@ -177,10 +177,6 @@ set(EXAMPLES
   07_safety_collision
   08_path_record_replay
   09_advanced_sdk_compat
-  10_official_sdk_connect
-  11_official_sdk_motion
-  12_official_sdk_register_rl
-  13_official_sdk_rt_model
   99_complete_demo
 )
 
@@ -209,10 +205,6 @@ install(TARGETS
   example_07_safety_collision
   example_08_path_record_replay
   example_09_advanced_sdk_compat
-  example_10_official_sdk_connect
-  example_11_official_sdk_motion
-  example_12_official_sdk_register_rl
-  example_13_official_sdk_rt_model
   example_99_complete_demo
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

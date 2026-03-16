@@ -107,6 +107,19 @@ rosidl_target_interfaces(example_08_path_record_replay
   ${PROJECT_NAME} "rosidl_typesupport_cpp")
 target_compile_features(example_08_path_record_replay PUBLIC cxx_std_17)
 
+# 高级SDK兼容接口示例
+add_executable(example_09_advanced_sdk_compat examples/cpp/09_advanced_sdk_compat.cpp)
+ament_target_dependencies(example_09_advanced_sdk_compat
+  rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs
+)
+target_link_libraries(example_09_advanced_sdk_compat
+  ${PROJECT_NAME}_sdk
+  "${cpp_typesupport_target}"
+)
+rosidl_target_interfaces(example_09_advanced_sdk_compat
+  ${PROJECT_NAME} "rosidl_typesupport_cpp")
+target_compile_features(example_09_advanced_sdk_compat PUBLIC cxx_std_17)
+
 # 综合示例
 add_executable(example_99_complete_demo examples/cpp/99_complete_demo.cpp)
 ament_target_dependencies(example_99_complete_demo
@@ -130,6 +143,7 @@ install(TARGETS
   example_06_io_control
   example_07_safety_collision
   example_08_path_record_replay
+  example_09_advanced_sdk_compat
   example_99_complete_demo
   DESTINATION lib/${PROJECT_NAME}
 )

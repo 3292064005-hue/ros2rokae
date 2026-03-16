@@ -209,6 +209,48 @@ public:
     void removePath(const std::string& name, std::error_code& ec, bool removeAll = false);
     std::vector<std::string> queryPathLists(std::error_code& ec);
 
+    // ==================== 扩展SDK兼容接口 ====================
+    // 事件与回调
+    void setEventWatcher(rokae::Event eventType, const rokae::EventCallback& callback, std::error_code& ec);
+    rokae::EventInfo queryEventInfo(rokae::Event eventType, std::error_code& ec);
+
+    // 运动指令批量执行 - 非模板版本，避免链接问题
+    void moveAppend(const std::vector<rokae::MoveAbsJCommand>& cmds, std::string& cmdID, std::error_code& ec);
+    void moveAppend(const std::vector<rokae::MoveJCommand>& cmds, std::string& cmdID, std::error_code& ec);
+    void moveAppend(const std::vector<rokae::MoveLCommand>& cmds, std::string& cmdID, std::error_code& ec);
+    void moveAppend(const std::vector<rokae::MoveCCommand>& cmds, std::string& cmdID, std::error_code& ec);
+    void moveAppend(const std::vector<rokae::MoveCFCommand>& cmds, std::string& cmdID, std::error_code& ec);
+    void moveAppend(const std::vector<rokae::MoveSPCommand>& cmds, std::string& cmdID, std::error_code& ec);
+
+    void executeCommand(const std::vector<rokae::MoveAbsJCommand>& cmds, std::error_code& ec);
+    void executeCommand(const std::vector<rokae::MoveJCommand>& cmds, std::error_code& ec);
+    void executeCommand(const std::vector<rokae::MoveLCommand>& cmds, std::error_code& ec);
+
+    // 缓存与速度调整
+    void setMaxCacheSize(int number, std::error_code& ec);
+    std::error_code lastErrorCode() noexcept;
+
+    // 实时状态接收
+    void startReceiveRobotState(std::chrono::steady_clock::duration interval, const std::vector<std::string>& fields);
+    void stopReceiveRobotState() noexcept;
+    unsigned updateRobotState(std::chrono::steady_clock::duration timeout);
+    int getStateDataArray6(const std::string& fieldName, std::array<double, 6>& data);
+
+    // 模型与实时控制器访问
+    std::shared_ptr<void> model();
+    std::weak_ptr<void> getRtMotionController();
+
+    // 坐标系标定
+    rokae::FrameCalibrationResult calibrateFrame(rokae::FrameType type,
+                                                  const std::vector<std::array<double, 6>>& points,
+                                                  bool is_held,
+                                                  std::error_code& ec,
+                                                  const std::array<double, 3>& base_aux = {});
+
+    // 软限位SDK兼容版本
+    bool getSoftLimit(std::array<double[2], 6>& limits, std::error_code& ec);
+    void setSoftLimit(bool enable, std::error_code& ec, const std::array<double[2], 6>& limits = {{}});
+
 private:
     // 私有实现类（PIMPL模式，与cpp实现完全对齐）
     class Impl {
@@ -255,6 +297,44 @@ private:
         // 将本地缓存的命令通过 MoveAppend action 发送到控制器
         bool flushCachedCommands(std::error_code &ec);
         void pump_callbacks();
+
+        // ==================== SDK兼容扩展字段 ====================
+        std::error_code last_error_code_;
+        int max_cache_size_ = 100;
+        unsigned long next_cmd_id_ = 1;
+
+        // 事件回调
+        std::mutex event_mutex_;
+        rokae::EventCallback move_event_watcher_;
+        rokae::EventCallback safety_event_watcher_;
+        rokae::EventInfo last_move_event_;
+        rokae::EventInfo last_safety_event_;
+
+        // 实时状态接收
+        std::mutex state_cache_mutex_;
+        std::vector<std::string> state_fields_;
+        std::chrono::steady_clock::duration state_interval_{std::chrono::milliseconds(1)};
+        std::unordered_map<std::string, std::any> state_cache_;
+        bool has_previous_state_ = false;
+        std::chrono::steady_clock::time_point previous_state_time_;
+        std::array<double, 6> previous_joint_velocity_{};
+        std::array<double, 6> previous_joint_torque_{};
+        rokae::Toolset toolset_cache_;
+
+        // 模型和实时控制器占位
+        std::shared_ptr<void> rt_controller_;
+        std::shared_ptr<void> model_;
+
+        // RL工程信息（占位）
+        std::vector<rokae::RLProjectInfo> projects_;
+        rokae::RLProjectInfo current_project_;
+        std::vector<rokae::WorkToolInfo> tools_;
+        std::vector<rokae::WorkToolInfo> wobjs_;
+
+        // xPanel设置
+        rokae::xPanelOpt::Vout xpanel_vout_ = rokae::xPanelOpt::Vout::off;
+        unsigned rt_network_tolerance_ = 10;
+        bool use_rci_client_ = false;
 
         // ==================== 服务客户端（与cpp实现1:1匹配） ====================
         // 基础连接与信息
