@@ -109,6 +109,11 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/LoadRLProject.srv
   srv/StartRLProject.srv
   srv/StopRLProject.srv
+  srv/ReadRegister.srv
+  srv/WriteRegister.srv
+  srv/SetAvoidSingularity.srv
+  srv/GetAvoidSingularity.srv
+  srv/GetEndTorque.srv
   # Action
   action/MoveAppend.action
   action/Jog.action
@@ -131,7 +136,11 @@ rosidl_get_typesupport_target(cpp_typesupport_target
   ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
 # 1. SDK库
-add_library(${PROJECT_NAME}_sdk SHARED src/robot.cpp)
+add_library(${PROJECT_NAME}_sdk SHARED
+  src/robot.cpp
+  src/gazebo/kinematics.cpp
+  src/gazebo/trajectory_planner.cpp
+)
 ament_target_dependencies(${PROJECT_NAME}_sdk
   rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs gazebo_ros
 )
@@ -145,8 +154,6 @@ target_compile_features(${PROJECT_NAME}_sdk PUBLIC cxx_std_17)
 # 2. Gazebo插件
 add_library(xcore_controller_gazebo_plugin SHARED
   src/gazebo/xcore_controller_gazebo_plugin.cpp
-  src/gazebo/kinematics.cpp
-  src/gazebo/trajectory_planner.cpp
 )
 ament_target_dependencies(xcore_controller_gazebo_plugin
   rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs tf2_ros gazebo_ros
@@ -169,6 +176,11 @@ set(EXAMPLES
   06_io_control
   07_safety_collision
   08_path_record_replay
+  09_advanced_sdk_compat
+  10_official_sdk_connect
+  11_official_sdk_motion
+  12_official_sdk_register_rl
+  13_official_sdk_rt_model
   99_complete_demo
 )
 
@@ -196,6 +208,11 @@ install(TARGETS
   example_06_io_control
   example_07_safety_collision
   example_08_path_record_replay
+  example_09_advanced_sdk_compat
+  example_10_official_sdk_connect
+  example_11_official_sdk_motion
+  example_12_official_sdk_register_rl
+  example_13_official_sdk_rt_model
   example_99_complete_demo
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -203,7 +220,7 @@ install(TARGETS
 )
 
 install(DIRECTORY include/ DESTINATION include)
-install(DIRECTORY launch meshes urdf config worlds examples
+install(DIRECTORY launch meshes urdf config worlds examples docs
   DESTINATION share/${PROJECT_NAME}/
 )
 install(FILES model.config DESTINATION share/${PROJECT_NAME})

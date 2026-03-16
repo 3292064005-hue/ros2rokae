@@ -1,0 +1,152 @@
+# ========================================
+# xMate3 MoveIt2 OMPL Planning Configuration
+# ========================================
+
+planner_configs:
+  SBL:
+    type: geometric::SBL
+    range: 0.0  # Max motion added to tree. ==> 0: No limit. Default: 0.0
+
+  EST:
+    type: geometric::EST
+    range: 0.0
+    goal_bias: 0.05  # Bias towards goal sample. Default: 0.05
+
+  LBKPIECE:
+    type: geometric::LBKPIECE
+    range: 0.0
+    border_fraction: 0.9  # Fraction of time spent expanding frontier. Default: 0.9
+    min_valid_path_fraction: 0.5  # Acceptance fraction. Default: 0.5
+
+  BKPIECE:
+    type: geometric::BKPIECE
+    range: 0.0
+    border_fraction: 0.9
+    min_valid_path_fraction: 0.5
+
+  KPIECE:
+    type: geometric::KPIECE
+    range: 0.0
+    goal_bias: 0.05
+    border_fraction: 0.9
+    min_valid_path_fraction: 0.5
+    max_failed_expansion_samples: 10  # Max consecutive failed expansions. Default: 10
+
+  RRT:
+    type: geometric::RRT
+    range: 0.0
+    goal_bias: 0.05
+
+  RRTConnect:
+    type: geometric::RRTConnect
+    range: 0.0
+
+  RRTstar:
+    type: geometric::RRTstar
+    range: 0.0
+    goal_bias: 0.05
+    delay_collision_checking: 1
+    informed_sampling: 1  # Use informed sampling once a solution is found.
+    ordered_sampling: 0  # Order samples in the batch by the heuristic.
+    sample_rejection: 0  # Reject samples that can't improve the current solution.
+    cache_cc: 1  # Cache collision checking results.
+    num_samples_multiplier: 1  # Multiplier for the number of samples to use.
+    rewire_factor: 1.1  # Multiplier for rewiring range.
+
+  TRRT:
+    type: geometric::TRRT
+    range: 0.0
+    goal_bias: 0.05
+    max_states_failed: 10
+    temp_change_factor: 2.0
+    min_temperature: 10e-10
+    init_temperature: 10e-6
+    frountier_threshold: 0.0
+    frountier_node_ratio: 0.0
+    use_adaptive_expansion: 0
+
+  PRM:
+    type: geometric::PRM
+    max_nearest_neighbors: 10  # Maximum number of nearest neighbors. Default: 10
+
+  PRMstar:
+    type: geometric::PRMstar
+
+  LazyPRM:
+    type: geometric::LazyPRM
+    max_nearest_neighbors: 10
+
+  LazyPRMstar:
+    type: geometric::LazyPRMstar
+
+  SPARS:
+    type: geometric::SPARS
+    stretch_factor: 3.0
+    sparse_delta_fraction: 0.25
+    dense_delta_fraction: 0.001
+    max_failures: 1000
+
+  SPARStwo:
+    type: geometric::SPARStwo
+    stretch_factor: 3.0
+    sparse_delta_fraction: 0.25
+    dense_delta_fraction: 0.001
+    max_failures: 5000
+
+  FMT:
+    type: geometric::FMT
+    num_samples: 1000  # Number of random samples to use. Default: 1000
+    radius_multiplier: 1.1  # Multiplier for nearest neighbor radius. Default: 1.1
+    near_k: 1  # Use k-nearest neighbors. Default: 1
+    cache_cc: 1  # Cache collision checking results. Default: 1
+    heuristics: 0  # Use cost-to-go heuristic. Default: 0
+    extended_fmt: 1  # Use extended FMT*. Default: 1
+    hybrid_fmt: 0  # Use hybrid FMT*. Default: 0
+
+# ========================================
+# Group-specific planner configurations
+# ========================================
+
+xmate3_arm:
+  planner_configs:
+    - SBL
+    - EST
+    - LBKPIECE
+    - BKPIECE
+    - KPIECE
+    - RRT
+    - RRTConnect
+    - RRTstar
+    - TRRT
+    - PRM
+    - PRMstar
+    - LazyPRM
+    - LazyPRMstar
+    - SPARS
+    - SPARStwo
+    - FMT
+  default_planner_config: RRTConnect
+  projection_evaluator: joints(xmate_joint_1, xmate_joint_2)
+  longest_valid_segment_fraction: 0.005
+
+manipulator:
+  planner_configs:
+    - SBL
+    - EST
+    - LBKPIECE
+    - BKPIECE
+    - KPIECE
+    - RRT
+    - RRTConnect
+    - RRTstar
+    - TRRT
+    - PRM
+    - PRMstar
+    - LazyPRM
+    - LazyPRMstar
+    - SPARS
+    - SPARStwo
+    - FMT
+  default_planner_config: RRTConnect
+  projection_evaluator: joints(xmate_joint_1, xmate_joint_2)
+  longest_valid_segment_fraction: 0.005

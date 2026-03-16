@@ -72,6 +72,21 @@
 #include "rokae_xmate3_ros2/srv/remove_path.hpp"
 #include "rokae_xmate3_ros2/srv/query_path_lists.hpp"
 #include "rokae_xmate3_ros2/srv/query_controller_log.hpp"
+#include "rokae_xmate3_ros2/srv/set_rt_control_mode.hpp"
+#include "rokae_xmate3_ros2/srv/get_rt_joint_data.hpp"
+#include "rokae_xmate3_ros2/srv/send_custom_data.hpp"
+#include "rokae_xmate3_ros2/srv/register_data_callback.hpp"
+#include "rokae_xmate3_ros2/srv/calc_joint_torque.hpp"
+#include "rokae_xmate3_ros2/srv/generate_s_trajectory.hpp"
+#include "rokae_xmate3_ros2/srv/map_cartesian_to_joint_torque.hpp"
+#include "rokae_xmate3_ros2/srv/load_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/start_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/stop_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/read_register.hpp"
+#include "rokae_xmate3_ros2/srv/write_register.hpp"
+#include "rokae_xmate3_ros2/srv/set_avoid_singularity.hpp"
+#include "rokae_xmate3_ros2/srv/get_avoid_singularity.hpp"
+#include "rokae_xmate3_ros2/srv/get_end_torque.hpp"
 #include "rokae_xmate3_ros2/action/move_append.hpp"
 
 namespace rokae::ros2 {
@@ -139,6 +154,12 @@ public:
     void moveCF(const rokae::MoveCFCommand& cmd, std::error_code& ec);
     void moveSP(const rokae::MoveSPCommand& cmd, std::error_code& ec);
 
+    // ==================== 4.5 实时控制/高级数据接口 ====================
+    void setRtControlMode(rokae::RtControllerMode mode, std::error_code& ec);
+    bool getRtJointData(std::array<double, 6>& position, std::array<double, 6>& velocity, std::array<double, 6>& torque, std::error_code& ec);
+    std::string sendCustomData(const std::string& topic, const std::string& payload, std::error_code& ec);
+    bool registerDataCallback(const std::string& data_topic, const std::string& callback_id, std::error_code& ec);
+
     // ==================== 4.6 IO与通信接口 ====================
     bool getDI(unsigned int board, unsigned int port, std::error_code& ec);
     bool getDO(unsigned int board, unsigned int port, std::error_code& ec);
@@ -147,10 +168,38 @@ public:
     double getAI(unsigned int board, unsigned int port, std::error_code& ec);
     void setAO(unsigned int board, unsigned int port, double value, std::error_code& ec);
     void setSimulationMode(bool state, std::error_code& ec);
+    std::string readRegister(const std::string& key, std::error_code& ec);
+    void writeRegister(const std::string& key, const std::string& value, std::error_code& ec);
+
+    // ==================== 4.7 RL工程接口 ====================
+    bool loadRLProject(const std::string& project_path, std::string& project_name, std::error_code& ec);
+    bool startRLProject(const std::string& project_id, int& current_episode, std::error_code& ec);
+    bool stopRLProject(const std::string& project_id, int& finished_episode, std::error_code& ec);
 
     // ==================== 4.8 协作机器人专属接口 ====================
     void enableDrag(rokae::DragParameter::Space space, rokae::DragParameter::Type type, std::error_code& ec);
     void disableDrag(std::error_code& ec);
+    void startJog(rokae::JogOpt::Space space, unsigned int index, bool direction, double step, std::error_code& ec);
+    void setAvoidSingularity(bool enable, std::error_code& ec);
+    bool getAvoidSingularity(std::error_code& ec);
+    std::array<double, 6> getEndTorque(std::error_code& ec);
+    bool calcJointTorque(const std::array<double, 6>& joint_pos,
+                         const std::array<double, 6>& joint_vel,
+                         const std::array<double, 6>& joint_acc,
+                         const std::array<double, 6>& external_force,
+                         std::array<double, 6>& joint_torque,
+                         std::array<double, 6>& gravity_torque,
+                         std::array<double, 6>& coriolis_torque,
+                         std::error_code& ec);
+    bool generateSTrajectory(const std::array<double, 6>& start_joint_pos,
+                             const std::array<double, 6>& target_joint_pos,
+                             std::vector<std::array<double, 6>>& trajectory_points,
+                             double& total_time,
+                             std::error_code& ec);
+    bool mapCartesianToJointTorque(const std::array<double, 6>& cart_force,
+                                   const std::array<double, 6>& joint_pos,
+                                   std::array<double, 6>& joint_torque,
+                                   std::error_code& ec);
     // 路径录制与回放
     void startRecordPath(std::chrono::seconds duration, std::error_code& ec);
     void stopRecordPath(std::error_code& ec);
@@ -241,6 +290,14 @@ private:
         rclcpp::Client<rokae_xmate3_ros2::srv::SetDefaultConfOpt>::SharedPtr xmate3_motion_set_default_conf_opt_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::AdjustSpeedOnline>::SharedPtr xmate3_motion_adjust_speed_online_client_;
 
+        // 实时控制/高级数据
+        rclcpp::Client<rokae_xmate3_ros2::srv::SetRtControlMode>::SharedPtr xmate3_rt_set_control_mode_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::GetRtJointData>::SharedPtr xmate3_rt_get_joint_data_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::SendCustomData>::SharedPtr xmate3_comm_send_custom_data_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::RegisterDataCallback>::SharedPtr xmate3_comm_register_data_callback_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::ReadRegister>::SharedPtr xmate3_comm_read_register_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::WriteRegister>::SharedPtr xmate3_comm_write_register_client_;
+
         // IO控制
         rclcpp::Client<rokae_xmate3_ros2::srv::GetDI>::SharedPtr xmate3_io_get_di_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GetDO>::SharedPtr xmate3_io_get_do_client_;
@@ -249,6 +306,15 @@ private:
         rclcpp::Client<rokae_xmate3_ros2::srv::GetAI>::SharedPtr xmate3_io_get_ai_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::SetAO>::SharedPtr xmate3_io_set_ao_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::SetSimulationMode>::SharedPtr xmate3_io_set_simulation_mode_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::LoadRLProject>::SharedPtr xmate3_rl_load_project_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::StartRLProject>::SharedPtr xmate3_rl_start_project_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::StopRLProject>::SharedPtr xmate3_rl_stop_project_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::SetAvoidSingularity>::SharedPtr xmate3_cobot_set_avoid_singularity_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::GetAvoidSingularity>::SharedPtr xmate3_cobot_get_avoid_singularity_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::GetEndTorque>::SharedPtr xmate3_cobot_get_end_torque_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::CalcJointTorque>::SharedPtr xmate3_dyn_calc_joint_torque_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::GenerateSTrajectory>::SharedPtr xmate3_dyn_generate_s_trajectory_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::MapCartesianToJointTorque>::SharedPtr xmate3_dyn_map_cartesian_to_joint_torque_client_;
 
         // 拖动与路径录制
         rclcpp::Client<rokae_xmate3_ros2::srv::EnableDrag>::SharedPtr xmate3_cobot_enable_drag_client_;

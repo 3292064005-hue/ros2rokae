@@ -1,0 +1,7 @@
+# WriteRegister.srv - 写入模拟控制器寄存器
+string key
+string value
+---
+bool success
+int32 error_code
+string error_msg

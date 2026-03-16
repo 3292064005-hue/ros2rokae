@@ -1,0 +1,7 @@
+# ReadRegister.srv - 读取模拟控制器寄存器
+string key
+---
+bool success
+int32 error_code
+string error_msg
+string value

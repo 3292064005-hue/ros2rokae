@@ -1,0 +1,88 @@
+# ========================================
+# xMate3 MoveIt2 CHOMP Planning Configuration
+# ========================================
+
+# Parameters for the optimizer
+planning_group: xmate3_arm
+
+# CHOMP optimization parameters
+optimization:
+  # Maximum number of iterations for the optimizer to run
+  max_iterations: 200
+
+  # Maximum number of iterations that the optimizer can run after finding a valid solution
+  max_iterations_after_collision_free: 50
+
+  # Stop criteria - cost change per iteration
+  cost_threshold: 1e-3
+
+  # The initial trajectory will be perturbed by this amount before optimization
+  # This is useful to avoid local minima
+  initial_trajectory_perturbation_factor: 0.0
+
+  # The step size for the gradient descent
+  learning_rate: 0.01
+
+  # How much to smooth the trajectory at each iteration
+  smoothness_cost_weight: 0.1
+
+  # How much to weight obstacle avoidance
+  obstacle_cost_weight: 1.0
+
+  # How much to weight the end effector's position
+  end_effector_weight: 1.0
+
+  # How much to cost for going near joint limits
+  joint_limit_cost_weight: 0.0
+
+  # Use a stochastic descent algorithm
+  use_stochastic_descent: false
+
+  # Use a cost function that penalizes based on distance to obstacles
+  use_pseudo_inverse: false
+
+  # Use collision avoidance
+  use_collision_avoidance: true
+
+  # The minimum distance to keep from obstacles
+  min_distance: 0.1
+
+  # The resolution used for collision checking
+  collision_clearance: 0.02
+
+  # Time step for the trajectory
+  duration: 10.0
+
+  # Multiplier for the time step
+  time_step: 0.01
+
+  # Random seed for reproducibility
+  random_seed: 1234
+
+# ========================================
+# CHOMP Ridge Factors
+# ========================================
+ridge_factor: 0.00001
+
+# ========================================
+# CHOMP Noise Parameters
+# ========================================
+noise_params:
+  - name: xmate_joint_1
+    stddev: 0.02
+  - name: xmate_joint_2
+    stddev: 0.02
+  - name: xmate_joint_3
+    stddev: 0.02
+  - name: xmate_joint_4
+    stddev: 0.02
+  - name: xmate_joint_5
+    stddev: 0.02
+  - name: xmate_joint_6
+    stddev: 0.02
+
+# ========================================
+# CHOMP Cost Functions
+# ========================================
+cost_function:
+  type: "quintic_spline"

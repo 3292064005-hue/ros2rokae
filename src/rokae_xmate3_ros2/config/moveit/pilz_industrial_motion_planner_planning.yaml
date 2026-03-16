@@ -1,0 +1,24 @@
+# ========================================
+# xMate3 MoveIt2 Pilz Industrial Motion Planner Configuration
+# ========================================
+
+planning_group: xmate3_arm
+
+default_planner_config: PTP
+
+planner_configs:
+  PTP:
+    type: PTP
+    default: true
+    velocity_scaling: 0.3
+    acceleration_scaling: 0.3
+
+  LIN:
+    type: LIN
+    velocity_scaling: 0.2
+    acceleration_scaling: 0.2
+
+  CIRC:
+    type: CIRC
+    velocity_scaling: 0.2
+    acceleration_scaling: 0.2

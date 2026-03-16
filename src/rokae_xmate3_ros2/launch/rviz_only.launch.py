@@ -1,62 +1,66 @@
-#!/usr/bin/env python3
-"""
-@file rviz_only.launch.py
-@brief 仅启动RViz2用于可视化
-@details 用于查看机器人模型而不启动Gazebo
-"""
-
 import os
-import launch
-import launch_ros
+
 from ament_index_python.packages import get_package_share_directory
-from launch_ros.actions import Node
+from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, Command
+from launch.conditions import IfCondition
+from launch.substitutions import Command, LaunchConfiguration
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
     pkg_share = get_package_share_directory("rokae_xmate3_ros2")
-    urdf_path = os.path.join(pkg_share, "urdf", "xMate3.xacro")
+    urdf_file = os.path.join(pkg_share, "urdf", "xMate3.xacro")
     rviz_config = os.path.join(pkg_share, "config", "xMate3.rviz")
 
-    arg_model = DeclareLaunchArgument(
-        name="model",
-        default_value=str(urdf_path),
-        description="URDF/xacro模型文件路径"
+    model_arg = DeclareLaunchArgument(
+        "model",
+        default_value=urdf_file,
+        description="URDF/xacro 模型文件路径",
+    )
+    rviz_arg = DeclareLaunchArgument(
+        "rviz",
+        default_value="true",
+        description="是否启动 RViz",
+    )
+    sim_time_arg = DeclareLaunchArgument(
+        "use_sim_time",
+        default_value="false",
+        description="RViz only 模式默认不使用仿真时间",
     )
 
-    robot_description = launch_ros.parameter_descriptions.ParameterValue(
-        Command(["xacro ", LaunchConfiguration("model")]),
-        value_type=str
-    )
+    robot_description_content = Command(["xacro ", LaunchConfiguration("model")])
+    robot_description = ParameterValue(robot_description_content, value_type=str)
 
-    node_robot_state_pub = Node(
+    rsp = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
-        name="robot_state_publisher",
         output="screen",
-        parameters=[{"robot_description": robot_description}]
+        parameters=[
+            {"robot_description": robot_description},
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+        ],
+        remappings=[("/joint_states", "/xmate3/joint_states")],
     )
 
-    node_joint_state_pub_gui = Node(
-        package="joint_state_publisher_gui",
-        executable="joint_state_publisher_gui",
-        name="joint_state_publisher_gui",
-        output="screen"
-    )
-
-    node_rviz = Node(
+    rviz = Node(
         package="rviz2",
         executable="rviz2",
         name="rviz2",
         arguments=["-d", rviz_config],
-        output="screen"
+        output="screen",
+        parameters=[
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            {"robot_description": robot_description},
+        ],
+        condition=IfCondition(LaunchConfiguration("rviz")),
     )
 
-    return launch.LaunchDescription([
-        arg_model,
-        launch.actions.LogInfo(msg="启动 xMate3 RViz 可视化..."),
-        node_robot_state_pub,
-        node_joint_state_pub_gui,
-        node_rviz,
+    return LaunchDescription([
+        model_arg,
+        rviz_arg,
+        sim_time_arg,
+        rsp,
+        rviz,
     ])

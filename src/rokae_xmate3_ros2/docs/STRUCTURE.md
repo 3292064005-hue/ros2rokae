@@ -39,6 +39,7 @@ examples/
     ├── 06_io_control.cpp              # 第4.6节 - IO控制
     ├── 07_safety_collision.cpp        # 第4.3/4.8节 - 安全功能
     ├── 08_path_record_replay.cpp      # 第4.8节 - 路径录制回放
+    ├── 09_advanced_sdk_compat.cpp     # 第4.5/4.7/4.8节 - 高级兼容能力
     ├── 99_complete_demo.cpp           # 综合演示
     └── CMakeLists.txt.inc             # 构建配置
 ```
@@ -150,6 +151,7 @@ config/
 | 4.6 | `06_io_control.cpp` | IO控制 |
 | 4.3/4.8 | `07_safety_collision.cpp` | 安全与碰撞检测 |
 | 4.8 | `08_path_record_replay.cpp` | 路径录制与回放 |
+| 4.5/4.7/4.8 | `09_advanced_sdk_compat.cpp` | 高级 SDK 兼容能力 |
 | - | `99_complete_demo.cpp` | 综合演示 |
 
 ---

@@ -57,6 +57,7 @@ examples/
 
 | 示例 | 文件名 | 功能 |
 |------|--------|------|
+| 09 | `09_advanced_sdk_compat.cpp` | 高级 SDK 兼容能力（RT/RL/寄存器/动力学/奇异规避） |
 | 99 | `99_complete_demo.cpp` | 完整功能演示流程 |
 
 ---
@@ -69,7 +70,7 @@ examples/
 ### 2. 运行
 ```bash
 # 先启动仿真
-ros2 launch rokae_xmate3_ros2 simulation.launch.py
+ros2 launch rokae_xmate3_ros2 xmate3_simulation.launch.py
 
 # 在新终端运行示例
 ros2 run rokae_xmate3_ros2 example_01_basic_connect
@@ -117,12 +118,13 @@ cat ~/ros2_ws0/src/rokae_xmate3_ros2/examples/cpp/01_basic_connect.cpp
 7. `06_io_control.cpp` - IO控制
 8. `07_safety_collision.cpp` - 安全功能
 9. `08_path_record_replay.cpp` - 路径操作
+10. `09_advanced_sdk_compat.cpp` - RT/RL/寄存器/动力学/奇异规避
 
 ---
 
 ## 注意事项
 
-1. **仿真环境**: 所有示例都需要先启动 `simulation.launch.py`
+1. **仿真环境**: 所有示例都需要先启动 `xmate3_simulation.launch.py`（或 `simulation.launch.py`）
 2. **错误处理**: 示例中包含完整的错误码 (std::error_code) 处理
 3. **命名约定**: API完全遵循 xCore SDK C++ 使用手册 的命名
 4. **章节对应**: 每个示例文件头都标明了对应的手册章节

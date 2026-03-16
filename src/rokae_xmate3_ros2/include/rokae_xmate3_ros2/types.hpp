@@ -1,128 +1,136 @@
 #ifndef ROKAE_TYPES_H
 #define ROKAE_TYPES_H
 
-#include <cstdint>
+#include <any>
 #include <array>
-#include <vector>
-#include <string>
 #include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <functional>
+#include <initializer_list>
+#include <limits>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace rokae {
 
-// ==================== 8.1 枚举类型定义（严格对齐手册） ====================
-/**
- * @brief 机器人工作状态（手册8.1.1）
- */
-enum class OperationState : uint8_t {
-  idle = 0,                ///< 空闲
-  jog = 1,                 ///< 点动
-  rtControlling = 2,       ///< 实时控制
-  drag = 3,                ///< 拖动示教
-  rlProgram = 4,           ///< 机器人语言程序运行
-  moving = 5,              ///< 运动中
-  jogging = 6,             ///< 连续点动
-  unknown = 255            ///< 未知状态
+constexpr int USE_DEFAULT = -1;
+constexpr int Unknown = -1;
+
+// ==================== Enumerations ====================
+enum class OperationState {
+  idle = 0,
+  jog = 1,
+  rtControlling = 2,
+  drag = 3,
+  rlProgram = 4,
+  demo = 5,
+  dynamicIdentify = 6,
+  frictionIdentify = 7,
+  loadIdentify = 8,
+  moving = 9,
+  jogging = 10,
+  unknown = Unknown
 };
 
-/**
- * @brief 机型类别（手册8.1.2）
- */
-enum class WorkType : uint8_t {
-  collaborative = 0,       ///< 协作机器人
-  industrial = 1,          ///< 工业机器人
-  unknown = 255            ///< 未知机型
+enum class WorkType {
+  industrial = 0,
+  collaborative = 1
 };
 
-/**
- * @brief 机器人操作模式（手册8.1.3）
- */
-enum class OperateMode : uint8_t {
-  manual = 0,              ///< 手动模式
-  automatic = 1,           ///< 自动模式
-  unknown = 255            ///< 未知模式
+enum class OperateMode {
+  manual = 0,
+  automatic = 1,
+  unknown = Unknown
 };
 
-/**
- * @brief 机器人上电及急停状态（手册8.1.4）
- */
-enum class PowerState : uint8_t {
-  off = 0,                 ///< 下电
-  on = 1,                  ///< 上电
-  estop = 2,               ///< 急停被按下
-  gstop = 3,               ///< 安全门打开
-  unknown = 255            ///< 未知状态
+enum class PowerState {
+  on = 0,
+  off = 1,
+  estop = 2,
+  gstop = 3,
+  unknown = Unknown
 };
 
-/**
- * @brief 位姿坐标系类型（手册8.1.5）
- */
-enum class CoordinateType : uint8_t {
-  flangeInBase = 0,        ///< 法兰相对于基坐标系
-  endInRef = 1             ///< 末端相对于外部参考坐标系
+enum class CoordinateType {
+  flangeInBase = 0,
+  endInRef = 1
 };
 
-/**
- * @brief 运动控制模式（手册8.1.6）
- */
-enum class MotionControlMode : uint8_t {
-  NrtCommand = 0,          ///< 非实时指令模式
-  RtCommand = 1,           ///< 实时指令模式
-  RLProgram = 2            ///< RL工程模式
+enum class MotionControlMode : unsigned {
+  Idle = 0,
+  NrtCommand = 1,
+  NrtRLTask = 2,
+  RtCommand = 3,
 };
 
-/**
- * @brief 控制器实时控制模式（手册8.1.7）
- */
-enum class RtControllerMode : uint8_t {
-  jointPosition = 0,       ///< 轴空间位置控制
-  cartesianPosition = 1,   ///< 笛卡尔空间位置控制
-  jointImpedance = 2,      ///< 轴空间阻抗控制
-  cartesianImpedance = 3,  ///< 笛卡尔空间阻抗控制
-  jointTorque = 4          ///< 直接力矩控制
+enum class RtControllerMode : unsigned {
+  jointPosition = 0,
+  cartesianPosition = 1,
+  jointImpedance = 2,
+  cartesianImpedance = 3,
+  torque = 4
 };
 
-/**
- * @brief 机器人停止运动等级（手册8.1.8）
- */
-enum class StopLevel : uint8_t {
-  stop0 = 0,               ///< 快速停止后断电
-  stop1 = 1,               ///< 规划停止后断电
-  stop2 = 2,               ///< 规划停止后不断电
-  suppleStop = 3           ///< 柔顺停止（仅协作机型）
+namespace RtSupportedFields {
+constexpr const char *jointPos_m = "q_m";
+constexpr const char *jointPos_c = "q_c";
+constexpr const char *jointVel_m = "dq_m";
+constexpr const char *jointVel_c = "dq_c";
+constexpr const char *jointAcc_c = "ddq_c";
+constexpr const char *tcpPose_m = "pos_m";
+constexpr const char *tcpPoseAbc_m = "pos_abc_m";
+constexpr const char *tcpPose_c = "pos_c";
+constexpr const char *tcpVel_c = "pos_vel_c";
+constexpr const char *tcpAcc_c = "pos_acc_c";
+constexpr const char *elbow_m = "psi_m";
+constexpr const char *elbow_c = "psi_c";
+constexpr const char *elbowVel_c = "psi_vel_c";
+constexpr const char *elbowAcc_c = "psi_acc_c";
+constexpr const char *tau_m = "tau_m";
+constexpr const char *tau_c = "tau_c";
+constexpr const char *tauFiltered_m = "tau_filtered_m";
+constexpr const char *tauVel_c = "tau_vel_c";
+constexpr const char *tauExt_inBase = "tau_ext_base";
+constexpr const char *tauExt_inStiff = "tau_ext_stiff";
+constexpr const char *theta_m = "theta_m";
+constexpr const char *thetaVel_m = "theta_vel_m";
+constexpr const char *motorTau = "motor_tau";
+constexpr const char *motorTauFiltered = "motor_tau_filtered";
+}  // namespace RtSupportedFields
+
+enum class StopLevel {
+  stop0 = 0,
+  stop1 = 1,
+  stop2 = 2,
+  suppleStop = 3
 };
 
-/**
- * @brief 机器人拖动模式参数（手册8.1.9）
- */
-namespace DragParameter {
-  enum class Space : uint8_t {
-    jointSpace = 0,        ///< 轴空间拖动
-    cartesianSpace = 1     ///< 笛卡尔空间拖动
+struct DragParameter {
+  enum Space {
+    jointSpace = 0,
+    cartesianSpace = 1
   };
-  enum class Type : uint8_t {
-    translationOnly = 0,   ///< 仅平移
-    rotationOnly = 1,      ///< 仅旋转
-    freely = 2             ///< 自由拖拽
+  enum Type {
+    translationOnly = 0,
+    rotationOnly = 1,
+    freely = 2
   };
-}
-
-/**
- * @brief 坐标系类型（手册8.1.10）
- */
-enum class FrameType : uint8_t {
-  world = 0,               ///< 世界坐标系
-  base = 1,                ///< 基坐标系
-  flange = 2,              ///< 法兰坐标系
-  tool = 3,                ///< 工具坐标系
-  wobj = 4,                ///< 工件坐标系
-  path = 5                 ///< 路径坐标系
 };
 
-/**
- * @brief Jog选项-坐标系（手册8.1.11）
- */
-namespace JogOpt {
-  enum class Space : uint8_t {
+enum class FrameType {
+  world = 0,
+  base = 1,
+  flange = 2,
+  tool = 3,
+  wobj = 4,
+  path = 5
+};
+
+struct JogOpt {
+  enum Space {
     world = 0,
     flange = 1,
     baseFrame = 2,
@@ -132,188 +140,244 @@ namespace JogOpt {
     singularityAvoidMode = 6,
     baseParallelMode = 7
   };
-}
-
-/**
- * @brief 力矩类型（手册8.1.13）
- */
-enum class TorqueType : uint8_t {
-  full = 0,                ///< 全量关节力矩
-  inertia = 1,             ///< 惯性力
-  coriolis = 2,            ///< 科氏力
-  friction = 3,            ///< 摩擦力
-  gravity = 4              ///< 重力
 };
 
-/**
- * @brief 事件类型（手册8.1.14）
- */
-enum class Event : uint8_t {
-  moveExecution = 0,       ///< 非实时运动指令执行信息
-  safety = 1,              ///< 安全事件（碰撞等）
-  unknown = 255
-};
-
-/**
- * @brief 错误码类型
- */
-enum class ErrorCode : int32_t {
-  success = 0,
-  networkError = 1,
-  connectionFailed = 2,
-  serviceUnavailable = 3,
-  invalidParameter = 4,
-  motionError = 5,
-  permissionDenied = 6,
-  robotBusy = 7,
-  hardwareError = 10,
-  unknownError = 255
-};
-
-// ==================== 8.2 数据结构体（严格对齐手册） ====================
-/**
- * @brief 机器人基本信息（手册8.2.1）
- */
-struct Info {
-  std::string id;                  ///< 机器人唯一ID
-  std::string version;             ///< 控制器固件版本
-  std::string type;                ///< 机器人机型名称
-  int joint_num = 6;               ///< 关节轴数
-  std::string sdk_version;         ///< SDK版本
-  std::string serial_number;       ///< 机器人序列号
-  std::string model;               ///< 机器人型号
-};
-
-/**
- * @brief 坐标系（手册8.2.2）
- */
-/**
- * @brief 坐标系（手册8.2.2）
- */
-struct Frame {
-  std::array<double, 3> trans;     ///< 平移量 [X,Y,Z] 单位:米
-  std::array<double, 3> rpy;       ///< XYZ欧拉角 [A,B,C] 单位:弧度
-  std::array<double, 16> pos;      ///< 行优先4x4齐次变换矩阵
-  FrameType type = FrameType::base;
-  std::string name = "default";
-};
-// 原错误：enum class Frame { World, Tool, User }; 重名了
-// 修正后：改名避免冲突
-enum class FrameId { World, Tool, User };
-
-
-struct CartesianPosition {
-  std::array<double, 3> trans;     ///< 平移量 [x,y,z] 单位:米
-  std::array<double, 3> rpy;       ///< 旋转量 [r,p,y] 单位:弧度
-  double elbow = 0.0;               ///< 臂角（7轴机器人专用）
-  bool hasElbow = false;            ///< 是否包含臂角
-  std::vector<int> confData;       ///< 轴配置数据
-  std::vector<double> external;     ///< 外部关节角度
-
-  // 保留非const引用（兼容原有直接访问方式，无重复声明）
-  double& x = trans[0];
-  double& y = trans[1];
-  double& z = trans[2];
-  double& rx = rpy[0];
-  double& ry = rpy[1];
-  double& rz = rpy[2];
-
-  // 提供const版本的访问接口（替代重复的const引用声明）
-  const double& get_x() const { return trans[0]; }
-  const double& get_y() const { return trans[1]; }
-  const double& get_z() const { return trans[2]; }
-  const double& get_rx() const { return rpy[0]; }
-  const double& get_ry() const { return rpy[1]; }
-  const double& get_rz() const { return rpy[2]; }
-
-  /**
-   * @brief 笛卡尔点位偏移量（手册8.2.4）
-   */
-  struct Offset {
-    enum class Type {
-      None = 0,
-      Offs = 1,
-      RelTool = 2
-    } type = Type::None;
-    Frame frame{};
+struct xPanelOpt {
+  enum Vout {
+    off = 0,
+    reserve = 1,
+    supply12v = 2,
+    supply24v = 3,
   };
 };
 
-/**
- * @brief 关节点位（手册8.2.5）
- */
-struct JointPosition {
-  std::vector<double> joints;       ///< 关节角度 单位:弧度
-  std::vector<double> external;     ///< 外部关节角度
-
-  // 构造函数：默认初始化6轴空间，确保joints至少有6个元素
-  JointPosition() : joints(6, 0.0), external(0) {}
-  JointPosition(size_t dof) : joints((dof >= 6) ? dof : 6, 0.0), external(0) {}
-
-  // 保留非const引用（兼容原有直接访问方式），且避免越界
-  double& j1 = joints[0];
-  double& j2 = joints[1];
-  double& j3 = joints[2];
-  double& j4 = joints[3];
-  double& j5 = joints[4];
-  double& j6 = joints[5];
-
-  // 提供const版本的访问接口（替代重复的const引用声明）
-  const double& get_j1() const { return joints[0]; }
-  const double& get_j2() const { return joints[1]; }
-  const double& get_j3() const { return joints[2]; }
-  const double& get_j4() const { return joints[3]; }
-  const double& get_j5() const { return joints[4]; }
-  const double& get_j6() const { return joints[5]; }
-};
-/**
- * @brief 关节扭矩（手册8.2.6）
- */
-struct Torque {
-  std::vector<double> joint_torques;    ///< 关节扭矩 单位:Nm
-  std::vector<double> external_torques; ///< 外部轴扭矩
-  TorqueType type = TorqueType::full;
-
-  // 构造函数：默认初始化6轴空间
-  Torque() : joint_torques(6, 0.0), external_torques(0) {}
-  Torque(size_t dof) : joint_torques(dof, 0.0), external_torques(0) {}
+enum class TorqueType {
+  full = 0,
+  inertia = 1,
+  coriolis = 2,
+  friction = 3,
+  gravity = 4
 };
 
-/**
- * @brief 负载信息（手册8.2.7）
- */
+typedef std::unordered_map<std::string, std::any> EventInfo;
+typedef std::function<void(const EventInfo &)> EventCallback;
+
+enum class Event {
+  moveExecution = 0,
+  safety = 1
+};
+
+namespace EventInfoKey {
+namespace MoveExecution {
+constexpr const char *ID = "cmdID";
+constexpr const char *ReachTarget = "reachTarget";
+constexpr const char *WaypointIndex = "wayPointIndex";
+constexpr const char *Error = "error";
+constexpr const char *Remark = "remark";
+}  // namespace MoveExecution
+namespace Safety {
+constexpr const char *Collided = "collided";
+}  // namespace Safety
+}  // namespace EventInfoKey
+
+// ==================== Data Types ====================
+struct Info {
+  std::string id;
+  std::string version;
+  std::string type;
+  int joint_num = 6;
+  std::string sdk_version;
+  std::string serial_number;
+  std::string model;
+};
+
+class Frame {
+public:
+  std::array<double, 3> trans{};
+  std::array<double, 3> rpy{};
+  std::array<double, 16> pos{};
+  double &x;
+  double &y;
+  double &z;
+  double &rx;
+  double &ry;
+  double &rz;
+
+  Frame()
+      : x(trans[0]), y(trans[1]), z(trans[2]), rx(rpy[0]), ry(rpy[1]), rz(rpy[2]) {
+    syncPoseMatrix();
+  }
+
+  Frame(const Frame &other)
+      : trans(other.trans), rpy(other.rpy), pos(other.pos),
+        x(trans[0]), y(trans[1]), z(trans[2]), rx(rpy[0]), ry(rpy[1]), rz(rpy[2]) {}
+
+  Frame &operator=(const Frame &other) {
+    if (this != &other) {
+      trans = other.trans;
+      rpy = other.rpy;
+      pos = other.pos;
+    }
+    return *this;
+  }
+
+  explicit Frame(const std::array<double, 3> &translation, const std::array<double, 3> &rotation)
+      : trans(translation), rpy(rotation), x(trans[0]), y(trans[1]), z(trans[2]), rx(rpy[0]), ry(rpy[1]), rz(rpy[2]) {
+    syncPoseMatrix();
+  }
+
+  explicit Frame(const std::array<double, 6> &frame)
+      : x(trans[0]), y(trans[1]), z(trans[2]), rx(rpy[0]), ry(rpy[1]), rz(rpy[2]) {
+    trans = {frame[0], frame[1], frame[2]};
+    rpy = {frame[3], frame[4], frame[5]};
+    syncPoseMatrix();
+  }
+
+  explicit Frame(const std::array<double, 16> &matrix)
+      : pos(matrix), x(trans[0]), y(trans[1]), z(trans[2]), rx(rpy[0]), ry(rpy[1]), rz(rpy[2]) {
+    syncComponentsFromMatrix();
+  }
+
+  Frame(std::initializer_list<double> values)
+      : x(trans[0]), y(trans[1]), z(trans[2]), rx(rpy[0]), ry(rpy[1]), rz(rpy[2]) {
+    if (values.size() == 6) {
+      auto it = values.begin();
+      for (size_t i = 0; i < 3; ++i, ++it) {
+        trans[i] = *it;
+      }
+      for (size_t i = 0; i < 3; ++i, ++it) {
+        rpy[i] = *it;
+      }
+      syncPoseMatrix();
+    } else if (values.size() == 16) {
+      std::copy(values.begin(), values.end(), pos.begin());
+      syncComponentsFromMatrix();
+    } else {
+      trans = {};
+      rpy = {};
+      syncPoseMatrix();
+    }
+  }
+
+  void syncPoseMatrix() {
+    const double cx = std::cos(rpy[0]);
+    const double sx = std::sin(rpy[0]);
+    const double cy = std::cos(rpy[1]);
+    const double sy = std::sin(rpy[1]);
+    const double cz = std::cos(rpy[2]);
+    const double sz = std::sin(rpy[2]);
+    pos = {
+      cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx, trans[0],
+      sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx, trans[1],
+      -sy,     cy * sx,                cy * cx,                trans[2],
+      0.0,     0.0,                    0.0,                    1.0};
+  }
+
+  void syncComponentsFromMatrix() {
+    trans = {pos[3], pos[7], pos[11]};
+    rpy[1] = std::atan2(-pos[8], std::sqrt(pos[0] * pos[0] + pos[4] * pos[4]));
+    if (std::abs(std::cos(rpy[1])) < 1e-9) {
+      rpy[0] = 0.0;
+      rpy[2] = std::atan2(-pos[1], pos[5]);
+    } else {
+      rpy[0] = std::atan2(pos[9], pos[10]);
+      rpy[2] = std::atan2(pos[4], pos[0]);
+    }
+  }
+};
+
+class Finishable {
+public:
+  uint8_t isFinished() const { return finished; }
+  void setFinished() { finished = 1; }
+
+protected:
+  uint8_t finished{0};
+};
+
+class CartesianPosition : public Frame, public Finishable {
+public:
+  struct Offset {
+    enum Type {
+      none = 0,
+      offs = 1,
+      relTool = 2,
+    };
+
+    Offset() = default;
+    Offset(Type offset_type, const Frame &offset_frame) : type(offset_type), frame(offset_frame) {}
+
+    Type type{none};
+    Frame frame{};
+  };
+
+  using Frame::Frame;
+
+  CartesianPosition() = default;
+
+  CartesianPosition(const CartesianPosition &other)
+      : Frame(other), Finishable(other), elbow(other.elbow), hasElbow(other.hasElbow),
+        confData(other.confData), external(other.external) {}
+
+  CartesianPosition &operator=(const CartesianPosition &other) {
+    if (this != &other) {
+      Frame::operator=(other);
+      finished = other.finished;
+      elbow = other.elbow;
+      hasElbow = other.hasElbow;
+      confData = other.confData;
+      external = other.external;
+    }
+    return *this;
+  }
+
+  double elbow{0.0};
+  bool hasElbow{false};
+  std::vector<int> confData;
+  std::vector<double> external;
+};
+
+class JointPosition : public Finishable {
+public:
+  JointPosition() : joints(6, 0.0) {}
+  JointPosition(std::initializer_list<double> values) : joints(values) {}
+  explicit JointPosition(std::vector<double> values) : joints(std::move(values)) {}
+  JointPosition(size_t n, double v = 0.0) : joints(n, v) {}
+
+  std::vector<double> joints;
+  std::vector<double> external;
+};
+
+class Torque : public Finishable {
+public:
+  Torque() : tau(6, 0.0) {}
+  explicit Torque(std::vector<double> values) : tau(std::move(values)) {}
+
+  std::vector<double> tau;
+};
+
 struct Load {
-  double mass = 0.0;                    ///< 负载质量 单位:千克
-  std::array<double, 3> cog;            ///< 质心 [x,y,z] 单位:米
-  std::array<double, 3> inertia;        ///< 惯量 [ix,iy,iz] 单位:千克·平方米
+  double mass = 0.0;
+  std::array<double, 3> cog{};
+  std::array<double, 3> inertia{};
 };
 
-/**
- * @brief 工具工件组信息（手册8.2.8）
- */
 struct Toolset {
-  Load load;                             ///< 末端手持负载
-  Frame end;                             ///< 末端坐标系相对法兰转换
-  Frame ref;                             ///< 参考坐标系相对世界转换
-  // 兼容代码逻辑扩展字段
-  std::string tool_name;
-  std::string wobj_name;
-  std::array<double, 6> tool_pose;      ///< 工具位姿 [X,Y,Z,Rx,Ry,Rz]
-  std::array<double, 6> wobj_pose;      ///< 工件位姿 [X,Y,Z,Rx,Ry,Rz]
+  Load load{};
+  Frame end{};
+  Frame ref{};
+  std::string tool_name{"tool0"};
+  std::string wobj_name{"wobj0"};
+  std::array<double, 6> tool_pose{};
+  std::array<double, 6> wobj_pose{};
 };
 
-/**
- * @brief 坐标系标定结果（手册8.2.9）
- */
 struct FrameCalibrationResult {
-  Frame frame;
-  std::array<double, 3> errors;         ///< 标定偏差 [最小值,平均值,最大值]
+  Frame frame{};
+  std::array<double, 3> errors{};
   bool success = false;
 };
 
-/**
- * @brief RL工程信息（手册8.2.10）
- */
 struct RLProjectInfo {
   std::string name;
   std::vector<std::string> taskList;
@@ -322,95 +386,99 @@ struct RLProjectInfo {
   bool loop_mode = false;
 };
 
-/**
- * @brief 工具/工件信息（手册8.2.11）
- */
 struct WorkToolInfo {
   std::string name;
   std::string alias;
   bool robotHeld = true;
-  Frame pos;
-  Load load;
+  Frame pos{};
+  Load load{};
 };
 
-/**
- * @brief 运动指令MoveAbsJ（手册8.2.12）
- */
 struct MoveAbsJCommand {
-  JointPosition target;
+  JointPosition target{};
   int speed = 100;
   int zone = 0;
+
+  MoveAbsJCommand() = default;
+  explicit MoveAbsJCommand(std::initializer_list<double> joints) : target(joints) {}
+  explicit MoveAbsJCommand(const JointPosition &joint_target) : target(joint_target) {}
 };
 
-/**
- * @brief 运动指令MoveJ（手册8.2.13）
- */
 struct MoveJCommand {
-  CartesianPosition target;
+  CartesianPosition target{};
   int speed = 100;
   int zone = 0;
-  CartesianPosition::Offset offset;
+  CartesianPosition::Offset offset{};
+
+  MoveJCommand() = default;
+  explicit MoveJCommand(const CartesianPosition &target_pose) : target(target_pose) {}
 };
 
-/**
- * @brief 运动指令MoveL（手册8.2.14）
- */
 struct MoveLCommand {
-  CartesianPosition target;
+  CartesianPosition target{};
   int speed = 100;
   int zone = 0;
-  CartesianPosition::Offset offset;
+  CartesianPosition::Offset offset{};
+
+  MoveLCommand() = default;
+  explicit MoveLCommand(const CartesianPosition &target_pose) : target(target_pose) {}
 };
 
-/**
- * @brief 运动指令MoveC（手册8.2.15）
- */
 struct MoveCCommand {
-  CartesianPosition target;
-  CartesianPosition aux;
+  CartesianPosition target{};
+  CartesianPosition aux{};
   int speed = 100;
   int zone = 0;
-  CartesianPosition::Offset targetOffset;
-  CartesianPosition::Offset auxOffset;
+  CartesianPosition::Offset targetOffset{};
+  CartesianPosition::Offset auxOffset{};
+
+  MoveCCommand() = default;
+  MoveCCommand(const CartesianPosition &target_pose, const CartesianPosition &aux_pose)
+      : target(target_pose), aux(aux_pose) {}
 };
 
-/**
- * @brief 运动指令MoveCF（手册8.2.16）
- */
 struct MoveCFCommand {
-  CartesianPosition target;
-  CartesianPosition aux;
+  CartesianPosition target{};
+  CartesianPosition aux{};
   int speed = 100;
   int zone = 0;
   double angle = 0.0;
-  CartesianPosition::Offset targetOffset;
-  CartesianPosition::Offset auxOffset;
+  CartesianPosition::Offset targetOffset{};
+  CartesianPosition::Offset auxOffset{};
+
+  MoveCFCommand() = default;
+  MoveCFCommand(const CartesianPosition &target_pose, const CartesianPosition &aux_pose)
+      : target(target_pose), aux(aux_pose) {}
 };
 
-/**
- * @brief 运动指令MoveSP（手册8.2.17）
- */
 struct MoveSPCommand {
-  CartesianPosition target;
+  CartesianPosition target{};
   double radius = 0.0;
   double radius_step = 0.0;
   double angle = 0.0;
   bool direction = true;
   int speed = 100;
   int zone = 0;
-  CartesianPosition::Offset targetOffset;
+
+  MoveSPCommand() = default;
+  explicit MoveSPCommand(const CartesianPosition &target_pose) : target(target_pose) {}
 };
 
-/**
- * @brief 控制器日志信息（手册8.2.18）
- */
 struct LogInfo {
+  enum class Level : uint8_t {
+    debug = 0,
+    info = 1,
+    warning = 2,
+    error = 3,
+    fatal = 4,
+  };
+
   std::string timestamp;
   std::string content;
   std::string repair;
-  int level = 0;
+  int level = static_cast<int>(Level::info);
 };
 
-} // namespace rokae
+}  // namespace rokae
 
-#endif // ROKAE_TYPES_H
+#endif  // ROKAE_TYPES_H

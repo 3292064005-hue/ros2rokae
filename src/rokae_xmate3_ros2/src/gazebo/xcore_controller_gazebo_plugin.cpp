@@ -16,12 +16,13 @@
 #include <queue>
 #include <memory>
 #include <map>
+#include <vector>
+#include <mutex>
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <optional>
-#include <vector>
-#include <mutex>
+
+#include <builtin_interfaces/msg/time.hpp>
 
 #include "rokae_xmate3_ros2/gazebo/motion_types.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
@@ -82,6 +83,21 @@
 #include "rokae_xmate3_ros2/srv/replay_path.hpp"
 #include "rokae_xmate3_ros2/srv/remove_path.hpp"
 #include "rokae_xmate3_ros2/srv/query_path_lists.hpp"
+#include "rokae_xmate3_ros2/srv/set_rt_control_mode.hpp"
+#include "rokae_xmate3_ros2/srv/get_rt_joint_data.hpp"
+#include "rokae_xmate3_ros2/srv/send_custom_data.hpp"
+#include "rokae_xmate3_ros2/srv/register_data_callback.hpp"
+#include "rokae_xmate3_ros2/srv/calc_joint_torque.hpp"
+#include "rokae_xmate3_ros2/srv/generate_s_trajectory.hpp"
+#include "rokae_xmate3_ros2/srv/map_cartesian_to_joint_torque.hpp"
+#include "rokae_xmate3_ros2/srv/load_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/start_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/stop_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/read_register.hpp"
+#include "rokae_xmate3_ros2/srv/write_register.hpp"
+#include "rokae_xmate3_ros2/srv/set_avoid_singularity.hpp"
+#include "rokae_xmate3_ros2/srv/get_avoid_singularity.hpp"
+#include "rokae_xmate3_ros2/srv/get_end_torque.hpp"
 #include "rokae_xmate3_ros2/action/move_append.hpp"
 
 #ifndef M_PI
@@ -89,6 +105,14 @@
 #endif
 
 namespace gazebo {
+
+static builtin_interfaces::msg::Time ToBuiltinTime(const rclcpp::Time &time) {
+    builtin_interfaces::msg::Time stamp;
+    const auto ns = time.nanoseconds();
+    stamp.sec = static_cast<int32_t>(ns / 1000000000LL);
+    stamp.nanosec = static_cast<uint32_t>(ns % 1000000000LL);
+    return stamp;
+}
 
 namespace {
 
@@ -465,6 +489,16 @@ private:
     int default_zone_ = 0;
     double speed_scale_ = 1.0;
     bool default_conf_opt_forced_ = false;
+    bool avoid_singularity_enabled_ = true;
+    int rt_control_mode_ = -1;
+    bool rl_project_loaded_ = false;
+    bool rl_project_running_ = false;
+    int rl_current_episode_ = 0;
+    std::string loaded_rl_project_name_;
+    std::string loaded_rl_project_path_;
+    std::map<std::string, std::string> register_bank_;
+    std::map<std::string, std::string> custom_data_bank_;
+    std::map<std::string, std::string> callback_registry_;
 
     // ========== 【新增】初始姿态控制 ==========
     bool initial_pose_set_ = false; // 初始姿态是否已设置完成
@@ -551,6 +585,23 @@ private:
     rclcpp::Service<rokae_xmate3_ros2::srv::SetDefaultConfOpt>::SharedPtr set_default_conf_opt_srv_;
     rclcpp::Service<rokae_xmate3_ros2::srv::AdjustSpeedOnline>::SharedPtr adjust_speed_online_srv_;
 
+    // 实时控制/高级数据/扩展兼容
+    rclcpp::Service<rokae_xmate3_ros2::srv::SetRtControlMode>::SharedPtr set_rt_control_mode_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::GetRtJointData>::SharedPtr get_rt_joint_data_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::SendCustomData>::SharedPtr send_custom_data_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::RegisterDataCallback>::SharedPtr register_data_callback_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::ReadRegister>::SharedPtr read_register_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::WriteRegister>::SharedPtr write_register_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::LoadRLProject>::SharedPtr load_rl_project_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::StartRLProject>::SharedPtr start_rl_project_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::StopRLProject>::SharedPtr stop_rl_project_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::SetAvoidSingularity>::SharedPtr set_avoid_singularity_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::GetAvoidSingularity>::SharedPtr get_avoid_singularity_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::GetEndTorque>::SharedPtr get_end_torque_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::CalcJointTorque>::SharedPtr calc_joint_torque_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::GenerateSTrajectory>::SharedPtr generate_s_trajectory_srv_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::MapCartesianToJointTorque>::SharedPtr map_cartesian_to_joint_torque_srv_;
+
     // IO控制
     rclcpp::Service<rokae_xmate3_ros2::srv::GetDI>::SharedPtr get_di_srv_;
     rclcpp::Service<rokae_xmate3_ros2::srv::GetDO>::SharedPtr get_do_srv_;
@@ -573,6 +624,9 @@ private:
 
     // ROS2 Action Server
     rclcpp_action::Server<rokae_xmate3_ros2::action::MoveAppend>::SharedPtr move_append_action_server_;
+
+    // 兼容性别名服务（例如 /xmate3/cobot/get_di -> /xmate3/io/get_di）
+    std::vector<rclcpp::ServiceBase::SharedPtr> compatibility_services_;
 };
 
 void XCoreControllerPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf) {
@@ -1033,9 +1087,302 @@ void XCoreControllerPlugin::InitServices() {
             res->success = true;
         });
 
+    // ==================== 实时控制/高级兼容服务 ====================
+    set_rt_control_mode_srv_ = node_->create_service<rokae_xmate3_ros2::srv::SetRtControlMode>(
+        "/xmate3/cobot/set_rt_control_mode",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::SetRtControlMode::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::SetRtControlMode::Response> res) {
+            if (!power_on_) {
+                res->success = false;
+                res->error_code = 1002;
+                res->error_msg = "robot power is off";
+                return;
+            }
+            if (req->mode < 0 || req->mode > 4) {
+                res->success = false;
+                res->error_code = 1001;
+                res->error_msg = "invalid realtime control mode";
+                return;
+            }
+            rt_control_mode_ = req->mode;
+            motion_mode_ = 1;
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+        });
+
+    get_rt_joint_data_srv_ = node_->create_service<rokae_xmate3_ros2::srv::GetRtJointData>(
+        "/xmate3/cobot/get_rt_joint_data",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetRtJointData::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::GetRtJointData::Response> res) {
+            (void)req;
+            if (rt_control_mode_ < 0) {
+                res->success = false;
+                res->error_code = 2001;
+                res->error_msg = "realtime control mode is not active";
+                return;
+            }
+            for (int i = 0; i < 6 && i < joint_num_; ++i) {
+                res->joint_position[i] = joints_[i]->Position(0);
+                res->joint_velocity[i] = joints_[i]->GetVelocity(0);
+                res->joint_torque[i] = joints_[i]->GetForce(0);
+            }
+            res->stamp = ToBuiltinTime(node_->get_clock()->now());
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+        });
+
+    send_custom_data_srv_ = node_->create_service<rokae_xmate3_ros2::srv::SendCustomData>(
+        "/xmate3/cobot/send_custom_data",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::SendCustomData::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::SendCustomData::Response> res) {
+            custom_data_bank_[req->data_topic] = req->custom_data;
+            if (req->data_topic.rfind("register/", 0) == 0) {
+                register_bank_[req->data_topic.substr(9)] = req->custom_data;
+            }
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+            res->response_data = std::string("ACK:") + req->data_topic;
+            res->send_time = ToBuiltinTime(node_->get_clock()->now());
+        });
+
+    register_data_callback_srv_ = node_->create_service<rokae_xmate3_ros2::srv::RegisterDataCallback>(
+        "/xmate3/cobot/register_data_callback",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::RegisterDataCallback::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::RegisterDataCallback::Response> res) {
+            if (req->data_topic.empty() || req->callback_id.empty()) {
+                res->success = false;
+                res->error_code = 12001;
+                res->error_msg = "data_topic and callback_id must not be empty";
+                return;
+            }
+            if (callback_registry_.count(req->callback_id) > 0) {
+                res->success = false;
+                res->error_code = 12004;
+                res->error_msg = "callback_id already exists";
+                return;
+            }
+            callback_registry_[req->callback_id] = req->data_topic;
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+            res->register_time = ToBuiltinTime(node_->get_clock()->now());
+        });
+
+    read_register_srv_ = node_->create_service<rokae_xmate3_ros2::srv::ReadRegister>(
+        "/xmate3/cobot/read_register",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::ReadRegister::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::ReadRegister::Response> res) {
+            auto it = register_bank_.find(req->key);
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+            res->value = (it != register_bank_.end()) ? it->second : std::string();
+        });
+
+    write_register_srv_ = node_->create_service<rokae_xmate3_ros2::srv::WriteRegister>(
+        "/xmate3/cobot/write_register",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::WriteRegister::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::WriteRegister::Response> res) {
+            register_bank_[req->key] = req->value;
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+        });
+
+    load_rl_project_srv_ = node_->create_service<rokae_xmate3_ros2::srv::LoadRLProject>(
+        "/xmate3/cobot/load_rl_project",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::LoadRLProject::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::LoadRLProject::Response> res) {
+            std::string project_name = req->project_path;
+            const auto slash = project_name.find_last_of("/\\");
+            if (slash != std::string::npos) {
+                project_name = project_name.substr(slash + 1);
+            }
+            const auto dot = project_name.find_last_of('.');
+            if (dot != std::string::npos) {
+                project_name = project_name.substr(0, dot);
+            }
+            loaded_rl_project_path_ = req->project_path;
+            loaded_rl_project_name_ = project_name.empty() ? std::string("default_rl_project") : project_name;
+            rl_project_loaded_ = true;
+            rl_project_running_ = false;
+            rl_current_episode_ = 0;
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+            res->project_name = loaded_rl_project_name_;
+            res->load_time = 0.0;
+        });
+
+    start_rl_project_srv_ = node_->create_service<rokae_xmate3_ros2::srv::StartRLProject>(
+        "/xmate3/cobot/start_rl_project",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::StartRLProject::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::StartRLProject::Response> res) {
+            if (!rl_project_loaded_ || req->project_id != loaded_rl_project_name_) {
+                res->success = false;
+                res->error_code = 7001;
+                res->error_msg = "RL project is not loaded";
+                return;
+            }
+            if (rl_project_running_) {
+                res->success = false;
+                res->error_code = 7002;
+                res->error_msg = "RL project is already running";
+                return;
+            }
+            rl_project_running_ = true;
+            rl_current_episode_ = 1;
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+            res->current_episode = rl_current_episode_;
+            res->start_time = ToBuiltinTime(node_->get_clock()->now());
+        });
+
+    stop_rl_project_srv_ = node_->create_service<rokae_xmate3_ros2::srv::StopRLProject>(
+        "/xmate3/cobot/stop_rl_project",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::StopRLProject::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::StopRLProject::Response> res) {
+            if (!rl_project_running_ || req->project_id != loaded_rl_project_name_) {
+                res->success = false;
+                res->error_code = 8001;
+                res->error_msg = "RL project is not running";
+                return;
+            }
+            rl_project_running_ = false;
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+            res->finished_episode = std::max(rl_current_episode_, 1);
+            res->stop_time = ToBuiltinTime(node_->get_clock()->now());
+        });
+
+    set_avoid_singularity_srv_ = node_->create_service<rokae_xmate3_ros2::srv::SetAvoidSingularity>(
+        "/xmate3/cobot/set_avoid_singularity",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::SetAvoidSingularity::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::SetAvoidSingularity::Response> res) {
+            avoid_singularity_enabled_ = req->enable;
+            res->success = true;
+            res->message = avoid_singularity_enabled_ ? "enabled" : "disabled";
+        });
+
+    get_avoid_singularity_srv_ = node_->create_service<rokae_xmate3_ros2::srv::GetAvoidSingularity>(
+        "/xmate3/cobot/get_avoid_singularity",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetAvoidSingularity::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::GetAvoidSingularity::Response> res) {
+            (void)req;
+            res->success = true;
+            res->enabled = avoid_singularity_enabled_;
+            res->message = avoid_singularity_enabled_ ? "enabled" : "disabled";
+        });
+
+    calc_joint_torque_srv_ = node_->create_service<rokae_xmate3_ros2::srv::CalcJointTorque>(
+        "/xmate3/cobot/calc_joint_torque",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::CalcJointTorque::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::CalcJointTorque::Response> res) {
+            std::vector<double> joints(req->joint_pos.begin(), req->joint_pos.end());
+            if (joints.size() != 6) {
+                res->success = false;
+                res->error_code = 4002;
+                res->error_msg = "joint_pos size is invalid";
+                return;
+            }
+            Eigen::MatrixXd J = kinematics_->computeJacobian(joints);
+            Eigen::Matrix<double, 6, 1> wrench;
+            for (int i = 0; i < 6; ++i) {
+                wrench(i) = req->external_force[i];
+            }
+            Eigen::Matrix<double, 6, 1> tau_ext = J.transpose() * wrench;
+            for (int i = 0; i < 6; ++i) {
+                res->gravity_torque[i] = std::sin(req->joint_pos[i]) * 1.5;
+                res->coriolis_torque[i] = req->joint_vel[i] * 0.05;
+                res->joint_torque[i] = res->gravity_torque[i] + res->coriolis_torque[i] + req->joint_acc[i] * 0.02 + tau_ext(i);
+            }
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+        });
+
+    generate_s_trajectory_srv_ = node_->create_service<rokae_xmate3_ros2::srv::GenerateSTrajectory>(
+        "/xmate3/cobot/generate_s_trajectory",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GenerateSTrajectory::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::GenerateSTrajectory::Response> res) {
+            std::vector<double> start(req->start_joint_pos.begin(), req->start_joint_pos.end());
+            std::vector<double> target(req->target_joint_pos.begin(), req->target_joint_pos.end());
+            auto trajectory = TrajectoryPlanner::planJointMove(start, target, 32.0, 0.001);
+            if (trajectory.empty()) {
+                res->success = false;
+                res->error_code = 3003;
+                res->error_msg = "trajectory planning failed";
+                return;
+            }
+            res->trajectory_points.reserve(trajectory.size());
+            for (const auto& point : trajectory) {
+                rokae_xmate3_ros2::msg::JointPos6 joint_msg;
+                for (int i = 0; i < 6 && i < static_cast<int>(point.size()); ++i) {
+                    joint_msg.pos[i] = point[i];
+                }
+                res->trajectory_points.push_back(joint_msg);
+            }
+            res->total_time = trajectory.size() > 1 ? (trajectory.size() - 1) * 0.001 : 0.0;
+            res->stamp = ToBuiltinTime(node_->get_clock()->now());
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+        });
+
+    map_cartesian_to_joint_torque_srv_ = node_->create_service<rokae_xmate3_ros2::srv::MapCartesianToJointTorque>(
+        "/xmate3/cobot/map_cartesian_to_joint_torque",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::MapCartesianToJointTorque::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::MapCartesianToJointTorque::Response> res) {
+            std::vector<double> joints(req->joint_pos.begin(), req->joint_pos.end());
+            if (joints.size() != 6) {
+                res->success = false;
+                res->error_code = 6002;
+                res->error_msg = "joint_pos size is invalid";
+                return;
+            }
+            Eigen::MatrixXd J = kinematics_->computeJacobian(joints);
+            Eigen::Matrix<double, 6, 1> wrench;
+            for (int i = 0; i < 6; ++i) {
+                wrench(i) = req->cart_force[i];
+            }
+            Eigen::Matrix<double, 6, 1> tau = J.transpose() * wrench;
+            for (int i = 0; i < 6; ++i) {
+                res->joint_torque[i] = tau(i);
+            }
+            res->stamp = ToBuiltinTime(node_->get_clock()->now());
+            res->success = true;
+            res->error_code = 0;
+            res->error_msg.clear();
+        });
+
+    get_end_torque_srv_ = node_->create_service<rokae_xmate3_ros2::srv::GetEndTorque>(
+        "/xmate3/cobot/get_end_torque",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetEndTorque::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::GetEndTorque::Response> res) {
+            (void)req;
+            std::vector<double> joints(6, 0.0);
+            Eigen::Matrix<double, 6, 1> tau = Eigen::Matrix<double, 6, 1>::Zero();
+            for (int i = 0; i < 6 && i < joint_num_; ++i) {
+                joints[i] = joints_[i]->Position(0);
+                tau(i) = joints_[i]->GetForce(0);
+            }
+            Eigen::MatrixXd J = kinematics_->computeJacobian(joints);
+            Eigen::Matrix<double, 6, 1> wrench = J.transpose().completeOrthogonalDecomposition().solve(tau);
+            for (int i = 0; i < 6; ++i) {
+                res->end_torque[i] = wrench(i);
+            }
+            res->success = true;
+            res->message.clear();
+        });
+
     // ==================== IO控制服务 ====================
     get_di_srv_ = node_->create_service<rokae_xmate3_ros2::srv::GetDI>(
-        "/xmate3/cobot/get_di",
+        "/xmate3/io/get_di",
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetDI::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::GetDI::Response> res) {
             auto key = std::make_pair(req->board, req->port);
@@ -1044,7 +1391,7 @@ void XCoreControllerPlugin::InitServices() {
         });
 
     get_do_srv_ = node_->create_service<rokae_xmate3_ros2::srv::GetDO>(
-        "/xmate3/cobot/get_do",
+        "/xmate3/io/get_do",
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetDO::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::GetDO::Response> res) {
             auto key = std::make_pair(req->board, req->port);
@@ -1053,7 +1400,7 @@ void XCoreControllerPlugin::InitServices() {
         });
 
     set_di_srv_ = node_->create_service<rokae_xmate3_ros2::srv::SetDI>(
-        "/xmate3/cobot/set_di",
+        "/xmate3/io/set_di",
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::SetDI::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::SetDI::Response> res) {
             auto key = std::make_pair(req->board, req->port);
@@ -1062,7 +1409,7 @@ void XCoreControllerPlugin::InitServices() {
         });
 
     set_do_srv_ = node_->create_service<rokae_xmate3_ros2::srv::SetDO>(
-        "/xmate3/cobot/set_do",
+        "/xmate3/io/set_do",
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::SetDO::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::SetDO::Response> res) {
             auto key = std::make_pair(req->board, req->port);
@@ -1071,7 +1418,7 @@ void XCoreControllerPlugin::InitServices() {
         });
 
     get_ai_srv_ = node_->create_service<rokae_xmate3_ros2::srv::GetAI>(
-        "/xmate3/cobot/get_ai",
+        "/xmate3/io/get_ai",
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetAI::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::GetAI::Response> res) {
             auto key = std::make_pair(req->board, req->port);
@@ -1080,7 +1427,7 @@ void XCoreControllerPlugin::InitServices() {
         });
 
     set_ao_srv_ = node_->create_service<rokae_xmate3_ros2::srv::SetAO>(
-        "/xmate3/cobot/set_ao",
+        "/xmate3/io/set_ao",
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::SetAO::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::SetAO::Response> res) {
             auto key = std::make_pair(req->board, req->port);
@@ -1089,13 +1436,69 @@ void XCoreControllerPlugin::InitServices() {
         });
 
     set_simulation_mode_srv_ = node_->create_service<rokae_xmate3_ros2::srv::SetSimulationMode>(
-        "/xmate3/cobot/set_simulation_mode",
+        "/xmate3/io/set_simulation_mode",
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::SetSimulationMode::Request> req,
                std::shared_ptr<rokae_xmate3_ros2::srv::SetSimulationMode::Response> res) {
             simulation_mode_ = req->state;
             res->success = true;
         });
 
+    // 兼容旧命名空间 /xmate3/cobot/*
+    compatibility_services_.push_back(node_->create_service<rokae_xmate3_ros2::srv::GetDI>(
+        "/xmate3/cobot/get_di",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetDI::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::GetDI::Response> res) {
+            auto key = std::make_pair(req->board, req->port);
+            res->state = di_state_[key];
+            res->success = true;
+        }));
+    compatibility_services_.push_back(node_->create_service<rokae_xmate3_ros2::srv::GetDO>(
+        "/xmate3/cobot/get_do",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetDO::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::GetDO::Response> res) {
+            auto key = std::make_pair(req->board, req->port);
+            res->state = do_state_[key];
+            res->success = true;
+        }));
+    compatibility_services_.push_back(node_->create_service<rokae_xmate3_ros2::srv::SetDI>(
+        "/xmate3/cobot/set_di",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::SetDI::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::SetDI::Response> res) {
+            auto key = std::make_pair(req->board, req->port);
+            di_state_[key] = req->state;
+            res->success = true;
+        }));
+    compatibility_services_.push_back(node_->create_service<rokae_xmate3_ros2::srv::SetDO>(
+        "/xmate3/cobot/set_do",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::SetDO::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::SetDO::Response> res) {
+            auto key = std::make_pair(req->board, req->port);
+            do_state_[key] = req->state;
+            res->success = true;
+        }));
+    compatibility_services_.push_back(node_->create_service<rokae_xmate3_ros2::srv::GetAI>(
+        "/xmate3/cobot/get_ai",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::GetAI::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::GetAI::Response> res) {
+            auto key = std::make_pair(req->board, req->port);
+            res->value = ai_state_[key];
+            res->success = true;
+        }));
+    compatibility_services_.push_back(node_->create_service<rokae_xmate3_ros2::srv::SetAO>(
+        "/xmate3/cobot/set_ao",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::SetAO::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::SetAO::Response> res) {
+            auto key = std::make_pair(req->board, req->port);
+            ao_state_[key] = req->value;
+            res->success = true;
+        }));
+    compatibility_services_.push_back(node_->create_service<rokae_xmate3_ros2::srv::SetSimulationMode>(
+        "/xmate3/cobot/set_simulation_mode",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::SetSimulationMode::Request> req,
+               std::shared_ptr<rokae_xmate3_ros2::srv::SetSimulationMode::Response> res) {
+            simulation_mode_ = req->state;
+            res->success = true;
+        }));
     // ==================== 拖动与路径录制服务 ====================
     enable_drag_srv_ = node_->create_service<rokae_xmate3_ros2::srv::EnableDrag>(
         "/xmate3/cobot/enable_drag",

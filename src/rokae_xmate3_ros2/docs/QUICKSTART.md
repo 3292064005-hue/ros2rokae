@@ -72,7 +72,7 @@ source install/setup.bash
 
 ### 3.1 启动完整仿真环境
 ```bash
-ros2 launch rokae_xmate3_ros2 simulation.launch.py
+ros2 launch rokae_xmate3_ros2 xmate3_simulation.launch.py
 ```
 
 这将启动：
@@ -119,12 +119,13 @@ ros2 run rokae_xmate3_ros2 example_99_complete_demo
 | `example_06_io_control` | 4.6 | IO控制 (DI/DO/AI/AO) |
 | `example_07_safety_collision` | 4.3/4.8 | 安全与碰撞检测 |
 | `example_08_path_record_replay` | 4.8 | 路径录制与回放 |
+| `example_09_advanced_sdk_compat` | 4.5/4.7/4.8 | RT 控制 / RL / 寄存器 / 动力学 / 奇异规避 |
 | `example_99_complete_demo` | - | 综合演示 |
 
 ### 4.3 运行单个示例
 ```bash
 # 确保仿真已启动
-ros2 launch rokae_xmate3_ros2 simulation.launch.py
+ros2 launch rokae_xmate3_ros2 xmate3_simulation.launch.py
 
 # 在新终端中运行示例
 source ~/ros2_ws0/install/setup.bash

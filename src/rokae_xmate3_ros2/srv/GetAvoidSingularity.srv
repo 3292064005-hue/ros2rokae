@@ -1,0 +1,5 @@
+# GetAvoidSingularity.srv - 查询奇异位规避状态
+---
+bool success
+bool enabled
+string message

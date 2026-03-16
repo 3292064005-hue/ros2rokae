@@ -1,0 +1,5 @@
+# SetAvoidSingularity.srv - 设置奇异位规避开关
+bool enable
+---
+bool success
+string message

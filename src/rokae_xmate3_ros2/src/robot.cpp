@@ -58,6 +58,14 @@ void xMateRobot::Impl::init_clients() {
     xmate3_motion_set_default_conf_opt_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetDefaultConfOpt>("/xmate3/cobot/set_default_conf_opt");
     xmate3_motion_adjust_speed_online_client_ = node_->create_client<rokae_xmate3_ros2::srv::AdjustSpeedOnline>("/xmate3/cobot/adjust_speed_online");
 
+    // 实时控制/高级数据
+    xmate3_rt_set_control_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetRtControlMode>("/xmate3/cobot/set_rt_control_mode");
+    xmate3_rt_get_joint_data_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetRtJointData>("/xmate3/cobot/get_rt_joint_data");
+    xmate3_comm_send_custom_data_client_ = node_->create_client<rokae_xmate3_ros2::srv::SendCustomData>("/xmate3/cobot/send_custom_data");
+    xmate3_comm_register_data_callback_client_ = node_->create_client<rokae_xmate3_ros2::srv::RegisterDataCallback>("/xmate3/cobot/register_data_callback");
+    xmate3_comm_read_register_client_ = node_->create_client<rokae_xmate3_ros2::srv::ReadRegister>("/xmate3/cobot/read_register");
+    xmate3_comm_write_register_client_ = node_->create_client<rokae_xmate3_ros2::srv::WriteRegister>("/xmate3/cobot/write_register");
+
     // IO控制
     xmate3_io_get_di_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetDI>("/xmate3/io/get_di");
     xmate3_io_get_do_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetDO>("/xmate3/io/get_do");
@@ -67,6 +75,15 @@ void xMateRobot::Impl::init_clients() {
     xmate3_io_set_ao_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetAO>("/xmate3/io/set_ao");
 
     xmate3_io_set_simulation_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetSimulationMode>("/xmate3/io/set_simulation_mode");
+    xmate3_rl_load_project_client_ = node_->create_client<rokae_xmate3_ros2::srv::LoadRLProject>("/xmate3/cobot/load_rl_project");
+    xmate3_rl_start_project_client_ = node_->create_client<rokae_xmate3_ros2::srv::StartRLProject>("/xmate3/cobot/start_rl_project");
+    xmate3_rl_stop_project_client_ = node_->create_client<rokae_xmate3_ros2::srv::StopRLProject>("/xmate3/cobot/stop_rl_project");
+    xmate3_cobot_set_avoid_singularity_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetAvoidSingularity>("/xmate3/cobot/set_avoid_singularity");
+    xmate3_cobot_get_avoid_singularity_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetAvoidSingularity>("/xmate3/cobot/get_avoid_singularity");
+    xmate3_cobot_get_end_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetEndTorque>("/xmate3/cobot/get_end_torque");
+    xmate3_dyn_calc_joint_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::CalcJointTorque>("/xmate3/cobot/calc_joint_torque");
+    xmate3_dyn_generate_s_trajectory_client_ = node_->create_client<rokae_xmate3_ros2::srv::GenerateSTrajectory>("/xmate3/cobot/generate_s_trajectory");
+    xmate3_dyn_map_cartesian_to_joint_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::MapCartesianToJointTorque>("/xmate3/cobot/map_cartesian_to_joint_torque");
 
     // 拖动与路径录制
     xmate3_cobot_enable_drag_client_ = node_->create_client<rokae_xmate3_ros2::srv::EnableDrag>("/xmate3/cobot/enable_drag");
@@ -298,8 +315,18 @@ rokae::PowerState xMateRobot::powerState(std::error_code& ec) {
         return rokae::PowerState::unknown;
     }
     ec.clear();
-    // 核心修正：从msg中取出uint8_t原始值再强转
-    return static_cast<rokae::PowerState>(result->state.state);
+    switch (result->state.state) {
+        case rokae_xmate3_ros2::msg::PowerState::ON:
+            return rokae::PowerState::on;
+        case rokae_xmate3_ros2::msg::PowerState::OFF:
+            return rokae::PowerState::off;
+        case rokae_xmate3_ros2::msg::PowerState::ESTOP:
+            return rokae::PowerState::estop;
+        case rokae_xmate3_ros2::msg::PowerState::GSTOP:
+            return rokae::PowerState::gstop;
+        default:
+            return rokae::PowerState::unknown;
+    }
 }
 
 
@@ -401,7 +428,24 @@ rokae::OperationState xMateRobot::operationState(std::error_code& ec) {
         return rokae::OperationState::unknown;
     }
     ec.clear();
-    return static_cast<rokae::OperationState>(impl_->last_operation_state_.state);
+    switch (impl_->last_operation_state_.state) {
+        case rokae_xmate3_ros2::msg::OperationState::IDLE:
+            return rokae::OperationState::idle;
+        case rokae_xmate3_ros2::msg::OperationState::JOG:
+            return rokae::OperationState::jog;
+        case rokae_xmate3_ros2::msg::OperationState::RT_CONTROLLING:
+            return rokae::OperationState::rtControlling;
+        case rokae_xmate3_ros2::msg::OperationState::DRAG:
+            return rokae::OperationState::drag;
+        case rokae_xmate3_ros2::msg::OperationState::RL_PROGRAM:
+            return rokae::OperationState::rlProgram;
+        case rokae_xmate3_ros2::msg::OperationState::MOVING:
+            return rokae::OperationState::moving;
+        case rokae_xmate3_ros2::msg::OperationState::JOGGING:
+            return rokae::OperationState::jogging;
+        default:
+            return rokae::OperationState::unknown;
+    }
 }
 
 // 查询控制器日志
@@ -678,7 +722,7 @@ rokae::JointPosition xMateRobot::calcIk(const rokae::CartesianPosition& posture,
     request->has_elbow = posture.hasElbow;
     request->conf_data.assign(posture.confData.begin(), posture.confData.end());
     request->external = posture.external;
-    
+
     auto future = impl_->xmate3_robot_calc_ik_client_->async_send_request(request);
     if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
@@ -691,12 +735,12 @@ rokae::JointPosition xMateRobot::calcIk(const rokae::CartesianPosition& posture,
         return joints;
     }
     // 核心修正：按数组读取关节角度，不是单独的j1-j6
-    joints.j1 = result->joint_positions[0];
-    joints.j2 = result->joint_positions[1];
-    joints.j3 = result->joint_positions[2];
-    joints.j4 = result->joint_positions[3];
-    joints.j5 = result->joint_positions[4];
-    joints.j6 = result->joint_positions[5];
+    joints.joints[0] = result->joint_positions[0];
+    joints.joints[1] = result->joint_positions[1];
+    joints.joints[2] = result->joint_positions[2];
+    joints.joints[3] = result->joint_positions[3];
+    joints.joints[4] = result->joint_positions[4];
+    joints.joints[5] = result->joint_positions[5];
     ec.clear();
     return joints;
 }
@@ -714,12 +758,12 @@ rokae::CartesianPosition xMateRobot::calcFk(const rokae::JointPosition& joints, 
     }
     auto request = std::make_shared<rokae_xmate3_ros2::srv::CalcFk::Request>();
     // 核心修正：按数组赋值关节角度，不是单独的j1-j6
-    request->joint_positions[0] = joints.j1;
-    request->joint_positions[1] = joints.j2;
-    request->joint_positions[2] = joints.j3;
-    request->joint_positions[3] = joints.j4;
-    request->joint_positions[4] = joints.j5;
-    request->joint_positions[5] = joints.j6;
+    request->joint_positions[0] = joints.joints[0];
+    request->joint_positions[1] = joints.joints[1];
+    request->joint_positions[2] = joints.joints[2];
+    request->joint_positions[3] = joints.joints[3];
+    request->joint_positions[4] = joints.joints[4];
+    request->joint_positions[5] = joints.joints[5];
     
     auto future = impl_->xmate3_robot_calc_fk_client_->async_send_request(request);
     if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
@@ -1013,7 +1057,21 @@ void xMateRobot::setMotionControlMode(rokae::MotionControlMode mode, std::error_
     }
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::SetMotionControlMode::Request>();
-    request->mode = static_cast<uint8_t>(mode);
+    switch (mode) {
+        case rokae::MotionControlMode::Idle:
+        case rokae::MotionControlMode::NrtCommand:
+            request->mode = 0;
+            break;
+        case rokae::MotionControlMode::RtCommand:
+            request->mode = 1;
+            break;
+        case rokae::MotionControlMode::NrtRLTask:
+            request->mode = 2;
+            break;
+        default:
+            request->mode = 0;
+            break;
+    }
 
     auto future = impl_->xmate3_motion_set_control_mode_client_->async_send_request(request);
     if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
@@ -1867,11 +1925,11 @@ static rokae_xmate3_ros2::msg::CartesianPosition toMsg(const rokae::CartesianPos
 
 static int32_t offsetTypeToMsg(rokae::CartesianPosition::Offset::Type type) {
     switch (type) {
-        case rokae::CartesianPosition::Offset::Type::Offs:
+        case rokae::CartesianPosition::Offset::offs:
             return 1;
-        case rokae::CartesianPosition::Offset::Type::RelTool:
+        case rokae::CartesianPosition::Offset::relTool:
             return 2;
-        case rokae::CartesianPosition::Offset::Type::None:
+        case rokae::CartesianPosition::Offset::none:
         default:
             return 0;
     }
@@ -1942,8 +2000,8 @@ static rokae_xmate3_ros2::msg::MoveSPCommand toMsg(const rokae::MoveSPCommand &c
     m.radius_step = cmd.radius_step;
     m.angle = cmd.angle;
     m.direction = cmd.direction;
-    m.offset_type = offsetTypeToMsg(cmd.targetOffset.type);
-    m.offset_pose = frameToPose(cmd.targetOffset.frame);
+    m.offset_type = offsetTypeToMsg(rokae::CartesianPosition::Offset::none);
+    m.offset_pose = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     return m;
 }
 
@@ -1988,6 +2046,479 @@ void xMateRobot::moveSP(const rokae::MoveSPCommand& cmd, std::error_code& ec) {
     impl_->cacheCommand(goal);
     ec.clear();
     RCLCPP_INFO(impl_->node_->get_logger(), "MoveSP指令已缓存");
+}
+
+
+// ==================== 实时控制/高级数据接口实现 ====================
+void xMateRobot::setRtControlMode(rokae::RtControllerMode mode, std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_rt_set_control_mode_client_, ec)) {
+        return;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::SetRtControlMode::Request>();
+    request->mode = static_cast<int32_t>(mode);
+    auto future = impl_->xmate3_rt_set_control_mode_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        RCLCPP_ERROR(impl_->node_->get_logger(), "设置实时控制模式失败: %s", result->error_msg.c_str());
+        return;
+    }
+    ec.clear();
+}
+
+bool xMateRobot::getRtJointData(std::array<double, 6>& position,
+                                std::array<double, 6>& velocity,
+                                std::array<double, 6>& torque,
+                                std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return false;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_rt_get_joint_data_client_, ec)) {
+        return false;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::GetRtJointData::Request>();
+    auto future = impl_->xmate3_rt_get_joint_data_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return false;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return false;
+    }
+    for (size_t i = 0; i < 6; ++i) {
+        position[i] = result->joint_position[i];
+        velocity[i] = result->joint_velocity[i];
+        torque[i] = result->joint_torque[i];
+    }
+    ec.clear();
+    return true;
+}
+
+std::string xMateRobot::sendCustomData(const std::string& topic,
+                                       const std::string& payload,
+                                       std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return {};
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_comm_send_custom_data_client_, ec)) {
+        return {};
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::SendCustomData::Request>();
+    request->data_topic = topic;
+    request->custom_data = payload;
+    auto future = impl_->xmate3_comm_send_custom_data_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return {};
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        RCLCPP_ERROR(impl_->node_->get_logger(), "发送自定义数据失败: %s", result->error_msg.c_str());
+        return {};
+    }
+    ec.clear();
+    return result->response_data;
+}
+
+bool xMateRobot::registerDataCallback(const std::string& data_topic,
+                                      const std::string& callback_id,
+                                      std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return false;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_comm_register_data_callback_client_, ec)) {
+        return false;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::RegisterDataCallback::Request>();
+    request->data_topic = data_topic;
+    request->callback_id = callback_id;
+    auto future = impl_->xmate3_comm_register_data_callback_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return false;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        RCLCPP_ERROR(impl_->node_->get_logger(), "注册数据回调失败: %s", result->error_msg.c_str());
+        return false;
+    }
+    ec.clear();
+    return true;
+}
+
+std::string xMateRobot::readRegister(const std::string& key, std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return {};
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_comm_read_register_client_, ec)) {
+        return {};
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::ReadRegister::Request>();
+    request->key = key;
+    auto future = impl_->xmate3_comm_read_register_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return {};
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return {};
+    }
+    ec.clear();
+    return result->value;
+}
+
+void xMateRobot::writeRegister(const std::string& key, const std::string& value, std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_comm_write_register_client_, ec)) {
+        return;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::WriteRegister::Request>();
+    request->key = key;
+    request->value = value;
+    auto future = impl_->xmate3_comm_write_register_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return;
+    }
+    ec.clear();
+}
+
+bool xMateRobot::loadRLProject(const std::string& project_path, std::string& project_name, std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return false;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_rl_load_project_client_, ec)) {
+        return false;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::LoadRLProject::Request>();
+    request->project_path = project_path;
+    auto future = impl_->xmate3_rl_load_project_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return false;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        RCLCPP_ERROR(impl_->node_->get_logger(), "加载RL工程失败: %s", result->error_msg.c_str());
+        return false;
+    }
+    project_name = result->project_name;
+    ec.clear();
+    return true;
+}
+
+bool xMateRobot::startRLProject(const std::string& project_id, int& current_episode, std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return false;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_rl_start_project_client_, ec)) {
+        return false;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::StartRLProject::Request>();
+    request->project_id = project_id;
+    auto future = impl_->xmate3_rl_start_project_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return false;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return false;
+    }
+    current_episode = result->current_episode;
+    ec.clear();
+    return true;
+}
+
+bool xMateRobot::stopRLProject(const std::string& project_id, int& finished_episode, std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return false;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_rl_stop_project_client_, ec)) {
+        return false;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::StopRLProject::Request>();
+    request->project_id = project_id;
+    auto future = impl_->xmate3_rl_stop_project_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return false;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return false;
+    }
+    finished_episode = result->finished_episode;
+    ec.clear();
+    return true;
+}
+
+void xMateRobot::startJog(rokae::JogOpt::Space space,
+                          unsigned int index,
+                          bool direction,
+                          double step,
+                          std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    if (index >= 6) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    const double signed_step = direction ? std::abs(step) : -std::abs(step);
+    moveReset(ec);
+    if (ec) {
+        return;
+    }
+
+    if (space == rokae::JogOpt::Space::jointSpace) {
+        auto joints = jointPos(ec);
+        if (ec) {
+            return;
+        }
+        rokae::MoveAbsJCommand cmd;
+        cmd.target.joints.assign(joints.begin(), joints.end());
+        cmd.target.joints[index] += signed_step;
+        cmd.speed = 10;
+        cmd.zone = 0;
+        moveAbsJ(cmd, ec);
+    } else {
+        auto pose = cartPosture(rokae::CoordinateType::flangeInBase, ec);
+        if (ec) {
+            return;
+        }
+        switch (index) {
+            case 0: pose.x += signed_step; break;
+            case 1: pose.y += signed_step; break;
+            case 2: pose.z += signed_step; break;
+            case 3: pose.rx += signed_step; break;
+            case 4: pose.ry += signed_step; break;
+            case 5: pose.rz += signed_step; break;
+            default: break;
+        }
+        rokae::MoveLCommand cmd;
+        cmd.target = pose;
+        cmd.speed = 10;
+        cmd.zone = 0;
+        moveL(cmd, ec);
+    }
+
+    if (ec) {
+        return;
+    }
+    moveStart(ec);
+}
+
+void xMateRobot::setAvoidSingularity(bool enable, std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_cobot_set_avoid_singularity_client_, ec)) {
+        return;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::SetAvoidSingularity::Request>();
+    request->enable = enable;
+    auto future = impl_->xmate3_cobot_set_avoid_singularity_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return;
+    }
+    ec.clear();
+}
+
+bool xMateRobot::getAvoidSingularity(std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return false;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_cobot_get_avoid_singularity_client_, ec)) {
+        return false;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::GetAvoidSingularity::Request>();
+    auto future = impl_->xmate3_cobot_get_avoid_singularity_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return false;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return false;
+    }
+    ec.clear();
+    return result->enabled;
+}
+
+std::array<double, 6> xMateRobot::getEndTorque(std::error_code& ec) {
+    std::array<double, 6> wrench{};
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return wrench;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_cobot_get_end_torque_client_, ec)) {
+        return wrench;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::GetEndTorque::Request>();
+    auto future = impl_->xmate3_cobot_get_end_torque_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return wrench;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return wrench;
+    }
+    for (size_t i = 0; i < 6; ++i) {
+        wrench[i] = result->end_torque[i];
+    }
+    ec.clear();
+    return wrench;
+}
+
+bool xMateRobot::calcJointTorque(const std::array<double, 6>& joint_pos,
+                                 const std::array<double, 6>& joint_vel,
+                                 const std::array<double, 6>& joint_acc,
+                                 const std::array<double, 6>& external_force,
+                                 std::array<double, 6>& joint_torque,
+                                 std::array<double, 6>& gravity_torque,
+                                 std::array<double, 6>& coriolis_torque,
+                                 std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return false;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_dyn_calc_joint_torque_client_, ec)) {
+        return false;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::CalcJointTorque::Request>();
+    request->joint_pos = joint_pos;
+    request->joint_vel = joint_vel;
+    request->joint_acc = joint_acc;
+    request->external_force = external_force;
+    auto future = impl_->xmate3_dyn_calc_joint_torque_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return false;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return false;
+    }
+    for (size_t i = 0; i < 6; ++i) {
+        joint_torque[i] = result->joint_torque[i];
+        gravity_torque[i] = result->gravity_torque[i];
+        coriolis_torque[i] = result->coriolis_torque[i];
+    }
+    ec.clear();
+    return true;
+}
+
+bool xMateRobot::generateSTrajectory(const std::array<double, 6>& start_joint_pos,
+                                     const std::array<double, 6>& target_joint_pos,
+                                     std::vector<std::array<double, 6>>& trajectory_points,
+                                     double& total_time,
+                                     std::error_code& ec) {
+    trajectory_points.clear();
+    total_time = 0.0;
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return false;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_dyn_generate_s_trajectory_client_, ec)) {
+        return false;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::GenerateSTrajectory::Request>();
+    request->start_joint_pos = start_joint_pos;
+    request->target_joint_pos = target_joint_pos;
+    auto future = impl_->xmate3_dyn_generate_s_trajectory_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return false;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return false;
+    }
+    total_time = result->total_time;
+    trajectory_points.reserve(result->trajectory_points.size());
+    for (const auto& point : result->trajectory_points) {
+        trajectory_points.push_back(point.pos);
+    }
+    ec.clear();
+    return true;
+}
+
+bool xMateRobot::mapCartesianToJointTorque(const std::array<double, 6>& cart_force,
+                                           const std::array<double, 6>& joint_pos,
+                                           std::array<double, 6>& joint_torque,
+                                           std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return false;
+    }
+    if (!impl_->wait_for_service(impl_->xmate3_dyn_map_cartesian_to_joint_torque_client_, ec)) {
+        return false;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::MapCartesianToJointTorque::Request>();
+    request->cart_force = cart_force;
+    request->joint_pos = joint_pos;
+    auto future = impl_->xmate3_dyn_map_cartesian_to_joint_torque_client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::io_error);
+        return false;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return false;
+    }
+    for (size_t i = 0; i < 6; ++i) {
+        joint_torque[i] = result->joint_torque[i];
+    }
+    ec.clear();
+    return true;
 }
 
 
