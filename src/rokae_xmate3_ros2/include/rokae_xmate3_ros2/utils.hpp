@@ -3,6 +3,12 @@
 
 #include <array>
 #include <cmath>
+#include <type_traits>
+
+#include <Eigen/Core>
+#include <Eigen/Dense>
+#include <Eigen/Geometry>
+
 #include "rokae_xmate3_ros2/types.hpp"
 
 namespace rokae::Utils {
@@ -17,16 +23,18 @@ inline double radToDeg(double radian) {
     return radian * 180.0 / kPi;
 }
 
-inline std::array<double, 6> degToRad(const std::array<double, 6>& degree) {
-    std::array<double, 6> out{};
+template <size_t N>
+inline std::array<double, N> degToRad(const std::array<double, N>& degree) {
+    std::array<double, N> out{};
     for (size_t i = 0; i < out.size(); ++i) {
         out[i] = degToRad(degree[i]);
     }
     return out;
 }
 
-inline std::array<double, 6> radToDeg(const std::array<double, 6>& radian) {
-    std::array<double, 6> out{};
+template <size_t N>
+inline std::array<double, N> radToDeg(const std::array<double, N>& radian) {
+    std::array<double, N> out{};
     for (size_t i = 0; i < out.size(); ++i) {
         out[i] = radToDeg(radian[i]);
     }
@@ -72,6 +80,38 @@ inline rokae::CartesianPosition matrixToPosture(const std::array<double, 16>& T)
         pose.rz = std::atan2(T[4], T[0]);
     }
     return pose;
+}
+
+inline void postureToTransArray(const std::array<double, 6>& posture, std::array<double, 16>& out) {
+    out = postureToMatrix(rokae::CartesianPosition(posture));
+}
+
+inline void postureToTransArray(const rokae::CartesianPosition& posture, std::array<double, 16>& out) {
+    out = postureToMatrix(posture);
+}
+
+inline void postureToTransArray(const rokae::Frame& posture, std::array<double, 16>& out) {
+    out = posture.pos;
+}
+
+inline void arrayToTransMatrix(const std::array<double, 16>& in,
+                               Eigen::Matrix3d& rotation,
+                               Eigen::Vector3d& translation) {
+    rotation << in[0], in[1], in[2],
+                in[4], in[5], in[6],
+                in[8], in[9], in[10];
+    translation << in[3], in[7], in[11];
+}
+
+inline void transMatrixToArray(const Eigen::Matrix3d& rotation,
+                               const Eigen::Vector3d& translation,
+                               std::array<double, 16>& out) {
+    out = {
+        rotation(0, 0), rotation(0, 1), rotation(0, 2), translation(0),
+        rotation(1, 0), rotation(1, 1), rotation(1, 2), translation(1),
+        rotation(2, 0), rotation(2, 1), rotation(2, 2), translation(2),
+        0.0, 0.0, 0.0, 1.0
+    };
 }
 
 }  // namespace rokae::Utils

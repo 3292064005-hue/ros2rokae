@@ -221,12 +221,12 @@ public:
     return *this;
   }
 
-  explicit Frame(const std::array<double, 3> &translation, const std::array<double, 3> &rotation)
+  Frame(const std::array<double, 3> &translation, const std::array<double, 3> &rotation)
       : trans(translation), rpy(rotation), x(trans[0]), y(trans[1]), z(trans[2]), rx(rpy[0]), ry(rpy[1]), rz(rpy[2]) {
     syncPoseMatrix();
   }
 
-  explicit Frame(const std::array<double, 6> &frame)
+  Frame(const std::array<double, 6> &frame)
       : x(trans[0]), y(trans[1]), z(trans[2]), rx(rpy[0]), ry(rpy[1]), rz(rpy[2]) {
     trans = {frame[0], frame[1], frame[2]};
     rpy = {frame[3], frame[4], frame[5]};
@@ -306,6 +306,10 @@ public:
 
     Offset() = default;
     Offset(Type offset_type, const Frame &offset_frame) : type(offset_type), frame(offset_frame) {}
+    Offset(Type offset_type, const std::array<double, 6> &offset_frame)
+        : type(offset_type), frame(offset_frame) {}
+    Offset(Type offset_type, std::initializer_list<double> offset_frame)
+        : type(offset_type), frame(offset_frame) {}
 
     Type type{none};
     Frame frame{};
@@ -402,6 +406,13 @@ struct MoveAbsJCommand {
   MoveAbsJCommand() = default;
   explicit MoveAbsJCommand(std::initializer_list<double> joints) : target(joints) {}
   explicit MoveAbsJCommand(const JointPosition &joint_target) : target(joint_target) {}
+  explicit MoveAbsJCommand(const std::vector<double> &joints) : target(joints) {}
+  MoveAbsJCommand(std::initializer_list<double> joints, int speed_value, int zone_value)
+      : target(joints), speed(speed_value), zone(zone_value) {}
+  MoveAbsJCommand(const JointPosition &joint_target, int speed_value, int zone_value)
+      : target(joint_target), speed(speed_value), zone(zone_value) {}
+  MoveAbsJCommand(const std::vector<double> &joints, int speed_value, int zone_value)
+      : target(joints), speed(speed_value), zone(zone_value) {}
 };
 
 struct MoveJCommand {
@@ -412,6 +423,14 @@ struct MoveJCommand {
 
   MoveJCommand() = default;
   explicit MoveJCommand(const CartesianPosition &target_pose) : target(target_pose) {}
+  explicit MoveJCommand(const std::array<double, 6> &target_pose) : target(target_pose) {}
+  MoveJCommand(std::initializer_list<double> target_pose) : target(target_pose) {}
+  MoveJCommand(const CartesianPosition &target_pose, int speed_value, int zone_value)
+      : target(target_pose), speed(speed_value), zone(zone_value) {}
+  MoveJCommand(const std::array<double, 6> &target_pose, int speed_value, int zone_value)
+      : target(target_pose), speed(speed_value), zone(zone_value) {}
+  MoveJCommand(std::initializer_list<double> target_pose, int speed_value, int zone_value)
+      : target(target_pose), speed(speed_value), zone(zone_value) {}
 };
 
 struct MoveLCommand {
@@ -422,6 +441,14 @@ struct MoveLCommand {
 
   MoveLCommand() = default;
   explicit MoveLCommand(const CartesianPosition &target_pose) : target(target_pose) {}
+  explicit MoveLCommand(const std::array<double, 6> &target_pose) : target(target_pose) {}
+  MoveLCommand(std::initializer_list<double> target_pose) : target(target_pose) {}
+  MoveLCommand(const CartesianPosition &target_pose, int speed_value, int zone_value)
+      : target(target_pose), speed(speed_value), zone(zone_value) {}
+  MoveLCommand(const std::array<double, 6> &target_pose, int speed_value, int zone_value)
+      : target(target_pose), speed(speed_value), zone(zone_value) {}
+  MoveLCommand(std::initializer_list<double> target_pose, int speed_value, int zone_value)
+      : target(target_pose), speed(speed_value), zone(zone_value) {}
 };
 
 struct MoveCCommand {
@@ -435,6 +462,9 @@ struct MoveCCommand {
   MoveCCommand() = default;
   MoveCCommand(const CartesianPosition &target_pose, const CartesianPosition &aux_pose)
       : target(target_pose), aux(aux_pose) {}
+  MoveCCommand(const CartesianPosition &target_pose, const CartesianPosition &aux_pose,
+               int speed_value, int zone_value)
+      : target(target_pose), aux(aux_pose), speed(speed_value), zone(zone_value) {}
 };
 
 struct MoveCFCommand {
@@ -449,6 +479,9 @@ struct MoveCFCommand {
   MoveCFCommand() = default;
   MoveCFCommand(const CartesianPosition &target_pose, const CartesianPosition &aux_pose)
       : target(target_pose), aux(aux_pose) {}
+  MoveCFCommand(const CartesianPosition &target_pose, const CartesianPosition &aux_pose,
+                double move_angle, int speed_value, int zone_value)
+      : target(target_pose), aux(aux_pose), speed(speed_value), zone(zone_value), angle(move_angle) {}
 };
 
 struct MoveSPCommand {
@@ -462,6 +495,15 @@ struct MoveSPCommand {
 
   MoveSPCommand() = default;
   explicit MoveSPCommand(const CartesianPosition &target_pose) : target(target_pose) {}
+  MoveSPCommand(const CartesianPosition &target_pose,
+                double initial_radius,
+                double radius_delta,
+                double total_angle,
+                bool rotate_direction,
+                int speed_value = 100,
+                int zone_value = 0)
+      : target(target_pose), radius(initial_radius), radius_step(radius_delta), angle(total_angle),
+        direction(rotate_direction), speed(speed_value), zone(zone_value) {}
 };
 
 struct LogInfo {

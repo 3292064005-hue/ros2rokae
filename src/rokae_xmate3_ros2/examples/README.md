@@ -126,8 +126,9 @@ cat ~/ros2_ws0/src/rokae_xmate3_ros2/examples/cpp/01_basic_connect.cpp
 
 1. **仿真环境**: 所有示例都需要先启动 `xmate3_simulation.launch.py`（或 `simulation.launch.py`）
 2. **错误处理**: 示例中包含完整的错误码 (std::error_code) 处理
-3. **命名约定**: API完全遵循 xCore SDK C++ 使用手册 的命名
+3. **命名约定**: API命名与 xCore SDK C++ 使用手册 对齐，并补齐了 `rokae/utility.h` 与官方示例常用工具函数
 4. **章节对应**: 每个示例文件头都标明了对应的手册章节
+5. **机型范围**: 本包以 xMate3 六轴 Gazebo 仿真为目标，不等价覆盖官方示例中的 7 轴/工业机器人真机能力
 
 ---
 

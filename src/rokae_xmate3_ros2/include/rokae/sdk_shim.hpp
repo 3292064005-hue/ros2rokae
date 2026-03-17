@@ -1217,6 +1217,11 @@ public:
   }
 
   std::vector<LogInfo> queryControllerLog(unsigned count, const std::set<LogInfo::Level> &level, error_code &ec) noexcept {
+    if (count == 0 || count > 10) {
+      ec = std::make_error_code(std::errc::invalid_argument);
+      detail::remember_error(session_, ec);
+      return {};
+    }
     auto logs = session_->robot->queryControllerLog(count, ec);
     if (!ec && !level.empty()) {
       logs.erase(std::remove_if(logs.begin(), logs.end(), [&](const LogInfo &log) {
@@ -1249,7 +1254,7 @@ public:
 
   template <class Command>
   void moveAppend(const std::vector<Command> &cmds, std::string &cmdID, error_code &ec) noexcept {
-    if (cmds.empty()) {
+    if (cmds.empty() || cmds.size() > 100) {
       ec = std::make_error_code(std::errc::invalid_argument);
       detail::remember_error(session_, ec);
       return;
@@ -1316,6 +1321,11 @@ public:
 
   template <class Command>
   void executeCommand(const std::vector<Command> &cmds, error_code &ec) noexcept {
+    if (cmds.empty() || cmds.size() > 1000) {
+      ec = std::make_error_code(std::errc::invalid_argument);
+      detail::remember_error(session_, ec);
+      return;
+    }
     std::string cmd_id;
     session_->robot->moveReset(ec);
     if (ec) {

@@ -69,6 +69,8 @@
 - `LoadRLProject` / `StartRLProject` / `StopRLProject`
 - `SetAvoidSingularity` / `GetAvoidSingularity` / `GetEndTorque`
 - `sdk_compat.hpp` 统一 SDK 风格引入头
+- `rokae/utility.h` 与官方示例同名工具头
+- 修正 `moveAppend` 缓存追加语义与 `startJog` 单位语义（mm/deg）
 
 ---
 

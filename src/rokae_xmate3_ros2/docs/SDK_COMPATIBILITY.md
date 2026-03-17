@@ -82,6 +82,17 @@
 
 ---
 
+### 6. 补齐官方示例级别的调用兼容性
+
+新增/修复：
+
+- `include/rokae/utility.h`：补齐官方示例默认包含的工具头
+- `Utils::postureToTransArray(...)` / `Utils::arrayToTransMatrix(...)` / `Utils::transMatrixToArray(...)`
+- `Utils::degToRad/std::array<N>` 与 `Utils::radToDeg/std::array<N>` 泛型化，兼容官方 6 轴/7 轴示例写法
+- `Frame` / `CartesianPosition::Offset` / `Move*Command` 的 SDK 风格构造方式，支持官方示例中的花括号初始化与 `(target, speed, zone)` 写法
+- `moveAppend(...)` 修正为**真正追加缓存**，不再在每次追加时隐式 `moveReset()`
+- `startJog(...)` 修正为遵循手册语义：笛卡尔步长使用 **mm**，轴空间步长使用 **deg**
+
 ## 覆盖矩阵
 
 | SDK 手册章节 | 状态 | 说明 |
