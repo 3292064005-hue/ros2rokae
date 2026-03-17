@@ -70,20 +70,52 @@ int main() {
     cleanupRobot(robot);
     return 1;
   }
-  auto line_target = robot.cartPosture(CoordinateType::endInRef, ec);
+  const auto line_seed = robot.cartPosture(CoordinateType::endInRef, ec);
   if (reportError("cartPosture(line target)", ec)) {
     cleanupRobot(robot);
     return 1;
   }
-  line_target.y += 0.05;
-  line_target.z -= 0.02;
-  line_target.confData.clear();
-  robot.executeCommand(std::vector<MoveLCommand>{MoveLCommand(line_target, 20, 0)}, ec);
-  if (reportError("executeCommand(MoveL with forced default conf)", ec)) {
+  struct OffsetCandidate {
+    double x;
+    double y;
+    double z;
+  };
+  const std::array<OffsetCandidate, 6> forced_conf_offsets{{
+      {0.00, 0.01, -0.005},
+      {0.00, 0.015, -0.005},
+      {0.01, 0.00, -0.005},
+      {-0.01, 0.01, 0.000},
+      {0.00, -0.01, 0.005},
+      {0.00, 0.02, 0.000},
+  }};
+  bool forced_conf_ok = false;
+  for (const auto &offset : forced_conf_offsets) {
+    auto line_target = line_seed;
+    line_target.x += offset.x;
+    line_target.y += offset.y;
+    line_target.z += offset.z;
+    line_target.confData.clear();
+    ec.clear();
+    robot.executeCommand(std::vector<MoveLCommand>{MoveLCommand(line_target, 20, 0)}, ec);
+    if (!ec) {
+      os << "forced default conf offset: ["
+         << std::fixed << std::setprecision(4)
+         << offset.x << ", " << offset.y << ", " << offset.z << "]" << std::endl;
+      forced_conf_ok = true;
+      break;
+    }
+  }
+  if (!forced_conf_ok) {
+    if (reportError("executeCommand(MoveL with forced default conf)", ec)) {
+      cleanupRobot(robot);
+      return 1;
+    }
+  }
+  robot.setDefaultConfOpt(false, ec);
+  if (reportError("setDefaultConfOpt(false)", ec)) {
     cleanupRobot(robot);
     return 1;
   }
-  robot.setDefaultConfOpt(false, ec);
 
   printSection("3 笛卡尔偏移点位");
   const auto current_pose = robot.cartPosture(CoordinateType::endInRef, ec);
@@ -121,15 +153,23 @@ int main() {
     cleanupRobot(robot);
     return 1;
   }
-  CartesianPosition sp_target0({0.0, 0.0, 0.0, spiral_pose.rx, spiral_pose.ry, spiral_pose.rz});
-  CartesianPosition sp_target1({0.0, 0.0, 0.0, spiral_pose.rx - 0.15, spiral_pose.ry + 0.08, spiral_pose.rz - 0.10});
+  auto sp_target0 = spiral_pose;
+  auto sp_target1 = spiral_pose;
+  sp_target0.z += 0.03;
+  sp_target1.z += 0.06;
+  sp_target1.rx -= 0.05;
+  sp_target1.ry += 0.03;
+  sp_target1.rz -= 0.04;
   robot.moveAppend(std::vector<MoveAbsJCommand>{MoveAbsJCommand({0.0, 0.2215, 1.4780, 0.0, 1.2676, 0.0}, 30, 0)}, spiral_id, ec);
   if (reportError("moveAppend(MoveAbsJ before MoveSP)", ec)) {
     cleanupRobot(robot);
     return 1;
   }
-  robot.moveAppend(std::vector<MoveSPCommand>{MoveSPCommand(sp_target0, 0.01, 0.0005, kPi * 2.0, false, 80, 0),
-                                              MoveSPCommand(sp_target1, 0.03, 0.0010, kPi, true, 60, 0)}, spiral_id, ec);
+  const std::vector<MoveSPCommand> spiral_cmds{
+      MoveSPCommand(sp_target0, 0.004, 0.0001, kPi / 2.0, false, 45, 0),
+      MoveSPCommand(sp_target1, 0.006, 0.0002, kPi, true, 35, 0),
+  };
+  robot.moveAppend(spiral_cmds, spiral_id, ec);
   if (reportError("moveAppend(MoveSP)", ec)) {
     cleanupRobot(robot);
     return 1;
@@ -139,8 +179,12 @@ int main() {
     cleanupRobot(robot);
     return 1;
   }
-  if (!waitForCommandOrIdle(robot, spiral_id, 1, ec)) {
+  if (!waitForCommandOrIdle(robot, spiral_id, static_cast<int>(spiral_cmds.size()) - 1, ec)) {
     reportError("waitForCommandOrIdle(MoveSP)", ec);
+    cleanupRobot(robot);
+    return 1;
+  }
+  if (const auto spiral_ec = robot.lastErrorCode(); reportError("MoveSP lastErrorCode", spiral_ec)) {
     cleanupRobot(robot);
     return 1;
   }

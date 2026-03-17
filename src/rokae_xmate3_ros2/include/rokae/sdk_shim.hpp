@@ -1778,10 +1778,12 @@ public:
       result.errors = stats_from_errors(errors);
       result.success = true;
 
-      std::lock_guard<std::mutex> lock(this->session_->mutex);
-      this->session_->toolset_cache.end = result.frame;
-      detail::remember_error(this->session_, ec);
+      {
+        std::lock_guard<std::mutex> lock(this->session_->mutex);
+        this->session_->toolset_cache.end = result.frame;
+      }
       ec.clear();
+      detail::remember_error(this->session_, ec);
       return result;
     }
 
