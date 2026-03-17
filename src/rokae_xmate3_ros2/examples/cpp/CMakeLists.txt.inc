@@ -144,6 +144,17 @@ install(TARGETS
   example_07_safety_collision
   example_08_path_record_replay
   example_09_advanced_sdk_compat
+  example_10_sdk_workflow_xmate3
+  example_11_move_advanced_xmate3
+  example_12_state_stream_threaded
+  example_13_rl_project_workflow
+  example_14_model_extended
+  example_20_rt_joint_position
+  example_21_rt_move_commands
+  example_22_rt_joint_impedance
+  example_23_rt_cartesian_impedance
+  example_24_rt_follow_position
+  example_25_rt_s_line
   example_99_complete_demo
   DESTINATION lib/${PROJECT_NAME}
 )

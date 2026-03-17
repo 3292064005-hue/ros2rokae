@@ -71,24 +71,24 @@ double signedAngleAroundAxis(const Vector3d& from, const Vector3d& to, const Vec
 bool computeCircleParams(
     const Vector3d& p1, const Vector3d& p2, const Vector3d& p3,
     Vector3d& center, double& radius, Vector3d& rotate_axis) {
-    Vector3d v1 = p2 - p1;
-    Vector3d v2 = p3 - p1;
-    rotate_axis = v1.cross(v2);
-    
-    if (rotate_axis.norm() < 1e-6) return false; // 三点共线
-    rotate_axis.normalize();
+    const Vector3d u = p2 - p1;
+    const Vector3d v = p3 - p1;
+    const Vector3d w = u.cross(v);
+    const double w_sq = w.squaredNorm();
 
-    double v1_sq = v1.squaredNorm();
-    double v2_sq = v2.squaredNorm();
-    double v1_dot_v2 = v1.dot(v2);
-    double denom = 2.0 * rotate_axis.squaredNorm();
+    if (w_sq < 1e-12) {
+        return false; // 三点共线或几乎共线
+    }
 
-    double k1 = (v2_sq * v1_dot_v2 - v1_sq * v2.dot(v2)) / denom;
-    double k2 = (v1_sq * v1_dot_v2 - v2_sq * v1.dot(v1)) / denom;
+    rotate_axis = w.normalized();
 
-    center = p1 + k1 * v1 + k2 * v2;
+    // 3D 外接圆圆心公式，结果位于由三点定义的平面上。
+    const Vector3d center_offset =
+        (u.squaredNorm() * v.cross(w) + v.squaredNorm() * w.cross(u)) / (2.0 * w_sq);
+    center = p1 + center_offset;
     radius = (p1 - center).norm();
-    return true;
+
+    return std::isfinite(radius) && radius > 1e-9;
 }
 
 } // 匿名命名空间结束

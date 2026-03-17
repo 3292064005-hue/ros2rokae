@@ -3,6 +3,7 @@
 
 // 核心依赖头文件
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <string>
 #include <array>
@@ -12,7 +13,9 @@
 #include <chrono>
 #include <system_error>
 #include <cstdint>
+#include <future>
 #include <mutex>
+#include <thread>
 
 // 珞石类型定义
 #include "rokae_xmate3_ros2/types.hpp"
@@ -257,13 +260,35 @@ private:
     public:
         explicit Impl(const std::string& node_name);
         Impl(const std::string& remote_ip, const std::string& local_ip);
-        ~Impl() = default;
+        ~Impl();
 
         // 通用工具函数：等待服务并处理错误
         bool wait_for_service(rclcpp::ClientBase::SharedPtr client, std::error_code& ec, int timeout_s = 5);
+        void start_executor();
+        void stop_executor();
+        template<typename FutureT>
+        rclcpp::FutureReturnCode wait_for_future(
+            const FutureT& future,
+            std::chrono::nanoseconds timeout = std::chrono::seconds(30)) {
+            if (!executor_) {
+                std::lock_guard<std::mutex> lock(ros_call_mutex_);
+                return rclcpp::spin_until_future_complete(node_, future, timeout);
+            }
+
+            const auto status = future.wait_for(timeout);
+            if (status == std::future_status::ready) {
+                return rclcpp::FutureReturnCode::SUCCESS;
+            }
+            if (status == std::future_status::timeout) {
+                return rclcpp::FutureReturnCode::TIMEOUT;
+            }
+            return rclcpp::FutureReturnCode::INTERRUPTED;
+        }
 
         // ROS2核心节点
         rclcpp::Node::SharedPtr node_;
+        std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
+        std::thread executor_thread_;
         // 机器人配置参数
         std::string remote_ip_ = "192.168.0.160"; // 珞石机器人默认IP
         std::string local_ip_ = "";
@@ -271,6 +296,7 @@ private:
         bool connected_ = false;
         // 线程安全锁
         std::mutex state_mutex_;
+        std::mutex ros_call_mutex_;
 
         // 最新状态缓存（线程安全）
         sensor_msgs::msg::JointState last_joint_state_;

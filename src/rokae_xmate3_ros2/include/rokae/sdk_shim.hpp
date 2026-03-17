@@ -174,7 +174,9 @@ struct RobotSession {
   xPanelOpt::Vout xpanel_vout = xPanelOpt::off;
   unsigned rt_network_tolerance = 0;
   bool use_rci_client = false;
-  std::weak_ptr<RtMotionControlCobot<6>> rt_controller;
+  std::shared_ptr<RtMotionControlCobot<6>> rt_controller;
+  std::string pending_move_id;
+  int pending_move_count = 0;
 };
 
 inline std::shared_ptr<RobotSession> make_session() {
@@ -242,6 +244,47 @@ inline bool wait_until_idle(const std::shared_ptr<RobotSession> &session,
   }
   ec = std::make_error_code(std::errc::timed_out);
   return false;
+}
+
+inline void clear_pending_move(const std::shared_ptr<RobotSession> &session) {
+  if (!session) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(session->mutex);
+  session->pending_move_id.clear();
+  session->pending_move_count = 0;
+}
+
+inline std::pair<std::string, int> pending_move_info(const std::shared_ptr<RobotSession> &session) {
+  if (!session) {
+    return {};
+  }
+  std::lock_guard<std::mutex> lock(session->mutex);
+  return {session->pending_move_id, session->pending_move_count};
+}
+
+inline bool approx_equal_joint_command(const JointPosition &lhs, const JointPosition &rhs, double eps = 1e-3) {
+  if (lhs.joints.size() != rhs.joints.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < lhs.joints.size(); ++i) {
+    if (std::abs(lhs.joints[i] - rhs.joints[i]) > eps) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline bool approx_equal_cartesian_command(const CartesianPosition &lhs,
+                                           const CartesianPosition &rhs,
+                                           double pos_eps = 1e-4,
+                                           double rot_eps = 1e-3) {
+  return std::abs(lhs.x - rhs.x) <= pos_eps &&
+         std::abs(lhs.y - rhs.y) <= pos_eps &&
+         std::abs(lhs.z - rhs.z) <= pos_eps &&
+         std::abs(lhs.rx - rhs.rx) <= rot_eps &&
+         std::abs(lhs.ry - rhs.ry) <= rot_eps &&
+         std::abs(lhs.rz - rhs.rz) <= rot_eps;
 }
 
 inline std::array<double, 6> to_array6(const CartesianPosition &pose) {
@@ -460,15 +503,34 @@ public:
   template <class Command>
   void setControlLoop(const std::function<Command(void)> &callback, int priority = 0, bool useStateDataInLoop = false) noexcept {
     (void)priority;
+    has_last_joint_command_ = false;
+    has_last_cartesian_command_ = false;
+    last_dispatch_time_ = std::chrono::steady_clock::time_point{};
     control_loop_ = [callback]() { return std::any(callback()); };
     loop_dispatch_ = [this](const std::any &value) {
       if (!session_) {
         return;
       }
+      const auto now = std::chrono::steady_clock::now();
+      if (last_dispatch_time_.time_since_epoch().count() != 0 &&
+          now - last_dispatch_time_ < dispatch_interval_) {
+        return;
+      }
       error_code ec;
+      const auto state = session_->robot->operationState(ec);
+      if (ec) {
+        detail::remember_error(session_, ec);
+        return;
+      }
+      if (state != OperationState::idle && state != OperationState::unknown) {
+        return;
+      }
       if (value.type() == typeid(JointPosition)) {
         const auto &command = std::any_cast<const JointPosition &>(value);
         if (!command.isFinished()) {
+          if (has_last_joint_command_ && detail::approx_equal_joint_command(command, last_joint_command_)) {
+            return;
+          }
           MoveAbsJCommand move(command);
           session_->robot->moveReset(ec);
           if (!ec) {
@@ -477,10 +539,19 @@ public:
           if (!ec) {
             session_->robot->moveStart(ec);
           }
+          if (!ec) {
+            last_dispatch_time_ = now;
+            last_joint_command_ = command;
+            has_last_joint_command_ = true;
+          }
         }
       } else if (value.type() == typeid(CartesianPosition)) {
         const auto &command = std::any_cast<const CartesianPosition &>(value);
         if (!command.isFinished()) {
+          if (has_last_cartesian_command_ &&
+              detail::approx_equal_cartesian_command(command, last_cartesian_command_)) {
+            return;
+          }
           auto move = MoveLCommand(command);
           session_->robot->moveReset(ec);
           if (!ec) {
@@ -488,6 +559,11 @@ public:
           }
           if (!ec) {
             session_->robot->moveStart(ec);
+          }
+          if (!ec) {
+            last_dispatch_time_ = now;
+            last_cartesian_command_ = command;
+            has_last_cartesian_command_ = true;
           }
         }
       } else if (value.type() == typeid(Torque)) {
@@ -576,6 +652,12 @@ protected:
   std::thread loop_thread_;
   std::atomic<bool> loop_running_{false};
   bool use_state_data_in_loop_ = false;
+  std::chrono::steady_clock::time_point last_dispatch_time_{};
+  std::chrono::milliseconds dispatch_interval_{20};
+  bool has_last_joint_command_ = false;
+  JointPosition last_joint_command_;
+  bool has_last_cartesian_command_ = false;
+  CartesianPosition last_cartesian_command_;
 };
 
 template <WorkType Wt, unsigned short DoF>
@@ -624,7 +706,7 @@ public:
     (void)start;
     MoveAbsJCommand cmd;
     cmd.target = JointPosition(std::vector<double>(target.begin(), target.end()));
-    cmd.speed = std::max(1, static_cast<int>(speed * 1000.0));
+    cmd.speed = std::clamp(static_cast<int>(std::lround(speed * 100.0)), 1, 100);
     cmd.zone = 0;
     this->session_->robot->moveReset(ec);
     if (!ec) {
@@ -646,7 +728,7 @@ public:
     error_code ec;
     (void)start;
     MoveLCommand cmd(target);
-    cmd.speed = std::max(1, static_cast<int>(speed * 1000.0));
+    cmd.speed = std::clamp(static_cast<int>(std::lround(speed * 100.0)), 1, 100);
     this->session_->robot->moveReset(ec);
     if (!ec) {
       this->session_->robot->moveL(cmd, ec);
@@ -667,7 +749,7 @@ public:
     error_code ec;
     (void)start;
     MoveCCommand cmd(target, aux);
-    cmd.speed = std::max(1, static_cast<int>(speed * 1000.0));
+    cmd.speed = std::clamp(static_cast<int>(std::lround(speed * 100.0)), 1, 100);
     this->session_->robot->moveReset(ec);
     if (!ec) {
       this->session_->robot->moveC(cmd, ec);
@@ -1239,11 +1321,23 @@ public:
 
   void moveReset(error_code &ec) noexcept {
     session_->robot->moveReset(ec);
+    detail::clear_pending_move(session_);
     detail::remember_error(session_, ec);
   }
 
   void moveStart(error_code &ec) noexcept {
     session_->robot->moveStart(ec);
+    if (!ec) {
+      error_code state_ec;
+      const auto state = session_->robot->operationState(state_ec);
+      if (!state_ec && (state == OperationState::idle || state == OperationState::unknown)) {
+        const auto [cmd_id, count] = detail::pending_move_info(session_);
+        if (!cmd_id.empty() && count > 0) {
+          detail::publish_move_event(session_, cmd_id, true, count - 1, {}, "completed");
+        }
+        detail::clear_pending_move(session_);
+      }
+    }
     detail::remember_error(session_, ec);
   }
 
@@ -1260,11 +1354,17 @@ public:
       return;
     }
     cmdID = std::to_string(session_->next_cmd_id++);
+    {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      session_->pending_move_id = cmdID;
+      session_->pending_move_count = static_cast<int>(cmds.size());
+    }
     int index = 0;
     for (const auto &cmd : cmds) {
       detail::append_command(*session_->robot, cmd, ec);
       if (ec) {
         detail::publish_move_event(session_, cmdID, false, index, ec, "append failed");
+        detail::clear_pending_move(session_);
         detail::remember_error(session_, ec);
         return;
       }
@@ -1864,12 +1964,10 @@ public:
 
   std::weak_ptr<RtMotionControlCobot<DoF>> getRtMotionController() {
     static_assert(DoF == 6, "Only xMate3 6DoF collaborative robot is supported by this shim.");
-    auto controller = this->session_->rt_controller.lock();
-    if (!controller) {
-      controller = std::make_shared<RtMotionControlCobot<DoF>>(this->session_);
-      this->session_->rt_controller = controller;
+    if (!this->session_->rt_controller) {
+      this->session_->rt_controller = std::make_shared<RtMotionControlCobot<DoF>>(this->session_);
     }
-    return controller;
+    return this->session_->rt_controller;
   }
 
   void enableCollisionDetection(const std::array<double, DoF> &sensitivity,

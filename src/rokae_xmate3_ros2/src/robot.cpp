@@ -124,6 +124,29 @@ void xMateRobot::Impl::init_subscribers() {
     RCLCPP_INFO(node_->get_logger(), "所有ROS2话题订阅器初始化完成");
 }
 
+void xMateRobot::Impl::start_executor() {
+    // Keep the ROS2 wrapper on explicit spin calls.
+    // This avoids the node being attached to multiple executors when examples mix
+    // service/action waits and state polling from different threads.
+}
+
+void xMateRobot::Impl::stop_executor() {
+    if (executor_) {
+        executor_->cancel();
+    }
+    if (executor_thread_.joinable()) {
+        executor_thread_.join();
+    }
+    if (executor_ && node_) {
+        executor_->remove_node(node_);
+    }
+    executor_.reset();
+}
+
+xMateRobot::Impl::~Impl() {
+    stop_executor();
+}
+
 // Impl构造函数实现
 xMateRobot::Impl::Impl(const std::string& node_name) {
     // 首先初始化ROS2（如果还没有初始化）
@@ -135,6 +158,7 @@ xMateRobot::Impl::Impl(const std::string& node_name) {
     init_node();
     init_clients();
     init_subscribers();
+    start_executor();
 }
 
 xMateRobot::Impl::Impl(const std::string& remote_ip, const std::string& local_ip) {
@@ -149,6 +173,7 @@ xMateRobot::Impl::Impl(const std::string& remote_ip, const std::string& local_ip
     init_node();
     init_clients();
     init_subscribers();
+    start_executor();
 }
 
 // 通用服务等待工具函数
@@ -163,9 +188,11 @@ bool xMateRobot::Impl::wait_for_service(rclcpp::ClientBase::SharedPtr client, st
 }
 
 void xMateRobot::Impl::pump_callbacks() {
-    if (node_ && rclcpp::ok()) {
-        rclcpp::spin_some(node_);
+    if (!node_ || !rclcpp::ok()) {
+        return;
     }
+    std::lock_guard<std::mutex> lock(ros_call_mutex_);
+    rclcpp::spin_some(node_);
 }
 
 void xMateRobot::Impl::resetMoveAppendState() {
@@ -245,6 +272,9 @@ xMateRobot::~xMateRobot() {
     if (impl_->connected_) {
         disconnectFromRobot(ec);
     }
+    if (impl_) {
+        impl_->stop_executor();
+    }
     if (rclcpp::ok()) {
         rclcpp::shutdown();
     }
@@ -272,7 +302,7 @@ void xMateRobot::connectToRobot(std::error_code& ec) {
     request->local_ip = impl_->local_ip_;
 
     auto future = impl_->xmate3_robot_connect_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         RCLCPP_ERROR(impl_->node_->get_logger(), "机器人连接请求发送失败");
         return;
@@ -304,7 +334,7 @@ void xMateRobot::disconnectFromRobot(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::Disconnect::Request>();
     auto future = impl_->xmate3_robot_disconnect_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         RCLCPP_ERROR(impl_->node_->get_logger(), "断开连接请求发送失败");
         return;
@@ -336,7 +366,7 @@ rokae::Info xMateRobot::robotInfo(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetInfo::Request>();
     auto future = impl_->xmate3_robot_get_info_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return info;
     }
@@ -369,7 +399,7 @@ rokae::PowerState xMateRobot::powerState(std::error_code& ec) {
     }
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetPowerState::Request>();
     auto future = impl_->xmate3_robot_get_power_state_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return rokae::PowerState::unknown;
     }
@@ -409,7 +439,7 @@ void xMateRobot::setPowerState(bool on, std::error_code& ec) {
     request->on = on;
 
     auto future = impl_->xmate3_robot_set_power_state_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -436,7 +466,7 @@ rokae::OperateMode xMateRobot::operateMode(std::error_code& ec) {
     }
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetOperateMode::Request>();
     auto future = impl_->xmate3_robot_get_operate_mode_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return rokae::OperateMode::unknown;
     }
@@ -466,7 +496,7 @@ void xMateRobot::setOperateMode(rokae::OperateMode mode, std::error_code& ec) {
     request->mode = static_cast<uint8_t>(mode);
 
     auto future = impl_->xmate3_robot_set_operate_mode_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -528,7 +558,7 @@ std::vector<rokae::LogInfo> xMateRobot::queryControllerLog(unsigned int count, s
     auto request = std::make_shared<rokae_xmate3_ros2::srv::QueryControllerLog::Request>();
     request->count = count;
     auto future = impl_->xmate3_robot_query_log_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return logs;
     }
@@ -564,7 +594,7 @@ void xMateRobot::clearServoAlarm(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::ClearServoAlarm::Request>();
     auto future = impl_->xmate3_robot_clear_servo_alarm_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -603,7 +633,7 @@ std::array<double, 6> xMateRobot::jointPos(std::error_code& ec) {
     }
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetJointPos::Request>();
     auto future = impl_->xmate3_robot_get_joint_pos_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return pos;
     }
@@ -642,7 +672,7 @@ std::array<double, 6> xMateRobot::jointVel(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetJointVel::Request>();
     auto future = impl_->xmate3_robot_get_joint_vel_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return vel;
     }
@@ -682,7 +712,7 @@ std::array<double, 6> xMateRobot::jointTorque(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetJointTorque::Request>();
     auto future = impl_->xmate3_robot_get_joint_torque_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return torque;
     }
@@ -760,7 +790,7 @@ std::array<double, 6> xMateRobot::baseFrame(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetBaseFrame::Request>();
     auto future = impl_->xmate3_robot_get_base_frame_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return frame;
     }
@@ -800,7 +830,7 @@ rokae::JointPosition xMateRobot::calcIk(const rokae::CartesianPosition& posture,
     request->external = posture.external;
 
     auto future = impl_->xmate3_robot_calc_ik_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return joints;
     }
@@ -842,7 +872,7 @@ rokae::CartesianPosition xMateRobot::calcFk(const rokae::JointPosition& joints, 
     request->joint_positions[5] = joints.joints[5];
     
     auto future = impl_->xmate3_robot_calc_fk_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return posture;
     }
@@ -878,7 +908,7 @@ rokae::Toolset xMateRobot::toolset(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetToolset::Request>();
     auto future = impl_->xmate3_robot_get_toolset_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return toolset;
     }
@@ -891,8 +921,12 @@ rokae::Toolset xMateRobot::toolset(std::error_code& ec) {
 
     toolset.tool_name = result->tool_name;
     toolset.wobj_name = result->wobj_name;
-    std::copy(result->tool_pose.begin(), result->tool_pose.end(), toolset.tool_pose.begin());
-    std::copy(result->wobj_pose.begin(), result->wobj_pose.end(), toolset.wobj_pose.begin());
+    const auto tool_count = std::min<size_t>(toolset.tool_pose.size(), result->tool_pose.size());
+    const auto wobj_count = std::min<size_t>(toolset.wobj_pose.size(), result->wobj_pose.size());
+    std::copy_n(result->tool_pose.begin(), tool_count, toolset.tool_pose.begin());
+    std::copy_n(result->wobj_pose.begin(), wobj_count, toolset.wobj_pose.begin());
+    toolset.end = rokae::Frame(toolset.tool_pose);
+    toolset.ref = rokae::Frame(toolset.wobj_pose);
     ec.clear();
     return toolset;
 }
@@ -911,11 +945,13 @@ void xMateRobot::setToolset(const rokae::Toolset& toolset, std::error_code& ec) 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::SetToolset::Request>();
     request->tool_name = toolset.tool_name;
     request->wobj_name = toolset.wobj_name;
-    std::copy(toolset.tool_pose.begin(), toolset.tool_pose.end(), request->tool_pose.begin());
-    std::copy(toolset.wobj_pose.begin(), toolset.wobj_pose.end(), request->wobj_pose.begin());
+    const std::array<double, 6> tool_pose = {toolset.end.x, toolset.end.y, toolset.end.z, toolset.end.rx, toolset.end.ry, toolset.end.rz};
+    const std::array<double, 6> wobj_pose = {toolset.ref.x, toolset.ref.y, toolset.ref.z, toolset.ref.rx, toolset.ref.ry, toolset.ref.rz};
+    request->tool_pose.assign(tool_pose.begin(), tool_pose.end());
+    request->wobj_pose.assign(wobj_pose.begin(), wobj_pose.end());
 
     auto future = impl_->xmate3_robot_set_toolset_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -947,7 +983,7 @@ void xMateRobot::setToolset(const std::string& toolName, const std::string& wobj
     request->wobj_name = wobjName;
 
     auto future = impl_->xmate3_robot_set_toolset_by_name_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -980,7 +1016,7 @@ void xMateRobot::enableCollisionDetection(const std::array<double, 6>& sensitivi
     request->fallback = fallback;
 
     auto future = impl_->xmate3_robot_enable_collision_detection_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1009,7 +1045,7 @@ void xMateRobot::disableCollisionDetection(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::DisableCollisionDetection::Request>();
     auto future = impl_->xmate3_robot_disable_collision_detection_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1038,7 +1074,7 @@ bool xMateRobot::getSoftLimit(std::array<std::array<double,2>,6>& limits, std::e
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetSoftLimit::Request>();
     auto future = impl_->xmate3_robot_get_soft_limit_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }
@@ -1095,7 +1131,7 @@ void xMateRobot::setSoftLimit(bool enable, std::error_code& ec, const std::array
 
     // 5. 发送服务请求并等待响应
     auto future = impl_->xmate3_robot_set_soft_limit_client_->async_send_request(request);
-    auto spin_result = rclcpp::spin_until_future_complete(impl_->node_, future);
+    auto spin_result = impl_->wait_for_future(future);
     if (spin_result != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         RCLCPP_ERROR(impl_->node_->get_logger(), 
@@ -1150,7 +1186,7 @@ void xMateRobot::setMotionControlMode(rokae::MotionControlMode mode, std::error_
     }
 
     auto future = impl_->xmate3_motion_set_control_mode_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1182,7 +1218,7 @@ void xMateRobot::moveReset(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::MoveReset::Request>();
     auto future = impl_->xmate3_motion_reset_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1217,7 +1253,7 @@ void xMateRobot::moveStart(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::MoveStart::Request>();
     auto future = impl_->xmate3_motion_start_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1251,7 +1287,7 @@ void xMateRobot::stop(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::Stop::Request>();
     auto future = impl_->xmate3_motion_stop_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1282,7 +1318,7 @@ void xMateRobot::setDefaultSpeed(int speed, std::error_code& ec) {
     request->speed = speed;
 
     auto future = impl_->xmate3_motion_set_default_speed_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1313,7 +1349,7 @@ void xMateRobot::setDefaultZone(int zone, std::error_code& ec) {
     request->zone = zone;
 
     auto future = impl_->xmate3_motion_set_default_zone_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1344,7 +1380,7 @@ void xMateRobot::setDefaultConfOpt(bool forced, std::error_code& ec) {
     request->forced = forced;
 
     auto future = impl_->xmate3_motion_set_default_conf_opt_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1375,7 +1411,7 @@ void xMateRobot::adjustSpeedOnline(double scale, std::error_code& ec) {
     request->scale = scale;
 
     auto future = impl_->xmate3_motion_adjust_speed_online_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1407,7 +1443,7 @@ bool xMateRobot::getDI(unsigned int board, unsigned int port, std::error_code& e
     request->port = port;
 
     auto future = impl_->xmate3_io_get_di_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }
@@ -1437,7 +1473,7 @@ bool xMateRobot::getDO(unsigned int board, unsigned int port, std::error_code& e
     request->port = port;
 
     auto future = impl_->xmate3_io_get_do_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }
@@ -1468,7 +1504,7 @@ void xMateRobot::setDI(unsigned int board, unsigned int port, bool state, std::e
     request->state = state;
 
     auto future = impl_->xmate3_io_set_di_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1499,7 +1535,7 @@ void xMateRobot::setDO(unsigned int board, unsigned int port, bool state, std::e
     request->state = state;
 
     auto future = impl_->xmate3_io_set_do_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1530,7 +1566,7 @@ double xMateRobot::getAI(unsigned int board, unsigned int port, std::error_code&
     request->port = port;
 
     auto future = impl_->xmate3_io_get_ai_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return 0.0;
     }
@@ -1561,7 +1597,7 @@ void xMateRobot::setAO(unsigned int board, unsigned int port, double value, std:
     request->value = value;
 
     auto future = impl_->xmate3_io_set_ao_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1590,7 +1626,7 @@ void xMateRobot::setSimulationMode(bool state, std::error_code& ec) {
     request->state = state;
 
     auto future = impl_->xmate3_io_set_simulation_mode_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1622,7 +1658,7 @@ void xMateRobot::enableDrag(rokae::DragParameter::Space space, rokae::DragParame
     request->type = static_cast<uint8_t>(type);
 
     auto future = impl_->xmate3_cobot_enable_drag_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1650,7 +1686,7 @@ void xMateRobot::disableDrag(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::DisableDrag::Request>();
     auto future = impl_->xmate3_cobot_disable_drag_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1680,7 +1716,7 @@ void xMateRobot::startRecordPath(std::chrono::seconds duration, std::error_code&
     request->duration = duration.count();
 
     auto future = impl_->xmate3_cobot_start_record_path_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1708,7 +1744,7 @@ void xMateRobot::stopRecordPath(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::StopRecordPath::Request>();
     auto future = impl_->xmate3_cobot_stop_record_path_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1736,7 +1772,7 @@ void xMateRobot::cancelRecordPath(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::CancelRecordPath::Request>();
     auto future = impl_->xmate3_cobot_cancel_record_path_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1767,7 +1803,7 @@ void xMateRobot::saveRecordPath(const std::string& name, std::error_code& ec, co
     request->save_as = saveAs;
 
     auto future = impl_->xmate3_cobot_save_record_path_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1798,7 +1834,7 @@ void xMateRobot::replayPath(const std::string& name, double rate, std::error_cod
     request->rate = rate;
 
     auto future = impl_->xmate3_cobot_replay_path_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1829,7 +1865,7 @@ void xMateRobot::removePath(const std::string& name, std::error_code& ec, bool r
     request->remove_all = removeAll;
 
     auto future = impl_->xmate3_cobot_remove_path_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -1858,7 +1894,7 @@ std::vector<std::string> xMateRobot::queryPathLists(std::error_code& ec) {
 
     auto request = std::make_shared<rokae_xmate3_ros2::srv::QueryPathLists::Request>();
     auto future = impl_->xmate3_cobot_query_path_lists_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return path_list;
     }
@@ -1951,7 +1987,7 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
     auto send_future = move_append_action_client_->async_send_goal(goal_to_send, send_goal_options);
 
     // 等待goal被接受
-    if (rclcpp::spin_until_future_complete(node_, send_future, 5s) !=
+    if (wait_for_future(send_future, 5s) !=
         rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::timed_out);
         RCLCPP_ERROR(node_->get_logger(), "Failed to send goal to action server");
@@ -1976,7 +2012,7 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
     auto start_wait = std::chrono::steady_clock::now();
     bool motion_started = false;
     while (std::chrono::steady_clock::now() - start_wait < std::chrono::seconds(5)) {
-        rclcpp::spin_some(node_);
+        pump_callbacks();
         if (checkMoveAppendFailure(ec)) {
             return false;
         }
@@ -2157,7 +2193,7 @@ void xMateRobot::setRtControlMode(rokae::RtControllerMode mode, std::error_code&
     auto request = std::make_shared<rokae_xmate3_ros2::srv::SetRtControlMode::Request>();
     request->mode = static_cast<int32_t>(mode);
     auto future = impl_->xmate3_rt_set_control_mode_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -2183,7 +2219,7 @@ bool xMateRobot::getRtJointData(std::array<double, 6>& position,
     }
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetRtJointData::Request>();
     auto future = impl_->xmate3_rt_get_joint_data_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }
@@ -2215,7 +2251,7 @@ std::string xMateRobot::sendCustomData(const std::string& topic,
     request->data_topic = topic;
     request->custom_data = payload;
     auto future = impl_->xmate3_comm_send_custom_data_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return {};
     }
@@ -2243,7 +2279,7 @@ bool xMateRobot::registerDataCallback(const std::string& data_topic,
     request->data_topic = data_topic;
     request->callback_id = callback_id;
     auto future = impl_->xmate3_comm_register_data_callback_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }
@@ -2268,7 +2304,7 @@ std::string xMateRobot::readRegister(const std::string& key, std::error_code& ec
     auto request = std::make_shared<rokae_xmate3_ros2::srv::ReadRegister::Request>();
     request->key = key;
     auto future = impl_->xmate3_comm_read_register_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return {};
     }
@@ -2293,7 +2329,7 @@ void xMateRobot::writeRegister(const std::string& key, const std::string& value,
     request->key = key;
     request->value = value;
     auto future = impl_->xmate3_comm_write_register_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -2316,7 +2352,7 @@ bool xMateRobot::loadRLProject(const std::string& project_path, std::string& pro
     auto request = std::make_shared<rokae_xmate3_ros2::srv::LoadRLProject::Request>();
     request->project_path = project_path;
     auto future = impl_->xmate3_rl_load_project_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }
@@ -2342,7 +2378,7 @@ bool xMateRobot::startRLProject(const std::string& project_id, int& current_epis
     auto request = std::make_shared<rokae_xmate3_ros2::srv::StartRLProject::Request>();
     request->project_id = project_id;
     auto future = impl_->xmate3_rl_start_project_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }
@@ -2367,7 +2403,7 @@ bool xMateRobot::stopRLProject(const std::string& project_id, int& finished_epis
     auto request = std::make_shared<rokae_xmate3_ros2::srv::StopRLProject::Request>();
     request->project_id = project_id;
     auto future = impl_->xmate3_rl_stop_project_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }
@@ -2455,7 +2491,7 @@ void xMateRobot::setAvoidSingularity(bool enable, std::error_code& ec) {
     auto request = std::make_shared<rokae_xmate3_ros2::srv::SetAvoidSingularity::Request>();
     request->enable = enable;
     auto future = impl_->xmate3_cobot_set_avoid_singularity_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return;
     }
@@ -2477,7 +2513,7 @@ bool xMateRobot::getAvoidSingularity(std::error_code& ec) {
     }
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetAvoidSingularity::Request>();
     auto future = impl_->xmate3_cobot_get_avoid_singularity_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }
@@ -2501,7 +2537,7 @@ std::array<double, 6> xMateRobot::getEndTorque(std::error_code& ec) {
     }
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GetEndTorque::Request>();
     auto future = impl_->xmate3_cobot_get_end_torque_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return wrench;
     }
@@ -2538,7 +2574,7 @@ bool xMateRobot::calcJointTorque(const std::array<double, 6>& joint_pos,
     request->joint_acc = joint_acc;
     request->external_force = external_force;
     auto future = impl_->xmate3_dyn_calc_joint_torque_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }
@@ -2574,7 +2610,7 @@ bool xMateRobot::generateSTrajectory(const std::array<double, 6>& start_joint_po
     request->start_joint_pos = start_joint_pos;
     request->target_joint_pos = target_joint_pos;
     auto future = impl_->xmate3_dyn_generate_s_trajectory_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }
@@ -2607,7 +2643,7 @@ bool xMateRobot::mapCartesianToJointTorque(const std::array<double, 6>& cart_for
     request->cart_force = cart_force;
     request->joint_pos = joint_pos;
     auto future = impl_->xmate3_dyn_map_cartesian_to_joint_torque_client_->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(impl_->node_, future) != rclcpp::FutureReturnCode::SUCCESS) {
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
         return false;
     }

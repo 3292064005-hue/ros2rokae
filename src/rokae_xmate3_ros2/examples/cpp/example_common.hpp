@@ -7,6 +7,7 @@
 #include <cmath>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <set>
 #include <string>
 #include <system_error>
@@ -20,6 +21,7 @@ namespace example {
 
 using namespace rokae;
 inline constexpr double kPi = 3.14159265358979323846;
+inline constexpr std::array<double, 6> kXMate3DragPose{0.0, kPi / 6.0, kPi / 3.0, 0.0, kPi / 2.0, 0.0};
 inline std::ostream &os = std::cout;
 
 inline void printHeader(const std::string &title, const std::string &subtitle = {}) {
@@ -216,14 +218,43 @@ inline bool waitForCommandOrIdle(BaseRobot &robot,
                                  int index,
                                  error_code &ec,
                                  std::chrono::steady_clock::duration timeout = std::chrono::seconds(90)) {
-  if (waitForFinish(robot, traj_id, index, ec, timeout)) {
-    return true;
+  using namespace EventInfoKey::MoveExecution;
+  const auto start = std::chrono::steady_clock::now();
+  bool seen_active_state = false;
+  while (std::chrono::steady_clock::now() - start < timeout) {
+    const auto info = robot.queryEventInfo(Event::moveExecution, ec);
+    if (ec) {
+      return false;
+    }
+    try {
+      const auto current_id = std::any_cast<std::string>(info.at(ID));
+      const auto current_index = std::any_cast<int>(info.at(WaypointIndex));
+      const auto move_ec = std::any_cast<error_code>(info.at(Error));
+      if (move_ec) {
+        ec = move_ec;
+        return false;
+      }
+      if (current_id == traj_id && current_index >= index && std::any_cast<bool>(info.at(ReachTarget))) {
+        return true;
+      }
+    } catch (const std::exception &) {
+    }
+
+    const auto state = robot.operationState(ec);
+    if (ec) {
+      return false;
+    }
+    if (state != OperationState::idle && state != OperationState::unknown) {
+      seen_active_state = true;
+    }
+    if (seen_active_state && (state == OperationState::idle || state == OperationState::unknown)) {
+      return true;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-  if (ec != std::make_error_code(std::errc::timed_out)) {
-    return false;
-  }
-  ec.clear();
-  return waitMotionCycle(robot, ec, timeout);
+  ec = std::make_error_code(std::errc::timed_out);
+  return false;
 }
 
 inline bool connectRobot(xMateRobot &robot, error_code &ec) {
@@ -253,6 +284,34 @@ inline bool prepareAutomaticNrt(xMateRobot &robot,
   }
   robot.setDefaultZone(zone, ec);
   return !reportError("setDefaultZone", ec);
+}
+
+inline bool prepareAutomaticRt(xMateRobot &robot,
+                               error_code &ec,
+                               unsigned tolerance = 20) {
+  robot.setRtNetworkTolerance(tolerance, ec);
+  if (reportError("setRtNetworkTolerance", ec)) {
+    return false;
+  }
+  robot.setMotionControlMode(MotionControlMode::RtCommand, ec);
+  if (reportError("setMotionControlMode", ec)) {
+    return false;
+  }
+  robot.setOperateMode(OperateMode::automatic, ec);
+  if (reportError("setOperateMode", ec)) {
+    return false;
+  }
+  robot.setPowerState(true, ec);
+  return !reportError("setPowerState", ec);
+}
+
+template <typename T>
+inline bool ensurePtr(const std::shared_ptr<T> &ptr, const std::string &name) {
+  if (ptr) {
+    return true;
+  }
+  std::cerr << "! " << name << " unavailable" << std::endl;
+  return false;
 }
 
 inline void cleanupRobot(xMateRobot &robot) {
