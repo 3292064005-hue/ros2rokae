@@ -1,4 +1,5 @@
 #include "rokae_xmate3_ros2/robot.hpp"
+#include "rokae_xmate3_ros2/utils.hpp"
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <chrono>
 #include <system_error>

@@ -1,171 +1,108 @@
 /**
  * @file 03_kinematics.cpp
- * @brief 第4.3节 - 运动学计算示例
- *
- * 本示例演示：
- * - 正运动学计算 (FK)
- * - 逆运动学计算 (IK)
+ * @brief 官方 SDK 风格 - 运动学与模型接口
  */
 
-#include <iostream>
-#include <iomanip>
 #include <array>
-#include <system_error>
-#include "rokae_xmate3_ros2/robot.hpp"
 
-using namespace std;
+#include "rokae/model.h"
+#include "rokae/robot.h"
+#include "example_common.hpp"
 
-void printJoints(const array<double, 6>& joints) {
-    cout << "    [";
-    for (size_t i = 0; i < 6; ++i) {
-        cout << fixed << setprecision(4) << joints[i];
-        if (i < 5) cout << ", ";
-    }
-    cout << "] (rad)" << endl;
-}
-
-void printCartesian(const rokae::CartesianPosition& pose) {
-    cout << "    位置: [" << fixed << setprecision(4)
-         << pose.x << ", " << pose.y << ", " << pose.z << "] m" << endl;
-    cout << "    姿态: [" << fixed << setprecision(4)
-         << pose.rx << ", " << pose.ry << ", " << pose.rz << "] rad" << endl;
-}
+using namespace rokae;
+using namespace example;
 
 int main() {
-    cout << "==========================================" << endl;
-    cout << "  示例 3: 运动学计算 (FK/IK)" << endl;
-    cout << "  (对应SDK手册第4.3节)" << endl;
-    cout << "==========================================" << endl;
+  printHeader("示例 3: 运动学与模型接口", "官方 SDK 风格");
 
-    error_code ec;
+  error_code ec;
+  xMateRobot robot;
+  if (!connectRobot(robot, ec)) {
+    return 1;
+  }
 
-    // 1. 初始化连接
-    cout << "\n[1] 初始化连接..." << endl;
-    rokae::ros2::xMateRobot robot;
-    robot.connectToRobot(ec);
-    if (ec) {
-        cerr << "连接失败: " << ec.message() << endl;
-        return 1;
-    }
-    cout << "    已连接" << endl;
+  auto model = robot.model();
 
-    // 2. 获取当前关节位置
-    cout << "\n[2] 获取当前关节位置..." << endl;
-    auto current_joints = robot.jointPos(ec);
-    if (!ec) {
-        cout << "    当前关节: ";
-        printJoints(current_joints);
-    }
+  printSection("1 当前姿态与正运动学");
+  const auto q_current = robot.jointPos(ec);
+  if (reportError("jointPos", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printArray("joint position", q_current, 4, " rad");
 
-    // 3. 正运动学计算 (FK) - 使用当前关节
-    cout << "\n[3] 正运动学计算 (FK)..." << endl;
-    rokae::JointPosition joint_input;
-    joint_input.joints = {current_joints[0], current_joints[1], current_joints[2],
-                          current_joints[3], current_joints[4], current_joints[5]};
+  const auto tcp_xyzabc = robot.posture(CoordinateType::endInRef, ec);
+  if (reportError("posture(endInRef)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printArray("tcp xyzabc", tcp_xyzabc, 4);
 
-    auto fk_result = robot.calcFk(joint_input, ec);
-    if (!ec) {
-        cout << "    FK计算结果:" << endl;
-        printCartesian(fk_result);
-    }
+  const auto fk_current = model.calcFk(q_current, ec);
+  if (reportError("model.calcFk", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printPose("fk(current)", fk_current);
+  printArray("getCartPose(flange)", model.getCartPose(q_current), 4);
 
-    // 4. 使用指定关节进行FK计算
-    cout << "\n[4] 使用指定关节进行FK计算..." << endl;
-    rokae::JointPosition test_joints;
-    test_joints.joints = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};  // 零位
-    cout << "    输入关节 (零位): ";
-    printJoints({0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+  printSection("2 逆运动学与结果校验");
+  CartesianPosition target_pose({0.40, 0.00, 0.50, kPi, 0.0, 0.0});
+  target_pose.confData = {-1, 1, -1, 0, 1, 0, 0, 2};
+  printPose("ik target", target_pose);
+  printVector("ik confData", target_pose.confData, 0);
 
-    auto fk_zero = robot.calcFk(test_joints, ec);
-    if (!ec) {
-        cout << "    FK结果 (零位):" << endl;
-        printCartesian(fk_zero);
-    }
+  const auto q_target = model.calcIk(target_pose, ec);
+  if (reportError("model.calcIk", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printArray("ik result", q_target, 4, " rad");
 
-    // 5. 另一个测试位置
-    cout << "\n[5] 另一个测试位置的FK计算..." << endl;
-    rokae::JointPosition test_joints2;
-    test_joints2.joints = {0.5, 0.3, -0.2, 0.1, 0.4, 0.0};
-    cout << "    输入关节: ";
-    printJoints({0.5, 0.3, -0.2, 0.1, 0.4, 0.0});
+  const auto fk_verify = model.calcFk(q_target, ec);
+  if (reportError("model.calcFk(ik)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printPose("fk(ik result)", fk_verify);
 
-    auto fk_test = robot.calcFk(test_joints2, ec);
-    if (!ec) {
-        cout << "    FK结果:" << endl;
-        printCartesian(fk_test);
-    }
+  const auto cart_target = model.getCartPose(q_target);
+  printArray("getCartPose(ik result)", cart_target, 4);
 
-    // 6. 逆运动学计算 (IK)
-    cout << "\n[6] 逆运动学计算 (IK)..." << endl;
-    rokae::CartesianPosition target_pose;
-    target_pose.x = 0.4;
-    target_pose.y = 0.0;
-    target_pose.z = 0.5;
-    target_pose.rx = 3.14159;  // PI
-    target_pose.ry = 0.0;
-    target_pose.rz = 0.0;
+  std::array<double, 6> q_recovered{};
+  const auto ik_ret = model.getJointPos(cart_target, 0.0, q_target, q_recovered);
+  os << "getJointPos ret = " << ik_ret << std::endl;
+  if (ik_ret == 0) {
+    printArray("getJointPos result", q_recovered, 4, " rad");
+  }
 
-    cout << "    目标笛卡尔位姿:" << endl;
-    printCartesian(target_pose);
+  printSection("3 雅可比与速度加速度映射");
+  const auto jac = model.jacobian(q_current);
+  std::array<double, 6> jac_row0{};
+  std::copy_n(jac.begin(), 6, jac_row0.begin());
+  printArray("jacobian row0", jac_row0, 4);
 
-    auto ik_result = robot.calcIk(target_pose, ec);
-    if (!ec) {
-        cout << "    IK计算结果 (关节角度):" << endl;
-        cout << "    [";
-        for (size_t i = 0; i < ik_result.joints.size() && i < 6; ++i) {
-            cout << fixed << setprecision(4) << ik_result.joints[i];
-            if (i < 5) cout << ", ";
-        }
-        cout << "] (rad)" << endl;
-    } else {
-        cout << "    IK计算失败: " << ec.message() << endl;
-    }
+  const std::array<double, 6> dq_sample{0.10, 0.05, 0.02, 0.00, 0.03, 0.01};
+  const std::array<double, 6> ddq_sample{0.20, 0.10, 0.05, 0.00, 0.02, 0.01};
+  printArray("cartesian velocity", model.getCartVel(q_current, dq_sample), 4);
+  printArray("cartesian acceleration", model.getCartAcc(q_current, dq_sample, ddq_sample), 4);
+  printArray("joint velocity(recovered)", model.getJointVel(model.getCartVel(q_current, dq_sample), q_current), 4, " rad/s");
+  printArray("joint acceleration(recovered)", model.getJointAcc(model.getCartAcc(q_current, dq_sample, ddq_sample), q_current, dq_sample), 4, " rad/s^2");
 
-    // 7. 使用FK验证IK结果
-    cout << "\n[7] FK/IK 一致性验证..." << endl;
-    if (!ec && ik_result.joints.size() >= 6) {
-        rokae::JointPosition ik_joints;
-        ik_joints.joints = ik_result.joints;
-        auto verify_fk = robot.calcFk(ik_joints, ec);
-        if (!ec) {
-            cout << "    验证: IK结果的FK计算:" << endl;
-            printCartesian(verify_fk);
-            cout << "    误差 (X): " << fixed << setprecision(6)
-                 << abs(verify_fk.x - target_pose.x) << " m" << endl;
-        }
-    }
+  printSection("4 动力学项");
+  std::array<double, 6> torque_full{};
+  std::array<double, 6> torque_inertia{};
+  std::array<double, 6> torque_coriolis{};
+  std::array<double, 6> torque_gravity{};
+  model.getTorqueNoFriction(q_current, dq_sample, ddq_sample, torque_full, torque_inertia, torque_coriolis, torque_gravity);
+  printArray("torque full(no friction)", torque_full, 4, " Nm");
+  printArray("torque inertia", torque_inertia, 4, " Nm");
+  printArray("torque coriolis", torque_coriolis, 4, " Nm");
+  printArray("torque gravity", torque_gravity, 4, " Nm");
+  printArray("torque friction", model.getTorque(q_current, dq_sample, ddq_sample, TorqueType::friction), 4, " Nm");
 
-    // 8. 另一个IK目标
-    cout << "\n[8] 另一个IK目标..." << endl;
-    rokae::CartesianPosition target_pose2;
-    target_pose2.x = 0.3;
-    target_pose2.y = 0.2;
-    target_pose2.z = 0.4;
-    target_pose2.rx = 3.14159;
-    target_pose2.ry = 0.0;
-    target_pose2.rz = 0.7854;  // PI/4
-
-    cout << "    目标位姿 (带旋转):" << endl;
-    printCartesian(target_pose2);
-
-    auto ik_result2 = robot.calcIk(target_pose2, ec);
-    if (!ec) {
-        cout << "    IK结果:" << endl;
-        cout << "    [";
-        for (size_t i = 0; i < ik_result2.joints.size() && i < 6; ++i) {
-            cout << fixed << setprecision(4) << ik_result2.joints[i];
-            if (i < 5) cout << ", ";
-        }
-        cout << "] (rad)" << endl;
-    }
-
-    // 9. 清理
-    cout << "\n[9] 清理..." << endl;
-    robot.disconnectFromRobot(ec);
-
-    cout << "\n==========================================" << endl;
-    cout << "  示例 3 完成!" << endl;
-    cout << "==========================================" << endl;
-
-    return 0;
+  printSection("5 断开连接");
+  cleanupRobot(robot);
+  os << "robot disconnected" << std::endl;
+  return 0;
 }

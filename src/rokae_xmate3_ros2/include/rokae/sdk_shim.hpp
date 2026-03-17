@@ -1370,10 +1370,14 @@ public:
   }
 
   EventInfo queryEventInfo(Event eventType, error_code &ec) noexcept {
-    std::lock_guard<std::mutex> lock(session_->mutex);
+    EventInfo info;
+    {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      info = eventType == Event::moveExecution ? session_->last_move_event : session_->last_safety_event;
+    }
     ec.clear();
     detail::remember_error(session_, ec);
-    return eventType == Event::moveExecution ? session_->last_move_event : session_->last_safety_event;
+    return info;
   }
 
   void stopReceiveRobotState() noexcept {
@@ -1407,10 +1411,14 @@ public:
   }
 
   std::vector<RLProjectInfo> projectsInfo(error_code &ec) noexcept {
-    std::lock_guard<std::mutex> lock(session_->mutex);
+    std::vector<RLProjectInfo> projects;
+    {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      projects = session_->projects;
+    }
     ec.clear();
     detail::remember_error(session_, ec);
-    return session_->projects;
+    return projects;
   }
 
   void loadProject(const std::string &name, const std::vector<std::string> &tasks, error_code &ec) noexcept {
@@ -1469,28 +1477,38 @@ public:
   }
 
   void setProjectRunningOpt(double rate, bool loop, error_code &ec) noexcept {
-    std::lock_guard<std::mutex> lock(session_->mutex);
-    session_->current_project.run_rate = rate;
-    session_->current_project.loop_mode = loop;
+    {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      session_->current_project.run_rate = rate;
+      session_->current_project.loop_mode = loop;
+    }
     ec.clear();
     detail::remember_error(session_, ec);
   }
 
   std::vector<WorkToolInfo> toolsInfo(error_code &ec) noexcept {
-    std::lock_guard<std::mutex> lock(session_->mutex);
-    if (session_->tools.empty()) {
-      session_->tools.push_back(detail::make_default_tool_info());
+    std::vector<WorkToolInfo> tools;
+    {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      if (session_->tools.empty()) {
+        session_->tools.push_back(detail::make_default_tool_info());
+      }
+      tools = session_->tools;
     }
     ec.clear();
     detail::remember_error(session_, ec);
-    return session_->tools;
+    return tools;
   }
 
   std::vector<WorkToolInfo> wobjsInfo(error_code &ec) noexcept {
-    std::lock_guard<std::mutex> lock(session_->mutex);
+    std::vector<WorkToolInfo> wobjs;
+    {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      wobjs = session_->wobjs;
+    }
     ec.clear();
     detail::remember_error(session_, ec);
-    return session_->wobjs;
+    return wobjs;
   }
 
 protected:

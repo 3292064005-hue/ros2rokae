@@ -1,140 +1,101 @@
 /**
  * @file 02_joint_cartesian_read.cpp
- * @brief 第4.3节 - 关节位置与笛卡尔位姿读取示例
- *
- * 本示例演示：
- * - 读取关节位置
- * - 读取关节速度
- * - 读取关节力矩
- * - 读取笛卡尔位姿
- * - 设置工具坐标系
+ * @brief 官方 SDK 风格 - 读取关节、位姿和状态流数据
  */
 
-#include <iostream>
-#include <iomanip>
-#include <system_error>
-#include "rokae_xmate3_ros2/robot.hpp"
+#include <array>
+#include <chrono>
 
-using namespace std;
+#include "rokae/robot.h"
+#include "example_common.hpp"
 
-void printJointData(const string& name, const array<double, 6>& data) {
-    cout << "    " << name << ": [";
-    for (size_t i = 0; i < 6; ++i) {
-        cout << fixed << setprecision(4) << data[i];
-        if (i < 5) cout << ", ";
-    }
-    cout << "]" << endl;
-}
-
-void printCartesianPose(const rokae::CartesianPosition& pose) {
-    cout << "    位置 (m): [" << fixed << setprecision(4)
-         << pose.x << ", " << pose.y << ", " << pose.z << "]" << endl;
-    cout << "    姿态 (rad): [" << fixed << setprecision(4)
-         << pose.rx << ", " << pose.ry << ", " << pose.rz << "]" << endl;
-}
+using namespace rokae;
+using namespace example;
 
 int main() {
-    cout << "==========================================" << endl;
-    cout << "  示例 2: 关节与笛卡尔位姿读取" << endl;
-    cout << "  (对应SDK手册第4.3节)" << endl;
-    cout << "==========================================" << endl;
+  printHeader("示例 2: 关节与笛卡尔数据读取", "官方 SDK 风格");
 
-    error_code ec;
+  error_code ec;
+  xMateRobot robot;
+  if (!connectRobot(robot, ec)) {
+    return 1;
+  }
 
-    // 1. 初始化连接
-    cout << "\n[1] 初始化连接..." << endl;
-    rokae::ros2::xMateRobot robot;
-    robot.connectToRobot(ec);
-    if (ec) {
-        cerr << "连接失败: " << ec.message() << endl;
-        return 1;
+  robot.setMotionControlMode(MotionControlMode::NrtCommand, ec);
+  if (reportError("setMotionControlMode", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+
+  printSection("1 一次性读取当前状态");
+  printArray("joint position", robot.jointPos(ec), 4, " rad");
+  if (reportError("jointPos", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printArray("joint velocity", robot.jointVel(ec), 4, " rad/s");
+  if (reportError("jointVel", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printArray("joint torque", robot.jointTorque(ec), 4, " Nm");
+  if (reportError("jointTorque", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+
+  const auto tcp_in_ref = robot.cartPosture(CoordinateType::endInRef, ec);
+  if (reportError("cartPosture(endInRef)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printPose("tcp in ref", tcp_in_ref);
+
+  const auto flange_in_base = robot.cartPosture(CoordinateType::flangeInBase, ec);
+  if (reportError("cartPosture(flangeInBase)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printPose("flange in base", flange_in_base);
+
+  printArray("posture(endInRef)", robot.posture(CoordinateType::endInRef, ec));
+  if (reportError("posture", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printArray("base frame", robot.baseFrame(ec));
+  if (reportError("baseFrame", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+
+  printSection("2 读取机器人状态流快照");
+  using namespace RtSupportedFields;
+  robot.startReceiveRobotState(std::chrono::seconds(1), {tcpPose_m, tau_m, jointPos_m});
+
+  for (int sample = 1; sample <= 3; ++sample) {
+    std::array<double, 16> tcp_pose_m{};
+    std::array<double, 6> joint_pos_m{};
+    std::array<double, 6> tau_m_data{};
+
+    robot.updateRobotState(std::chrono::seconds(1));
+    os << "sample " << sample << ':' << std::endl;
+    if (robot.getStateData(jointPos_m, joint_pos_m) == 0) {
+      printArray("jointPos_m", joint_pos_m, 4, " rad");
     }
-    robot.setPowerState(true, ec);
-    cout << "    已连接并上电" << endl;
-
-    // 2. 读取关节位置
-    cout << "\n[2] 读取关节位置 (弧度)..." << endl;
-    auto joint_pos = robot.jointPos(ec);
-    if (!ec) {
-        printJointData("关节位置", joint_pos);
+    if (robot.getStateData(tau_m, tau_m_data) == 0) {
+      printArray("tau_m", tau_m_data, 4, " Nm");
     }
-
-    // 3. 读取关节速度
-    cout << "\n[3] 读取关节速度 (弧度/秒)..." << endl;
-    auto joint_vel = robot.jointVel(ec);
-    if (!ec) {
-        printJointData("关节速度", joint_vel);
+    if (robot.getStateData(tcpPose_m, tcp_pose_m) == 0) {
+      printArray("tcpPose_m", tcp_pose_m, 4);
     }
+  }
 
-    // 4. 读取关节力矩
-    cout << "\n[4] 读取关节力矩 (牛·米)..." << endl;
-    auto joint_torque = robot.jointTorque(ec);
-    if (!ec) {
-        printJointData("关节力矩", joint_torque);
-    }
+  robot.stopReceiveRobotState();
+  os << "state stream stopped" << std::endl;
 
-    // 5. 读取法兰在基坐标系的笛卡尔位姿
-    cout << "\n[5] 读取法兰笛卡尔位姿 (基坐标系)..." << endl;
-    auto flange_pose = robot.cartPosture(rokae::CoordinateType::flangeInBase, ec);
-    if (!ec) {
-        printCartesianPose(flange_pose);
-    }
-
-    // 6. 使用posture()接口读取
-    cout << "\n[6] 使用posture()接口读取位姿..." << endl;
-    auto posture_data = robot.posture(rokae::CoordinateType::flangeInBase, ec);
-    if (!ec) {
-        cout << "    [X, Y, Z, Rx, Ry, Rz] = [";
-        for (size_t i = 0; i < 6; ++i) {
-            cout << fixed << setprecision(4) << posture_data[i];
-            if (i < 5) cout << ", ";
-        }
-        cout << "]" << endl;
-    }
-
-    // 7. 读取基坐标系
-    cout << "\n[7] 读取基坐标系..." << endl;
-    auto base_frame = robot.baseFrame(ec);
-    if (!ec) {
-        cout << "    基坐标系: [";
-        for (size_t i = 0; i < 6; ++i) {
-            cout << fixed << setprecision(4) << base_frame[i];
-            if (i < 5) cout << ", ";
-        }
-        cout << "]" << endl;
-    }
-
-    // 8. 获取当前工具工件组
-    cout << "\n[8] 获取当前工具工件组..." << endl;
-    auto toolset = robot.toolset(ec);
-    if (!ec) {
-        cout << "    工具名: " << toolset.tool_name << endl;
-        cout << "    工件名: " << toolset.wobj_name << endl;
-    }
-
-    // 9. 设置新的工具工件组（按名称）
-    cout << "\n[9] 设置工具工件组 (示例: 名称设置)..." << endl;
-    cout << "    (本示例跳过实际设置, 请根据实际情况配置)" << endl;
-    // robot.setToolset("tool0", "wobj0", ec);
-
-    // 10. 连续读取5次数据
-    cout << "\n[10] 连续读取5次关节位置..." << endl;
-    for (int i = 0; i < 5; ++i) {
-        auto pos = robot.jointPos(ec);
-        if (!ec) {
-            cout << "    [" << i+1 << "] J1=" << fixed << setprecision(4) << pos[0]
-                 << " rad" << endl;
-        }
-    }
-
-    // 11. 清理
-    cout << "\n[11] 清理..." << endl;
-    robot.setPowerState(false, ec);
-    robot.disconnectFromRobot(ec);
-
-    cout << "\n==========================================" << endl;
-    cout << "  示例 2 完成!" << endl;
-    cout << "==========================================" << endl;
-
-    return 0;
+  printSection("3 断开连接");
+  cleanupRobot(robot);
+  os << "robot disconnected" << std::endl;
+  return 0;
 }

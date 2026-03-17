@@ -1,338 +1,163 @@
 /**
  * @file 99_complete_demo.cpp
- * @brief 综合示例 - 完整演示SDK主要功能
- *
- * 本示例演示：
- * - 完整的初始化流程
- * - 多种运动指令组合
- * - IO控制
- * - 状态监控
+ * @brief 官方 SDK 风格 - 综合功能演示
  */
 
 #include <array>
-#include <iostream>
-#include <iomanip>
-#include <thread>
 #include <chrono>
-#include <cmath>
-#include <system_error>
-#include "rokae_xmate3_ros2/robot.hpp"
+#include <string>
+#include <vector>
 
-using namespace std;
-using namespace chrono_literals;
+#include "rokae/model.h"
+#include "rokae/robot.h"
+#include "example_common.hpp"
 
-void printSeparator(const string& title) {
-    cout << "\n==========================================" << endl;
-    cout << "  " << title << endl;
-    cout << "==========================================" << endl;
+using namespace rokae;
+using namespace example;
+
+namespace {
+
+void printCurrentState(xMateRobot &robot, error_code &ec) {
+  const auto joints = robot.jointPos(ec);
+  if (reportError("jointPos", ec)) {
+    return;
+  }
+  const auto pose = robot.cartPosture(CoordinateType::flangeInBase, ec);
+  if (reportError("cartPosture", ec)) {
+    return;
+  }
+  printArray("joint position", joints, 4, " rad");
+  printPose("flange in base", pose);
 }
 
-void waitForIdle(rokae::ros2::xMateRobot& robot,
-                 const array<double, 6>& initial_joints,
-                 std::error_code& ec,
-                 int timeout_sec = 60) {
-    auto start = chrono::steady_clock::now();
-    bool seen_active_state = false;
-    while (chrono::steady_clock::now() - start < chrono::seconds(timeout_sec)) {
-        auto state = robot.operationState(ec);
-        if (ec) {
-            return;
-        }
-        const auto current_joints = robot.jointPos(ec);
-        if (ec) {
-            return;
-        }
-        bool joint_changed = false;
-        for (size_t i = 0; i < initial_joints.size(); ++i) {
-            if (fabs(current_joints[i] - initial_joints[i]) > 1e-3) {
-                joint_changed = true;
-                break;
-            }
-        }
-        if (state != rokae::OperationState::idle && state != rokae::OperationState::unknown) {
-            seen_active_state = true;
-        }
-        if ((seen_active_state && state == rokae::OperationState::idle) ||
-            (!seen_active_state && joint_changed && state == rokae::OperationState::idle)) {
-            return;
-        }
-        this_thread::sleep_for(100ms);
-    }
-    ec = make_error_code(errc::timed_out);
-}
-
-void printJointState(rokae::ros2::xMateRobot& robot, std::error_code& ec) {
-    auto joints = robot.jointPos(ec);
-    auto pose = robot.cartPosture(rokae::CoordinateType::flangeInBase, ec);
-    if (!ec) {
-        cout << "    关节: [";
-        for (size_t i = 0; i < 6; ++i) {
-            cout << fixed << setprecision(3) << joints[i];
-            if (i < 5) cout << ", ";
-        }
-        cout << "] rad" << endl;
-        cout << "    笛卡尔: [" << fixed << setprecision(3)
-             << pose.x << ", " << pose.y << ", " << pose.z << "] m" << endl;
-    }
-}
+}  // namespace
 
 int main() {
-    cout << R"(
-╔═══════════════════════════════════════════════════════════════╗
-║     ROKAE xMate3 ROS2 SDK - 综合演示程序                        ║
-║     适用于Gazebo仿真环境                                          ║
-╚═══════════════════════════════════════════════════════════════╝)" << endl;
+  printHeader("示例 99: 综合功能演示", "官方 SDK 风格");
 
-    error_code ec;
+  error_code ec;
+  xMateRobot robot;
+  if (!connectRobot(robot, ec)) {
+    return 1;
+  }
+  if (!prepareAutomaticNrt(robot, ec, 25, 5)) {
+    cleanupRobot(robot);
+    return 1;
+  }
 
-    // ========== 阶段1: 初始化 ==========
-    printSeparator("阶段1: 初始化连接");
+  printSection("1 初始化与基本信息");
+  const auto info = robot.robotInfo(ec);
+  if (reportError("robotInfo", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  os << "robot type: " << info.type << std::endl;
+  os << "controller version: " << info.version << std::endl;
+  printCurrentState(robot, ec);
+  if (ec) {
+    cleanupRobot(robot);
+    return 1;
+  }
 
-    cout << "\n[1.1] 创建机器人对象..." << endl;
-    rokae::ros2::xMateRobot robot;
-    cout << "      SDK版本: " << rokae::ros2::xMateRobot::sdkVersion() << endl;
+  printSection("2 开启状态流");
+  robot.startReceiveRobotState(std::chrono::milliseconds(200),
+                               {RtSupportedFields::jointPos_m, RtSupportedFields::tcpPose_m});
+  robot.updateRobotState(std::chrono::milliseconds(200));
+  std::array<double, 6> q_m{};
+  std::array<double, 16> tcp_pose_m{};
+  if (robot.getStateData(RtSupportedFields::jointPos_m, q_m) == 0) {
+    printArray("jointPos_m", q_m, 4, " rad");
+  }
+  if (robot.getStateData(RtSupportedFields::tcpPose_m, tcp_pose_m) == 0) {
+    printArray("tcpPose_m", tcp_pose_m, 4);
+  }
+  robot.stopReceiveRobotState();
 
-    cout << "\n[1.2] 连接到机器人..." << endl;
-    robot.connectToRobot(ec);
-    if (ec) {
-        cerr << "      失败: " << ec.message() << endl;
-        return 1;
-    }
-    cout << "      成功!" << endl;
+  printSection("3 关节与笛卡尔运动");
+  robot.setDefaultConfOpt(false, ec);
+  if (reportError("setDefaultConfOpt", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  robot.setEventWatcher(Event::moveExecution,
+                        [](const EventInfo &info) { printMoveEvent(info); },
+                        ec);
+  if (reportError("setEventWatcher", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
 
-    cout << "\n[1.3] 获取机器人信息..." << endl;
-    auto info = robot.robotInfo(ec);
-    if (!ec) {
-        cout << "      机型: " << info.type << endl;
-        cout << "      固件: " << info.version << endl;
-    }
+  robot.executeCommand(std::vector<MoveAbsJCommand>{MoveAbsJCommand({0.0, 0.5, 0.0, 0.0, 0.5, 0.0}, 30, 0)}, ec);
+  if (reportError("executeCommand(MoveAbsJ)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  robot.executeCommand(std::vector<MoveJCommand>{MoveJCommand({0.40, 0.00, 0.50, kPi, 0.0, 0.0}, 40, 5)}, ec);
+  if (reportError("executeCommand(MoveJ)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  robot.executeCommand(std::vector<MoveLCommand>{MoveLCommand({0.40, 0.10, 0.50, kPi, 0.0, 0.0}, 20, 5),
+                                                 MoveLCommand({0.40, -0.10, 0.50, kPi, 0.0, 0.0}, 20, 5),
+                                                 MoveLCommand({0.40, 0.00, 0.40, kPi, 0.0, 0.0}, 20, 0)},
+                       ec);
+  if (reportError("executeCommand(multi MoveL)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printCurrentState(robot, ec);
+  if (ec) {
+    cleanupRobot(robot);
+    return 1;
+  }
 
-    cout << "\n[1.4] 上电..." << endl;
-    robot.setPowerState(true, ec);
-    if (ec) {
-        cerr << "      上电失败!" << endl;
-        return 1;
-    }
+  printSection("4 IO 与寄存器");
+  robot.setSimulationMode(true, ec);
+  if (reportError("setSimulationMode(true)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  robot.setDO(0, 0, true, ec);
+  if (reportError("setDO", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  os << "DO[0][0] = " << (robot.getDO(0, 0, ec) ? "ON" : "OFF") << std::endl;
+  if (reportError("getDO", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  float demo_reg = 3.14F;
+  robot.writeRegister("demo_register", 0, demo_reg, ec);
+  if (reportError("writeRegister(demo_register)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  demo_reg = 0.0F;
+  robot.readRegister("demo_register", 0, demo_reg, ec);
+  if (reportError("readRegister(demo_register)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  os << "demo_register[0] = " << demo_reg << std::endl;
+  robot.setSimulationMode(false, ec);
 
-    cout << "\n[1.5] 设置为自动模式..." << endl;
-    robot.setOperateMode(rokae::OperateMode::automatic, ec);
+  printSection("5 模型接口");
+  auto model = robot.model();
+  const auto q = robot.jointPos(ec);
+  if (reportError("jointPos", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  const auto fk = model.calcFk(q, ec);
+  if (reportError("model.calcFk", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printPose("fk(current)", fk);
 
-    cout << "\n[1.6] 设置运动控制模式..." << endl;
-    robot.setMotionControlMode(rokae::MotionControlMode::NrtCommand, ec);
-
-    cout << "\n[1.7] 设置默认运动参数..." << endl;
-    robot.setDefaultSpeed(40, ec);
-    robot.setDefaultZone(5, ec);
-
-    cout << "\n[1.8] 初始状态:" << endl;
-    printJointState(robot, ec);
-
-    // ========== 阶段2: 基础运动 ==========
-    printSeparator("阶段2: 基础运动演示");
-
-    cout << "\n[2.1] MoveAbsJ - 移动到准备位置..." << endl;
-    robot.moveReset(ec);
-    {
-        rokae::MoveAbsJCommand cmd;
-        cmd.target.joints = {0.0, 0.4, 0.0, 0.0, 0.4, 0.0};
-        cmd.speed = 30;
-        cmd.zone = 0;
-        robot.moveAbsJ(cmd, ec);
-    }
-    const auto prep_start_joints = robot.jointPos(ec);
-    if (ec) {
-        cerr << "    failed to read start joints: " << ec.message() << endl;
-    }
-    robot.moveStart(ec);
-    if (ec) {
-        cerr << "    moveStart failed: " << ec.message() << endl;
-    }
-    waitForIdle(robot, prep_start_joints, ec);
-    printJointState(robot, ec);
-
-    cout << "\n[2.2] MoveJ - 笛卡尔目标点动..." << endl;
-    robot.moveReset(ec);
-    {
-        rokae::MoveJCommand cmd;
-        cmd.target.x = 0.4;
-        cmd.target.y = 0.0;
-        cmd.target.z = 0.5;
-        cmd.target.rx = 3.14159;
-        cmd.target.ry = 0.0;
-        cmd.target.rz = 0.0;
-        cmd.speed = 40;
-        cmd.zone = 5;
-        robot.moveJ(cmd, ec);
-    }
-    const auto movej_start_joints = robot.jointPos(ec);
-    if (ec) {
-        cerr << "    failed to read start joints: " << ec.message() << endl;
-    }
-    robot.moveStart(ec);
-    if (ec) {
-        cerr << "    moveStart failed: " << ec.message() << endl;
-    }
-    waitForIdle(robot, movej_start_joints, ec);
-    printJointState(robot, ec);
-
-    // ========== 阶段3: 直线运动队列 ==========
-    printSeparator("阶段3: 直线运动队列");
-
-    cout << "\n[3.1] 添加多条MoveL指令..." << endl;
-    robot.moveReset(ec);
-
-    // 位置1
-    {
-        rokae::MoveLCommand cmd;
-        cmd.target.x = 0.35;
-        cmd.target.y = 0.15;
-        cmd.target.z = 0.5;
-        cmd.target.rx = 3.14159;
-        cmd.target.ry = 0.0;
-        cmd.target.rz = 0.0;
-        cmd.speed = 25;
-        cmd.zone = 5;
-        robot.moveL(cmd, ec);
-    }
-
-    // 位置2
-    {
-        rokae::MoveLCommand cmd;
-        cmd.target.x = 0.35;
-        cmd.target.y = -0.15;
-        cmd.target.z = 0.5;
-        cmd.target.rx = 3.14159;
-        cmd.target.ry = 0.0;
-        cmd.target.rz = 0.0;
-        cmd.speed = 25;
-        cmd.zone = 5;
-        robot.moveL(cmd, ec);
-    }
-
-    // 位置3
-    {
-        rokae::MoveLCommand cmd;
-        cmd.target.x = 0.4;
-        cmd.target.y = 0.0;
-        cmd.target.z = 0.45;
-        cmd.target.rx = 3.14159;
-        cmd.target.ry = 0.0;
-        cmd.target.rz = 0.0;
-        cmd.speed = 25;
-        cmd.zone = 0;
-        robot.moveL(cmd, ec);
-    }
-
-    cout << "      3条指令已添加到队列" << endl;
-    const auto movel_start_joints = robot.jointPos(ec);
-    if (ec) {
-        cerr << "    failed to read start joints: " << ec.message() << endl;
-    }
-    robot.moveStart(ec);
-    if (ec) {
-        cerr << "    moveStart failed: " << ec.message() << endl;
-    }
-    waitForIdle(robot, movel_start_joints, ec, 90);
-    printJointState(robot, ec);
-
-    // ========== 阶段4: IO控制 ==========
-    printSeparator("阶段4: IO控制演示");
-
-    cout << "\n[4.1] 设置DO[0] = ON..." << endl;
-    robot.setDO(0, 0, true, ec);
-    if (!ec) {
-        cout << "      DO[0] = ON" << endl;
-    }
-
-    cout << "\n[4.2] 读取DO状态..." << endl;
-    for (unsigned int i = 0; i < 4; ++i) {
-        bool state = robot.getDO(0, i, ec);
-        if (!ec) {
-            cout << "      DO[" << i << "] = " << (state ? "ON" : "OFF") << endl;
-        }
-    }
-
-    cout << "\n[4.3] 关闭所有DO..." << endl;
-    for (unsigned int i = 0; i < 4; ++i) {
-        robot.setDO(0, i, false, ec);
-    }
-
-    // ========== 阶段5: 运动学计算 ==========
-    printSeparator("阶段5: 运动学计算");
-
-    cout << "\n[5.1] 当前关节位置正运动学..." << endl;
-    auto current_joints = robot.jointPos(ec);
-    if (!ec) {
-        rokae::JointPosition jp;
-        jp.joints = {current_joints[0], current_joints[1], current_joints[2],
-                      current_joints[3], current_joints[4], current_joints[5]};
-        auto fk = robot.calcFk(jp, ec);
-        if (!ec) {
-            cout << "      FK: X=" << fixed << setprecision(4) << fk.x
-                 << ", Y=" << fk.y << ", Z=" << fk.z << endl;
-        }
-    }
-
-    cout << "\n[5.2] 逆运动学计算测试..." << endl;
-    {
-        rokae::CartesianPosition target;
-        target.x = 0.35;
-        target.y = 0.1;
-        target.z = 0.45;
-        target.rx = 3.14159;
-        target.ry = 0.0;
-        target.rz = 0.0;
-        auto ik = robot.calcIk(target, ec);
-        if (!ec && ik.joints.size() >= 6) {
-            cout << "      IK结果: [";
-            for (size_t i = 0; i < 6; ++i) {
-                cout << fixed << setprecision(4) << ik.joints[i];
-                if (i < 5) cout << ", ";
-            }
-            cout << "]" << endl;
-        }
-    }
-
-    // ========== 阶段6: 返回零位 ==========
-    printSeparator("阶段6: 返回零位");
-
-    cout << "\n[6.1] MoveAbsJ - 返回零位..." << endl;
-    robot.moveReset(ec);
-    {
-        rokae::MoveAbsJCommand cmd;
-        cmd.target.joints = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-        cmd.speed = 30;
-        cmd.zone = 0;
-        robot.moveAbsJ(cmd, ec);
-    }
-    const auto home_start_joints = robot.jointPos(ec);
-    if (ec) {
-        cerr << "    failed to read start joints: " << ec.message() << endl;
-    }
-    robot.moveStart(ec);
-    if (ec) {
-        cerr << "    moveStart failed: " << ec.message() << endl;
-    }
-    waitForIdle(robot, home_start_joints, ec);
-    cout << "\n      已回到零位:" << endl;
-    printJointState(robot, ec);
-
-    // ========== 阶段7: 清理 ==========
-    printSeparator("阶段7: 清理退出");
-
-    cout << "\n[7.1] 下电..." << endl;
-    robot.setPowerState(false, ec);
-
-    cout << "\n[7.2] 断开连接..." << endl;
-    robot.disconnectFromRobot(ec);
-
-    cout << R"(
-
-╔═══════════════════════════════════════════════════════════════╗
-║                        演示完成!                                  ║
-║     更多示例请参考 examples/cpp/ 目录下的其他文件               ║
-╚═══════════════════════════════════════════════════════════════╝
-)" << endl;
-
-    return 0;
+  printSection("6 断开连接");
+  cleanupRobot(robot);
+  os << "robot disconnected" << std::endl;
+  return 0;
 }

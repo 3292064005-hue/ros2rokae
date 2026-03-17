@@ -1,150 +1,128 @@
 /**
  * @file 06_io_control.cpp
- * @brief 第4.6节 - IO控制示例
- *
- * 本示例演示：
- * - 数字输入 (DI) 读取
- * - 数字输出 (DO) 读取/设置
- * - 模拟输入 (AI) 读取
- * - 模拟输出 (AO) 读取/设置
- * - 仿真模式设置
+ * @brief 官方 SDK 风格 - IO 与寄存器接口
  */
 
-#include <iostream>
-#include <iomanip>
-#include <system_error>
-#include "rokae_xmate3_ros2/robot.hpp"
+#include <vector>
 
-using namespace std;
+#include "rokae/robot.h"
+#include "example_common.hpp"
+
+using namespace rokae;
+using namespace example;
 
 int main() {
-    cout << "==========================================" << endl;
-    cout << "  示例 6: IO控制" << endl;
-    cout << "  (对应SDK手册第4.6节)" << endl;
-    cout << "==========================================" << endl;
+  printHeader("示例 6: IO 与寄存器控制", "官方 SDK 风格");
 
-    error_code ec;
+  error_code ec;
+  xMateRobot robot;
+  if (!connectRobot(robot, ec)) {
+    return 1;
+  }
 
-    // 1. 初始化连接
-    cout << "\n[1] 初始化连接..." << endl;
-    rokae::ros2::xMateRobot robot;
-    robot.connectToRobot(ec);
-    if (ec) {
-        cerr << "连接失败: " << ec.message() << endl;
-        return 1;
-    }
-    cout << "    已连接" << endl;
+  printSection("1 打开仿真输入模式");
+  robot.setSimulationMode(true, ec);
+  if (reportError("setSimulationMode(true)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
 
-    // 2. 设置仿真模式
-    cout << "\n[2] 设置仿真模式..." << endl;
-    robot.setSimulationMode(true, ec);
-    if (!ec) {
-        cout << "    仿真模式已启用" << endl;
-    }
+  printSection("2 DI / DO 接口");
+  robot.setDI(0, 2, true, ec);
+  if (reportError("setDI", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  os << "DI[0][2] = " << (robot.getDI(0, 2, ec) ? "ON" : "OFF") << std::endl;
+  if (reportError("getDI", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
 
-    // 3. 读取数字输入 (DI)
-    cout << "\n[3] 读取数字输入 (DI)..." << endl;
-    cout << "    控制板0, 端口0-7:" << endl;
-    for (unsigned int port = 0; port < 8; ++port) {
-        bool di_state = robot.getDI(0, port, ec);
-        if (!ec) {
-            cout << "      DI[" << port << "] = " << (di_state ? "ON" : "OFF") << endl;
-        }
-    }
+  robot.setDO(0, 0, true, ec);
+  if (reportError("setDO", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  os << "DO[0][0] = " << (robot.getDO(0, 0, ec) ? "ON" : "OFF") << std::endl;
+  if (reportError("getDO", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
 
-    // 4. 读取数字输出 (DO)
-    cout << "\n[4] 读取数字输出 (DO)..." << endl;
-    cout << "    控制板0, 端口0-7:" << endl;
-    for (unsigned int port = 0; port < 8; ++port) {
-        bool do_state = robot.getDO(0, port, ec);
-        if (!ec) {
-            cout << "      DO[" << port << "] = " << (do_state ? "ON" : "OFF") << endl;
-        }
-    }
+  printSection("3 AI / AO 接口");
+  os << "AI[0][0] = " << robot.getAI(0, 0, ec) << " V" << std::endl;
+  if (reportError("getAI", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  robot.setAO(0, 0, 2.5, ec);
+  if (reportError("setAO", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  os << "AO[0][0] set to 2.5 V" << std::endl;
 
-    // 5. 设置数字输出 (DO)
-    cout << "\n[5] 设置数字输出 (DO)..." << endl;
-    unsigned int test_port = 0;
+  printSection("4 读写 float / bool / vector 寄存器");
+  float reg_f_write = 1.25F;
+  float reg_f_read = 0.0F;
+  robot.writeRegister("register0", 0, reg_f_write, ec);
+  if (reportError("writeRegister(register0)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  robot.readRegister("register0", 0, reg_f_read, ec);
+  if (reportError("readRegister(register0)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  os << "register0[0] = " << reg_f_read << std::endl;
 
-    // 设置为ON
-    cout << "    设置 DO[" << test_port << "] = ON..." << endl;
-    robot.setDO(0, test_port, true, ec);
-    if (!ec) {
-        bool state = robot.getDO(0, test_port, ec);
-        cout << "      读取: DO[" << test_port << "] = " << (state ? "ON" : "OFF") << endl;
-    }
+  bool reg_b_write = true;
+  bool reg_b_read = false;
+  robot.writeRegister("register2", 0, reg_b_write, ec);
+  if (reportError("writeRegister(register2)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  robot.readRegister("register2", 0, reg_b_read, ec);
+  if (reportError("readRegister(register2)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  os << "register2[0] = " << (reg_b_read ? "true" : "false") << std::endl;
 
-    // 设置为OFF
-    cout << "    设置 DO[" << test_port << "] = OFF..." << endl;
-    robot.setDO(0, test_port, false, ec);
-    if (!ec) {
-        bool state = robot.getDO(0, test_port, ec);
-        cout << "      读取: DO[" << test_port << "] = " << (state ? "ON" : "OFF") << endl;
-    }
+  const std::vector<int> reg_i_write{10, 20, 30, 40};
+  std::vector<int> reg_i_read;
+  robot.writeRegister("register1", 0, reg_i_write, ec);
+  if (reportError("writeRegister(register1)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  robot.readRegister("register1", 0, reg_i_read, ec);
+  if (reportError("readRegister(register1)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printVector("register1", reg_i_read);
 
-    // 6. 读取模拟输入 (AI)
-    cout << "\n[6] 读取模拟输入 (AI)..." << endl;
-    cout << "    控制板0, 端口0-3:" << endl;
-    for (unsigned int port = 0; port < 4; ++port) {
-        double ai_value = robot.getAI(0, port, ec);
-        if (!ec) {
-            cout << "      AI[" << port << "] = " << fixed << setprecision(4) << ai_value << " V" << endl;
-        }
-    }
+  const std::vector<float> reg_vec_write{0.10F, 0.20F, 0.30F};
+  std::vector<float> reg_vec_read;
+  robot.writeRegister("register3", 0, reg_vec_write, ec);
+  if (reportError("writeRegister(register3)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  robot.readRegister("register3", 0, reg_vec_read, ec);
+  if (reportError("readRegister(register3)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  printVector("register3", reg_vec_read, 4);
 
-    // 7. 设置模拟输出 (AO)
-    cout << "\n[7] 设置模拟输出 (AO)..." << endl;
-    unsigned int ao_port = 0;
-    double target_value = 2.5;  // 2.5V
-
-    cout << "    设置 AO[" << ao_port << "] = " << target_value << " V..." << endl;
-    robot.setAO(0, ao_port, target_value, ec);
-    if (!ec) {
-        cout << "      设置完成" << endl;
-    }
-
-    // 8. 多个DO批量操作演示
-    cout << "\n[8] 多个DO操作演示..." << endl;
-    cout << "    依次设置 DO[0]~DO[3] 为 ON:" << endl;
-    for (unsigned int port = 0; port < 4; ++port) {
-        robot.setDO(0, port, true, ec);
-        if (!ec) {
-            cout << "      DO[" << port << "] = ON" << endl;
-        }
-    }
-
-    // 读取全部状态
-    cout << "    当前DO状态:" << endl;
-    for (unsigned int port = 0; port < 8; ++port) {
-        bool state = robot.getDO(0, port, ec);
-        if (!ec) {
-            cout << "      DO[" << port << "] = " << (state ? "ON" : "OFF") << endl;
-        }
-    }
-
-    // 关闭所有DO
-    cout << "    关闭所有DO..." << endl;
-    for (unsigned int port = 0; port < 8; ++port) {
-        robot.setDO(0, port, false, ec);
-    }
-    cout << "      完成" << endl;
-
-    // 9. 关于仿真模式的说明
-    cout << "\n[9] 仿真模式说明..." << endl;
-    cout << "    在仿真环境中:" << endl;
-    cout << "      - DI读取返回默认值或上次设置的值" << endl;
-    cout << "      - DO设置会被记录" << endl;
-    cout << "      - AI/AO类似处理" << endl;
-    cout << "      - 如需物理IO, 请连接真实机器人" << endl;
-
-    // 10. 清理
-    cout << "\n[10] 清理..." << endl;
-    robot.setSimulationMode(false, ec);
-    robot.disconnectFromRobot(ec);
-
-    cout << "\n==========================================" << endl;
-    cout << "  示例 6 完成!" << endl;
-    cout << "==========================================" << endl;
-
-    return 0;
+  printSection("5 关闭仿真输入模式并断开连接");
+  robot.setSimulationMode(false, ec);
+  cleanupRobot(robot);
+  os << "robot disconnected" << std::endl;
+  return 0;
 }
