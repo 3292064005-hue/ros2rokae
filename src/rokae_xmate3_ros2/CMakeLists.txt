@@ -217,7 +217,7 @@ install(TARGETS
 )
 
 install(DIRECTORY include/ DESTINATION include)
-install(DIRECTORY launch meshes urdf config worlds examples docs
+install(DIRECTORY launch meshes models urdf config worlds examples docs
   DESTINATION share/${PROJECT_NAME}/
 )
 install(FILES model.config DESTINATION share/${PROJECT_NAME})

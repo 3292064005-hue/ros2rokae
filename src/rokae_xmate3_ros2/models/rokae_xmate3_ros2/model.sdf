@@ -1,0 +1,7 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name="rokae_xmate3_ros2">
+    <static>true</static>
+    <link name="root" />
+  </model>
+</sdf>

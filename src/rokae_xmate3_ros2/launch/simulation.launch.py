@@ -35,7 +35,8 @@ def generate_launch_description():
     moveit_config_dir = os.path.join(pkg_share, "config", "moveit")
     existing_gazebo_model_path = os.environ.get("GAZEBO_MODEL_PATH", "")
     existing_gazebo_resource_path = os.environ.get("GAZEBO_RESOURCE_PATH", "")
-    gazebo_model_root = os.path.dirname(pkg_share)
+    gazebo_worlds_dir = os.path.join(pkg_share, "worlds")
+    gazebo_models_dir = os.path.join(pkg_share, "models")
 
 
     # 文件路径
@@ -117,17 +118,27 @@ def generate_launch_description():
     )
 
     # ========== 启动 Gazebo ==========
+    gazebo_model_path_entries = []
+    if existing_gazebo_model_path:
+        gazebo_model_path_entries.append(existing_gazebo_model_path)
+    if os.path.isdir(gazebo_models_dir):
+        gazebo_model_path_entries.append(gazebo_models_dir)
+    if os.path.isdir(gazebo_worlds_dir):
+        gazebo_model_path_entries.append(gazebo_worlds_dir)
     set_gazebo_model_path = launch.actions.SetEnvironmentVariable(
         name='GAZEBO_MODEL_PATH',
-        value=(existing_gazebo_model_path + os.pathsep + gazebo_model_root) if existing_gazebo_model_path else gazebo_model_root
+        value=os.pathsep.join(gazebo_model_path_entries)
     )
     gazebo_resource_root = "/usr/share/gazebo-11"
 
+    gazebo_resource_path_entries = []
+    if existing_gazebo_resource_path:
+        gazebo_resource_path_entries.append(existing_gazebo_resource_path)
+    gazebo_resource_path_entries.extend([gazebo_resource_root, pkg_share])
     set_gazebo_resource_path = launch.actions.SetEnvironmentVariable(
         name='GAZEBO_RESOURCE_PATH',
-        value=gazebo_resource_root + os.pathsep + pkg_share
+        value=os.pathsep.join(gazebo_resource_path_entries)
     )
-
     gazebo_launch_dir = os.path.join(
         get_package_share_directory('gazebo_ros'), 'launch')
     launch_gazebo = launch.actions.IncludeLaunchDescription(
@@ -301,7 +312,7 @@ def generate_launch_description():
                 log_info("正在启动 xMate3 仿真环境 + MoveIt2..."),
                 set_gazebo_model_path,
                 set_gazebo_resource_path,
-                robot_state_publisher_node,
+                    robot_state_publisher_node,
                 launch_gazebo,
                 spawn_entity_node,
                 move_group_node,
@@ -318,6 +329,8 @@ def generate_launch_description():
             actions=[
                 log_info("MoveIt2 配置文件未找到，启动原版仿真..."),
                 log_info("正在启动 xMate3 仿真环境..."),
+                set_gazebo_model_path,
+                set_gazebo_resource_path,
                 robot_state_publisher_node,
                 launch_gazebo,
                 spawn_entity_node,
