@@ -37,7 +37,7 @@
 | **8.3.8** | 模型库 | ✅ 兼容头封装 |
 | **8.3.9** | 工具函数 | ✅ 支持 |
 
-详细矩阵见 [SDK 兼容性说明](docs/SDK_COMPATIBILITY.md)。
+完整示例覆盖范围见 [examples/README.md](examples/README.md)。
 
 ### 运动指令
 
@@ -83,14 +83,21 @@ rokae_xmate3_ros2/
 ├── README.md                   # 本文件
 │
 ├── include/                    # 头文件
-│   └── rokae_xmate3_ros2/
-│       ├── robot.hpp           # SDK主头文件
-│       ├── sdk_compat.hpp      # 统一兼容入口
-│       ├── utils.hpp           # 工具函数 (8.3.9)
-│       ├── model.hpp           # 模型库兼容封装 (8.3.8)
-│       ├── motion_generators.hpp # 路径规划兼容封装 (8.3.7)
-│       ├── types.hpp           # 类型定义
-│       └── gazebo/             # Gazebo插件头文件
+│   ├── rokae/                  # 官方风格公共入口
+│   │   ├── robot.h
+│   │   ├── data_types.h
+│   │   ├── model.h
+│   │   ├── planner.h
+│   │   ├── motion_control_rt.h
+│   │   └── utility.h
+│   └── rokae_xmate3_ros2/      # 兼容层实现头
+│       ├── robot.hpp
+│       ├── sdk_compat.hpp
+│       ├── utils.hpp
+│       ├── model.hpp
+│       ├── motion_generators.hpp
+│       ├── types.hpp
+│       └── gazebo/
 │           ├── kinematics.hpp
 │           ├── motion_types.hpp
 │           └── trajectory_planner.hpp
@@ -105,22 +112,27 @@ rokae_xmate3_ros2/
 ├── examples/                   # 示例程序 (按SDK手册章节组织)
 │   ├── README.md               # 示例说明
 │   └── cpp/
-│       ├── 01_basic_connect.cpp           # 第4.3节 - 基础连接
-│       ├── 02_joint_cartesian_read.cpp    # 第4.3节 - 关节/位姿读取
-│       ├── 03_kinematics.cpp              # 第4.3节 - 运动学计算
-│       ├── 04_motion_basic.cpp            # 第4.4节 - 基础运动
-│       ├── 05_motion_cartesian.cpp        # 第4.4节 - 笛卡尔运动
-│       ├── 06_io_control.cpp              # 第4.6节 - IO控制
-│       ├── 07_safety_collision.cpp        # 第4.3/4.8节 - 安全功能
-│       ├── 08_path_record_replay.cpp      # 第4.8节 - 路径录制回放
-│       ├── 09_advanced_sdk_compat.cpp     # 第4.5/4.7/4.8节 - 高级兼容能力
+│       ├── example_common.hpp             # 示例公共辅助
+│       ├── 01_basic_connect.cpp           # 基础连接/状态读取
+│       ├── ...
+│       ├── 10_sdk_workflow_xmate3.cpp     # 官方 SDK 工作流映射
+│       ├── 11_move_advanced_xmate3.cpp    # 高级运动与 confData
+│       ├── 12_state_stream_threaded.cpp   # 状态流线程示例
+│       ├── 13_rl_project_workflow.cpp     # RL 工程示例
+│       ├── 14_model_extended.cpp          # 扩展模型示例
+│       ├── 20_rt_joint_position.cpp       # RT 关节位置
+│       ├── 21_rt_move_commands.cpp        # RT MoveJ/L/C
+│       ├── 22_rt_joint_impedance.cpp      # RT 关节阻抗
+│       ├── 23_rt_cartesian_impedance.cpp  # RT 笛卡尔阻抗
+│       ├── 24_rt_follow_position.cpp      # RT 跟随位置
+│       ├── 25_rt_s_line.cpp               # RT S 线规划
 │       └── 99_complete_demo.cpp           # 综合演示
 │
 ├── launch/                     # Launch文件
 │   ├── simulation.launch.py    # 完整仿真启动 (支持 moveit:=true 参数)
 │   ├── rviz_only.launch.py     # 仅RViz可视化
-│   ├── xmate3_simulation.launch.py  # 旧版启动名兼容
-│   └── xmate3_gazebo.launch.py      # 更旧版本启动名兼容
+│   ├── xmate3_simulation.launch.py  # simulation.launch.py 兼容别名
+│   └── xmate3_gazebo.launch.py      # 更旧启动名兼容别名
 │
 ├── config/                     # 配置文件
 │   ├── ros2_control.yaml       # ROS2 Control配置
@@ -135,7 +147,8 @@ rokae_xmate3_ros2/
 │
 ├── urdf/                       # 机器人模型
 │   ├── xMate3.xacro
-│   ├── xmate3_gazebo.xacro
+│   ├── xMate3.ros2_control.xacro
+│   ├── xMate3.urdf
 │   └── materials.xacro
 │
 ├── meshes/                     # 网格模型
@@ -147,10 +160,8 @@ rokae_xmate3_ros2/
 │
 ├── docs/                       # 文档
 │   ├── QUICKSTART.md           # 快速入门指南
-│   ├── MOVEIT2_GUIDE.md        # MoveIt2使用指南
-│   └── SDK_COMPATIBILITY.md    # SDK兼容矩阵与差异说明
+│   └── MOVEIT2_GUIDE.md        # MoveIt2使用指南
 │
-├── example/                    # 旧版示例 (保留兼容)
 ├── msg/                        # ROS2消息定义
 ├── srv/                        # ROS2服务定义（含寄存器/奇异规避/末端力矩扩展）
 └── action/                     # ROS2动作定义

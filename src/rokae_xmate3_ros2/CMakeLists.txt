@@ -191,43 +191,25 @@ set(EXAMPLES
   99_complete_demo
 )
 
+set(EXAMPLE_TARGETS)
 foreach(example IN LISTS EXAMPLES)
-  add_executable(example_${example} examples/cpp/${example}.cpp)
-  ament_target_dependencies(example_${example}
+  set(example_target example_${example})
+  add_executable(${example_target} examples/cpp/${example}.cpp)
+  ament_target_dependencies(${example_target}
     rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs
   )
-  target_link_libraries(example_${example}
+  target_link_libraries(${example_target}
     ${PROJECT_NAME}_sdk "${cpp_typesupport_target}"
   )
-  target_compile_features(example_${example} PUBLIC cxx_std_17)
+  target_compile_features(${example_target} PUBLIC cxx_std_17)
+  list(APPEND EXAMPLE_TARGETS ${example_target})
 endforeach()
 
 # 安装规则
 install(TARGETS
   ${PROJECT_NAME}_sdk
   xcore_controller_gazebo_plugin
-  # 安装所有示例
-  example_01_basic_connect
-  example_02_joint_cartesian_read
-  example_03_kinematics
-  example_04_motion_basic
-  example_05_motion_cartesian
-  example_06_io_control
-  example_07_safety_collision
-  example_08_path_record_replay
-  example_09_advanced_sdk_compat
-  example_10_sdk_workflow_xmate3
-  example_11_move_advanced_xmate3
-  example_12_state_stream_threaded
-  example_13_rl_project_workflow
-  example_14_model_extended
-  example_20_rt_joint_position
-  example_21_rt_move_commands
-  example_22_rt_joint_impedance
-  example_23_rt_cartesian_impedance
-  example_24_rt_follow_position
-  example_25_rt_s_line
-  example_99_complete_demo
+  ${EXAMPLE_TARGETS}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
