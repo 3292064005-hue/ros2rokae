@@ -32,11 +32,15 @@ sudo apt install \
   ros-humble-ros2-control \
   ros-humble-ros2-controllers \
   ros-humble-joint-state-publisher-gui \
-  ros-humble-xacro
+  ros-humble-xacro \
+  python3-numpy \
+  python3-lxml
 
 # 其他依赖
 sudo apt install libeigen3-dev
 ```
+
+> `gazebo_ros/spawn_entity.py` 依赖 `python3-numpy` 和 `python3-lxml`。如果启动仿真时报 `ModuleNotFoundError`，先安装上面的包再重试。当前 `simulation.launch.py` 会固定使用系统 Python 调用 `spawn_entity.py`，避免 conda/miniconda 破坏 ROS Humble 的 Python ABI。
 
 ---
 
@@ -116,10 +120,22 @@ ros2 run rokae_xmate3_ros2 example_99_complete_demo
 | `example_03_kinematics` | 4.3 | 运动学计算 (FK/IK) |
 | `example_04_motion_basic` | 4.4 | 基础运动控制 (MoveAbsJ) |
 | `example_05_motion_cartesian` | 4.4 | 笛卡尔空间运动 (MoveJ/MoveL/MoveC) |
-| `example_06_io_control` | 4.6 | IO控制 (DI/DO/AI/AO) |
+| `example_06_io_control` | 4.6 | IO 控制 (DI/DO/AI/AO) |
 | `example_07_safety_collision` | 4.3/4.8 | 安全与碰撞检测 |
 | `example_08_path_record_replay` | 4.8 | 路径录制与回放 |
 | `example_09_advanced_sdk_compat` | 4.5/4.7/4.8 | RT 控制 / RL / 寄存器 / 动力学 / 奇异规避 |
+| `example_10_sdk_workflow_xmate3` | 4.3/4.4/4.8 | 官方 SDK 工作流映射 |
+| `example_11_move_advanced_xmate3` | 4.4 | `confData`、偏移、默认轴配置、在线调速、`MoveSP` |
+| `example_12_state_stream_threaded` | 4.3 | 多线程状态流读取 |
+| `example_13_rl_project_workflow` | 4.7 | RL 工程查询、加载、运行控制 |
+| `example_14_model_extended` | 8.3.8 | 扩展模型计算 |
+| `example_20_rt_joint_position` | 4.5 | RT 关节位置控制 |
+| `example_21_rt_move_commands` | 4.5 | RT `MoveJ` / `MoveL` / `MoveC` |
+| `example_22_rt_joint_impedance` | 4.5 | RT 关节阻抗控制 |
+| `example_23_rt_cartesian_impedance` | 4.5 | RT 笛卡尔阻抗控制 |
+| `example_24_rt_follow_position` | 4.5 | RT 跟随位置 |
+| `example_25_rt_s_line` | 4.5 / 8.3.7 | RT S 线轨迹示例 |
+| `example_26_rt_torque_control` | 4.5 | RT 力矩控制 smoke 示例 |
 | `example_99_complete_demo` | - | 综合演示 |
 
 ### 4.3 运行单个示例
@@ -158,6 +174,12 @@ A: 检查环境变量：
 ```bash
 echo $GAZEBO_PLUGIN_PATH
 export GAZEBO_PLUGIN_PATH=$HOME/ros2_ws0/install/rokae_xmate3_ros2/lib:$GAZEBO_PLUGIN_PATH
+```
+
+### Q: `spawn_entity.py` 报 `ModuleNotFoundError`
+A: 安装 Python 运行依赖后重试：
+```bash
+sudo apt install python3-numpy python3-lxml
 ```
 
 ### Q: 控制器加载失败

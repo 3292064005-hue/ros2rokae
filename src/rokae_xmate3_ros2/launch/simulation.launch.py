@@ -143,31 +143,37 @@ def generate_launch_description():
     )
 
     # ========== 生成实体 (spawn robot) ==========
-    spawn_entity_node = Node(
-        package='gazebo_ros',
-        executable='spawn_entity.py',
+    # 显式固定到系统 Python，避免当前 shell 里的 conda/miniconda 覆盖 ROS Humble 的 python ABI。
+    spawn_entity_node = launch.actions.ExecuteProcess(
+        cmd=[
+            '/usr/bin/python3',
+            '/opt/ros/humble/lib/gazebo_ros/spawn_entity.py',
+            '-topic', '/robot_description',
+            '-entity', 'xmate'
+        ],
         output='screen',
-        arguments=['-topic', '/robot_description', '-entity', 'xmate']
+        additional_env={
+            'PATH': '/usr/bin:/bin:' + os.environ.get('PATH', ''),
+            'PYTHONHOME': ''
+        }
     )
 
     # ========== 启动提示信息 ==========
     def log_info(msg):
         return launch.actions.LogInfo(msg=msg)
 
-    # 定义事件处理器 - 在spawn完成后显示提示
+    # 定义事件处理器 - 在spawn退出后提醒用户检查结果，避免失败时误报“启动完成”
     on_spawn_exit = launch.actions.RegisterEventHandler(
         event_handler=launch.event_handlers.OnProcessExit(
             target_action=spawn_entity_node,
             on_exit=[
                 log_info("=" * 60),
-                log_info("xMate3 仿真环境启动完成！"),
-                log_info("=" * 60),
-                log_info("使用 xcore_controller_gazebo_plugin 提供SDK仿真"),
-                log_info("=" * 60),
+                log_info("spawn_entity.py 已退出，请检查上方输出确认机器人是否成功生成。"),
+                log_info("若看到 'Successfully spawned entity [xmate]'，则说明机器人已正确加载。"),
+                log_info("使用 xcore_controller_gazebo_plugin 提供 SDK 仿真。"),
                 log_info("可用服务和话题:"),
                 log_info("  - /xmate3/cobot/*  (SDK服务)"),
                 log_info("  - /xmate3/joint_states  (关节状态)"),
-                log_info("=" * 60),
                 log_info("运行示例程序:"),
                 log_info("  ros2 run rokae_xmate3_ros2 example_04_motion_basic"),
                 log_info("=" * 60),

@@ -188,6 +188,7 @@ set(EXAMPLES
   23_rt_cartesian_impedance
   24_rt_follow_position
   25_rt_s_line
+  26_rt_torque_control
   99_complete_demo
 )
 

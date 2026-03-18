@@ -126,6 +126,7 @@ rokae_xmate3_ros2/
 │       ├── 23_rt_cartesian_impedance.cpp  # RT 笛卡尔阻抗
 │       ├── 24_rt_follow_position.cpp      # RT 跟随位置
 │       ├── 25_rt_s_line.cpp               # RT S 线规划
+│       ├── 26_rt_torque_control.cpp       # RT 力矩控制
 │       └── 99_complete_demo.cpp           # 综合演示
 │
 ├── launch/                     # Launch文件
@@ -180,12 +181,16 @@ sudo apt install \
   ros-humble-gazebo-ros \
   ros-humble-ros2-control \
   ros-humble-ros2-controllers \
-  libeigen3-dev
+  libeigen3-dev \
+  python3-numpy \
+  python3-lxml
 
 # 安装 MoveIt2 (可选)
 sudo apt install \
   ros-humble-moveit
 ```
+
+> `gazebo_ros/spawn_entity.py` 依赖 `python3-numpy` 和 `python3-lxml`。如果启动仿真时报 `ModuleNotFoundError`，请先安装上面的包再重试。当前 `simulation.launch.py` 也会强制使用系统 Python 调用 `spawn_entity.py`，避免 conda/miniconda 干扰 ROS Humble 的 Python ABI。
 
 ### 2. 编译
 
@@ -246,10 +251,22 @@ ros2 run rokae_xmate3_ros2 example_04_motion_basic
 | 03 | 4.3 | 运动学计算 (FK/IK) |
 | 04 | 4.4 | 基础运动控制 (MoveAbsJ) |
 | 05 | 4.4 | 笛卡尔空间运动 (MoveJ/MoveL/MoveC) |
-| 06 | 4.6 | IO控制 (DI/DO/AI/AO) |
+| 06 | 4.6 | IO 控制 (DI/DO/AI/AO) |
 | 07 | 4.3/4.8 | 安全与碰撞检测 |
 | 08 | 4.8 | 路径录制与回放 |
-| 09 | 4.5/4.7/4.8 | 实时控制/RL/寄存器/动力学/奇异规避 |
+| 09 | 4.5/4.7/4.8 | RT / RL / 寄存器 / 动力学 / 奇异规避 |
+| 10 | 4.3/4.4/4.8 | 官方 SDK 工作流映射 |
+| 11 | 4.4 | `confData`、偏移、默认轴配置、在线调速、`MoveSP` |
+| 12 | 4.3 | 多线程状态流读取 |
+| 13 | 4.7 | RL 工程查询、加载、运行控制 |
+| 14 | 8.3.8 | 扩展模型计算 |
+| 20 | 4.5 | RT 关节位置控制 |
+| 21 | 4.5 | RT `MoveJ` / `MoveL` / `MoveC` |
+| 22 | 4.5 | RT 关节阻抗控制 |
+| 23 | 4.5 | RT 笛卡尔阻抗控制 |
+| 24 | 4.5 | RT 跟随位置 |
+| 25 | 4.5 / 8.3.7 | RT S 线轨迹示例 |
+| 26 | 4.5 | RT 力矩控制 smoke 示例 |
 | 99 | - | 综合演示 |
 
 更多示例说明请参考 [examples/README.md](examples/README.md)。
