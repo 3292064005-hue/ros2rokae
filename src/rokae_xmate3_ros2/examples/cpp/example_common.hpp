@@ -142,6 +142,35 @@ inline void printMoveEvent(const EventInfo &info) {
   }
 }
 
+inline const char *toString(LogInfo::Level level) {
+  switch (level) {
+    case LogInfo::Level::debug: return "debug";
+    case LogInfo::Level::info: return "info";
+    case LogInfo::Level::warning: return "warning";
+    case LogInfo::Level::error: return "error";
+    case LogInfo::Level::fatal: return "fatal";
+    default: return "unknown";
+  }
+}
+
+inline void printLogInfo(const LogInfo &log) {
+  os << "[" << toString(static_cast<LogInfo::Level>(log.level)) << "] "
+     << log.timestamp << " :: " << log.content;
+  if (!log.repair.empty()) {
+    os << " | repair: " << log.repair;
+  }
+  os << std::endl;
+}
+
+inline void printSafetyEvent(const EventInfo &info) {
+  try {
+    const auto collided = std::any_cast<bool>(info.at(EventInfoKey::Safety::Collided));
+    os << "[safety] collided=" << (collided ? "YES" : "NO") << std::endl;
+  } catch (const std::exception &) {
+    os << "[safety] event updated" << std::endl;
+  }
+}
+
 inline bool waitRobot(BaseRobot &robot,
                       error_code &ec,
                       std::chrono::steady_clock::duration timeout = std::chrono::seconds(60)) {

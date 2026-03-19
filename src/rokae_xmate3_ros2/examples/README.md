@@ -22,6 +22,11 @@ examples/
 │   ├── 12_state_stream_threaded.cpp
 │   ├── 13_rl_project_workflow.cpp
 │   ├── 14_model_extended.cpp
+│   ├── 15_move_queue_and_events.cpp
+│   ├── 16_registers_and_runtime_options.cpp
+│   ├── 17_state_stream_cache.cpp
+│   ├── 18_toolset_and_calibration.cpp
+│   ├── 19_diagnostics_and_wrench.cpp
 │   ├── 20_rt_joint_position.cpp
 │   ├── 21_rt_move_commands.cpp
 │   ├── 22_rt_joint_impedance.cpp
@@ -39,6 +44,8 @@ examples/
 - `01_basic_connect.cpp`: 连接机器人、获取信息、电源/模式切换
 - `02_joint_cartesian_read.cpp`: 读取关节位置、速度、力矩、笛卡尔位姿
 - `03_kinematics.cpp`: 正逆运动学、雅可比、模型计算
+- `15_move_queue_and_events.cpp`: 运动队列、事件回调、控制器日志
+- `17_state_stream_cache.cpp`: 状态缓存、字段轮询、异步采样
 
 ### 第 4.4 节
 - `04_motion_basic.cpp`: `MoveAbsJ`
@@ -56,6 +63,7 @@ examples/
 
 ### 第 4.6 节
 - `06_io_control.cpp`: DI/DO/AI/AO 读写、仿真模式
+- `16_registers_and_runtime_options.cpp`: typed 寄存器、xPanel、电压与运行时选项
 
 ### 第 4.7 节
 - `13_rl_project_workflow.cpp`: RL 工程查询、加载、运行控制
@@ -64,6 +72,8 @@ examples/
 - `07_safety_collision.cpp`: 碰撞检测、软限位、拖动示教
 - `08_path_record_replay.cpp`: 路径录制、保存、回放
 - `09_advanced_sdk_compat.cpp`: 寄存器、RT、RL、动力学、奇异规避等高级能力
+- `18_toolset_and_calibration.cpp`: 工具、工件与坐标系标定
+- `19_diagnostics_and_wrench.cpp`: 末端力矩、奇异规避、诊断接口
 
 ### 官方风格补充
 - `10_sdk_workflow_xmate3.cpp`
@@ -98,9 +108,13 @@ ros2 run rokae_xmate3_ros2 example_01_basic_connect
 
 ### 进阶
 1. `03_kinematics.cpp`
-2. `06_io_control.cpp`
-3. `11_move_advanced_xmate3.cpp`
-4. `13_rl_project_workflow.cpp`
+2. `11_move_advanced_xmate3.cpp`
+3. `15_move_queue_and_events.cpp`
+4. `16_registers_and_runtime_options.cpp`
+5. `17_state_stream_cache.cpp`
+6. `18_toolset_and_calibration.cpp`
+7. `19_diagnostics_and_wrench.cpp`
+8. `13_rl_project_workflow.cpp`
 
 ### RT 能力
 1. `20_rt_joint_position.cpp`

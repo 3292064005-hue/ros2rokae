@@ -182,6 +182,11 @@ set(EXAMPLES
   12_state_stream_threaded
   13_rl_project_workflow
   14_model_extended
+  15_move_queue_and_events
+  16_registers_and_runtime_options
+  17_state_stream_cache
+  18_toolset_and_calibration
+  19_diagnostics_and_wrench
   20_rt_joint_position
   21_rt_move_commands
   22_rt_joint_impedance

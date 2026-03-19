@@ -83,6 +83,11 @@ ros2 run rokae_xmate3_ros2 example_25_rt_s_line
 - `example_12_state_stream_threaded`
 - `example_13_rl_project_workflow`
 - `example_14_model_extended`
+- `example_15_move_queue_and_events`
+- `example_16_registers_and_runtime_options`
+- `example_17_state_stream_cache`
+- `example_18_toolset_and_calibration`
+- `example_19_diagnostics_and_wrench`
 - `example_20_rt_joint_position`
 - `example_21_rt_move_commands`
 - `example_22_rt_joint_impedance`
