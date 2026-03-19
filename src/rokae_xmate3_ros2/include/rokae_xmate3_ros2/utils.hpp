@@ -114,6 +114,19 @@ inline void transMatrixToArray(const Eigen::Matrix3d& rotation,
     };
 }
 
+inline void eulerToMatrix(const Eigen::Vector3d& euler, Eigen::Matrix3d& matrix) {
+    matrix = (Eigen::AngleAxisd(euler[0], Eigen::Vector3d::UnitZ()) *
+              Eigen::AngleAxisd(euler[1], Eigen::Vector3d::UnitY()) *
+              Eigen::AngleAxisd(euler[2], Eigen::Vector3d::UnitX()))
+                 .toRotationMatrix();
+}
+
+inline void transArrayToPosture(const std::array<double, 16>& transMatrix,
+                                std::array<double, 6>& xyz_abc) {
+    const auto pose = matrixToPosture(transMatrix);
+    xyz_abc = {pose.x, pose.y, pose.z, pose.rx, pose.ry, pose.rz};
+}
+
 }  // namespace rokae::Utils
 
 #endif  // ROKAE_XMATE3_ROS2_UTILS_H

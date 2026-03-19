@@ -2418,15 +2418,20 @@ bool xMateRobot::stopRLProject(const std::string& project_id, int& finished_epis
 }
 
 void xMateRobot::startJog(rokae::JogOpt::Space space,
+                          double rate,
+                          double step,
                           unsigned int index,
                           bool direction,
-                          double step,
                           std::error_code& ec) {
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
     }
     if (index >= 6) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    if (!(rate > 0.0 && rate <= 1.0)) {
         ec = std::make_error_code(std::errc::invalid_argument);
         return;
     }
@@ -2437,6 +2442,7 @@ void xMateRobot::startJog(rokae::JogOpt::Space space,
         sdk_step = step / 1000.0;
     }
     const double signed_step = direction ? std::abs(sdk_step) : -std::abs(sdk_step);
+    const int cmd_speed = std::clamp(static_cast<int>(std::lround(rate * 100.0)), 1, 100);
     moveReset(ec);
     if (ec) {
         return;
@@ -2450,7 +2456,7 @@ void xMateRobot::startJog(rokae::JogOpt::Space space,
         rokae::MoveAbsJCommand cmd;
         cmd.target.joints.assign(joints.begin(), joints.end());
         cmd.target.joints[index] += signed_step;
-        cmd.speed = 10;
+        cmd.speed = cmd_speed;
         cmd.zone = 0;
         moveAbsJ(cmd, ec);
     } else {
@@ -2469,7 +2475,7 @@ void xMateRobot::startJog(rokae::JogOpt::Space space,
         }
         rokae::MoveLCommand cmd;
         cmd.target = pose;
-        cmd.speed = 10;
+        cmd.speed = cmd_speed;
         cmd.zone = 0;
         moveL(cmd, ec);
     }
@@ -2478,6 +2484,14 @@ void xMateRobot::startJog(rokae::JogOpt::Space space,
         return;
     }
     moveStart(ec);
+}
+
+void xMateRobot::startJog(rokae::JogOpt::Space space,
+                          unsigned int index,
+                          bool direction,
+                          double step,
+                          std::error_code& ec) {
+    startJog(space, 0.1, step, index, direction, ec);
 }
 
 void xMateRobot::setAvoidSingularity(bool enable, std::error_code& ec) {

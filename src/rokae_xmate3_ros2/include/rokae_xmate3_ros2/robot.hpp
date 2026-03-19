@@ -182,6 +182,7 @@ public:
     // ==================== 4.8 协作机器人专属接口 ====================
     void enableDrag(rokae::DragParameter::Space space, rokae::DragParameter::Type type, std::error_code& ec);
     void disableDrag(std::error_code& ec);
+    void startJog(rokae::JogOpt::Space space, double rate, double step, unsigned int index, bool direction, std::error_code& ec);
     void startJog(rokae::JogOpt::Space space, unsigned int index, bool direction, double step, std::error_code& ec);
     void setAvoidSingularity(bool enable, std::error_code& ec);
     bool getAvoidSingularity(std::error_code& ec);

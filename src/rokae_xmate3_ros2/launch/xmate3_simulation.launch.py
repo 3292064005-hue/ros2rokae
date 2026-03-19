@@ -19,7 +19,6 @@ def generate_launch_description():
         DeclareLaunchArgument("gui", default_value="true"),
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("verbose", default_value="true"),
-        DeclareLaunchArgument("moveit", default_value="true"),
         DeclareLaunchArgument("use_sim_time", default_value="true"),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(simulation_launch),
@@ -29,7 +28,6 @@ def generate_launch_description():
                 "gui": LaunchConfiguration("gui"),
                 "rviz": LaunchConfiguration("rviz"),
                 "verbose": LaunchConfiguration("verbose"),
-                "moveit": LaunchConfiguration("moveit"),
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
             }.items(),
         ),

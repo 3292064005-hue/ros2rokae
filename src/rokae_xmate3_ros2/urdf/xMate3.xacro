@@ -4,8 +4,10 @@
   <!-- ==================== 常量定义 ==================== -->
   <xacro:property name="M_PI" value="3.1415926535897931"/>
   <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>
-  <xacro:property name="mesh_prefix_vis" value="package://rokae_xmate3_ros2/meshes/visual/"/>
-  <xacro:property name="mesh_prefix_col" value="package://rokae_xmate3_ros2/meshes/collision/"/>
+  <xacro:arg name="mesh_root" default="package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/"/>
+  <xacro:property name="mesh_prefix_root" value="$(arg mesh_root)"/>
+  <xacro:property name="mesh_prefix_vis" value="${mesh_prefix_root}visual/"/>
+  <xacro:property name="mesh_prefix_col" value="${mesh_prefix_root}collision/"/>
 
   <!-- ==================== 材料定义 ==================== -->
   <xacro:macro name="material_color" params="name r g b">

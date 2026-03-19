@@ -24,18 +24,18 @@ int main() {
   }
 
   printSection("1 轴空间 S-Line 规划采样");
-  std::array<double, 7> q_init7{};
+  std::array<double, 6> q_init{};
   const auto current = robot.jointPos(ec);
   if (reportError("jointPos", ec)) {
     cleanupRobot(robot);
     return 1;
   }
-  std::copy(current.begin(), current.end(), q_init7.begin());
-  const std::array<double, 7> q_goal7{0.0, kPi / 6.0, kPi / 3.0, 0.0, kPi / 2.0, 0.0, 0.0};
-  JointMotionGenerator joint_s(0.5, q_goal7);
-  joint_s.calculateSynchronizedValues(q_init7);
+  std::copy(current.begin(), current.end(), q_init.begin());
+  const std::array<double, 6> q_goal{0.0, kPi / 6.0, kPi / 3.0, 0.0, kPi / 2.0, 0.0};
+  JointMotionGenerator joint_s(0.5, q_goal);
+  joint_s.calculateSynchronizedValues(q_init);
   for (double t = 0.0; t <= joint_s.getTime(); t += 0.05) {
-    std::array<double, 7> delta{};
+    std::array<double, 6> delta{};
     joint_s.calculateDesiredValues(t, delta);
     printArray("joint delta", delta, 4, " rad");
   }

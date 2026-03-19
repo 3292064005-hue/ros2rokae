@@ -1411,11 +1411,7 @@ public:
   }
 
   virtual void startJog(JogOpt::Space space, double rate, double step, unsigned index, bool direction, error_code &ec) noexcept {
-    const int speed = std::max(1, static_cast<int>(rate * 1000.0));
-    session_->robot->setDefaultSpeed(speed, ec);
-    if (!ec) {
-      session_->robot->startJog(space, index, direction, step, ec);
-    }
+    session_->robot->startJog(space, rate, step, index, direction, ec);
     detail::remember_error(session_, ec);
   }
 
@@ -2068,12 +2064,12 @@ private:
 
 class XCORE_API JointMotionGenerator {
 public:
-  JointMotionGenerator(double speed_factor, std::array<double, 7> q_goal)
+  JointMotionGenerator(double speed_factor, std::array<double, 6> q_goal)
       : speed_factor_(speed_factor), q_goal_(q_goal) {}
 
-  void setMax(const std::array<double, 7> &dq_max,
-              const std::array<double, 7> &ddq_max_start,
-              const std::array<double, 7> &ddq_max_end) {
+  void setMax(const std::array<double, 6> &dq_max,
+              const std::array<double, 6> &ddq_max_start,
+              const std::array<double, 6> &ddq_max_end) {
     dq_max_ = dq_max;
     ddq_max_start_ = ddq_max_start;
     ddq_max_end_ = ddq_max_end;
@@ -2088,7 +2084,7 @@ public:
     return max_delta / max_speed;
   }
 
-  bool calculateDesiredValues(double t, std::array<double, 7> &delta_q_d) const {
+  bool calculateDesiredValues(double t, std::array<double, 6> &delta_q_d) const {
     const double total = std::max(getTimeCached(), 1e-6);
     const double alpha = std::clamp(t / total, 0.0, 1.0);
     for (size_t i = 0; i < delta_q_d.size(); ++i) {
@@ -2097,7 +2093,7 @@ public:
     return t >= total;
   }
 
-  void calculateSynchronizedValues(const std::array<double, 7> &q_init) {
+  void calculateSynchronizedValues(const std::array<double, 6> &q_init) {
     q_init_ = q_init;
   }
 
@@ -2112,11 +2108,11 @@ private:
   }
 
   double speed_factor_ = 1.0;
-  std::array<double, 7> q_goal_{};
-  std::array<double, 7> q_init_{};
-  std::array<double, 7> dq_max_{{1, 1, 1, 1, 1, 1, 1}};
-  std::array<double, 7> ddq_max_start_{{1, 1, 1, 1, 1, 1, 1}};
-  std::array<double, 7> ddq_max_end_{{1, 1, 1, 1, 1, 1, 1}};
+  std::array<double, 6> q_goal_{};
+  std::array<double, 6> q_init_{};
+  std::array<double, 6> dq_max_{{1, 1, 1, 1, 1, 1}};
+  std::array<double, 6> ddq_max_start_{{1, 1, 1, 1, 1, 1}};
+  std::array<double, 6> ddq_max_end_{{1, 1, 1, 1, 1, 1}};
 };
 
 template <unsigned short DoF>

@@ -40,18 +40,6 @@
   <depend>effort_controllers</depend>
   <depend>forward_command_controller</depend>
   <depend>gazebo_ros2_control</depend>
-
-  <!-- MoveIt2 相关依赖 -->
-  <depend>moveit_core</depend>
-  <depend>moveit_ros_planning</depend>
-  <depend>moveit_ros_planning_interface</depend>
-  <depend>moveit_ros_move_group</depend>
-  <depend>moveit_ros_visualization</depend>
-  <depend>moveit_servo</depend>
-  <depend>moveit_ros_warehouse</depend>
-  <depend>moveit_msgs</depend>
-  <depend>tf2_geometry_msgs</depend>
-
   <!-- 构建工具依赖 -->
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
