@@ -47,9 +47,6 @@ def generate_launch_description():
     # RViz配置
     rviz_config = os.path.join(pkg_share, "config", "xMate3.rviz")
     rviz_config_moveit = os.path.join(pkg_share, "config", "xMate3_moveit.rviz")
-    if not os.path.exists(rviz_config):
-        rviz_config = os.path.join(pkg_share, "launch", "xMate3.rviz")
-
     # 声明启动参数
     declared_arguments = [
         launch.actions.DeclareLaunchArgument(
