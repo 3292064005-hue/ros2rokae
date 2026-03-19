@@ -1,0 +1,63 @@
+#ifndef ROKAE_XMATE3_ROS2_RUNTIME_MOTION_RUNTIME_HPP
+#define ROKAE_XMATE3_ROS2_RUNTIME_MOTION_RUNTIME_HPP
+
+#include <chrono>
+#include <condition_variable>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+#include <unordered_map>
+
+#include "runtime/executor_core.hpp"
+#include "runtime/planner_core.hpp"
+#include "runtime/runtime_types.hpp"
+
+namespace rokae_xmate3_ros2::runtime {
+
+class MotionRuntime {
+ public:
+  MotionRuntime();
+  ~MotionRuntime();
+
+  [[nodiscard]] bool canAcceptRequest() const;
+  [[nodiscard]] bool submit(const MotionRequest &request, std::string &message);
+
+  void stop(const std::string &message = "stopped");
+  void reset();
+
+  [[nodiscard]] RuntimeStatus status() const;
+  [[nodiscard]] RuntimeStatus status(const std::string &request_id) const;
+  [[nodiscard]] RuntimeView view() const;
+  [[nodiscard]] RuntimeView view(const std::string &request_id) const;
+  [[nodiscard]] RuntimeStatus waitForUpdate(const std::string &request_id,
+                                            std::uint64_t last_revision,
+                                            std::chrono::milliseconds timeout) const;
+  [[nodiscard]] RuntimeStatus tick(BackendInterface &backend, double dt);
+
+ private:
+  void plannerLoop();
+  void rememberStatus(RuntimeStatus &status);
+  [[nodiscard]] RuntimeView buildViewLocked(const std::string *request_id) const;
+
+  mutable std::mutex mutex_;
+  std::condition_variable planner_cv_;
+  mutable std::condition_variable status_cv_;
+  bool shutdown_ = false;
+  std::optional<MotionRequest> pending_request_;
+  std::optional<MotionPlan> queued_plan_;
+  std::string active_request_id_;
+  RuntimeStatus active_status_;
+  std::unordered_map<std::string, RuntimeStatus> status_cache_;
+  std::deque<std::string> status_order_;
+  std::uint64_t next_status_revision_ = 1;
+  std::thread planner_thread_;
+  MotionPlanner planner_;
+  MotionExecutor executor_;
+};
+
+}  // namespace rokae_xmate3_ros2::runtime
+
+#endif

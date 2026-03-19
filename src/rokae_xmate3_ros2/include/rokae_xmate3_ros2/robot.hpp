@@ -312,6 +312,7 @@ private:
         bool move_append_result_ready_ = false;
         rclcpp_action::ResultCode move_append_result_code_ = rclcpp_action::ResultCode::UNKNOWN;
         bool move_append_result_success_ = true;
+        bool suppress_next_stopped_move_append_result_ = false;
         std::string move_append_result_message_;
 
         // 缓存相关公用方法（外部由xMateRobot调用）

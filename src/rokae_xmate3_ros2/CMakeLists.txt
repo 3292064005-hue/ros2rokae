@@ -21,6 +21,9 @@ find_package(gazebo REQUIRED)
 find_package(gazebo_ros REQUIRED)
 find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(rosidl_default_generators REQUIRED)
+find_package(rosidl_runtime_cpp REQUIRED)
+find_package(unique_identifier_msgs REQUIRED)
+find_package(action_msgs REQUIRED)
 
 # 生成msg/srv/action接口
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -128,6 +131,7 @@ include_directories(
   ${GAZEBO_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
   ${CMAKE_CURRENT_BINARY_DIR}
+  ${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp
 )
 link_directories(${GAZEBO_LIBRARY_DIRS})
 
@@ -135,32 +139,81 @@ link_directories(${GAZEBO_LIBRARY_DIRS})
 rosidl_get_typesupport_target(cpp_typesupport_target
   ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
-# 1. SDK库
-add_library(${PROJECT_NAME}_sdk SHARED
-  src/robot.cpp
+# 1. 内部 runtime core 库（不导出私有头）
+add_library(${PROJECT_NAME}_runtime_core SHARED
   src/gazebo/kinematics.cpp
   src/gazebo/trajectory_planner.cpp
+  src/runtime/planner_core.cpp
+  src/runtime/planning_utils.cpp
+  src/runtime/runtime_state.cpp
+  src/runtime/controller_state.cpp
+  src/runtime/runtime_context.cpp
+  src/runtime/request_adapter.cpp
+  src/runtime/request_coordinator.cpp
+  src/runtime/operation_state_adapter.cpp
+  src/runtime/service_facade.cpp
+  src/runtime/ros_bindings.cpp
+  src/runtime/executor_core.cpp
+  src/runtime/motion_runtime.cpp
+)
+target_include_directories(${PROJECT_NAME}_runtime_core
+  PUBLIC
+    include
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${EIGEN3_INCLUDE_DIRS}
+)
+ament_target_dependencies(${PROJECT_NAME}_runtime_core
+  rclcpp
+  rclcpp_action
+  rosidl_runtime_cpp
+  unique_identifier_msgs
+  action_msgs
+)
+target_link_libraries(${PROJECT_NAME}_runtime_core
+  ${EIGEN3_LIBRARIES}
+  "${cpp_typesupport_target}"
+)
+target_compile_features(${PROJECT_NAME}_runtime_core PUBLIC cxx_std_17)
+
+# 2. SDK库
+add_library(${PROJECT_NAME}_sdk SHARED
+  src/robot.cpp
 )
 ament_target_dependencies(${PROJECT_NAME}_sdk
   rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs gazebo_ros
 )
+target_include_directories(${PROJECT_NAME}_sdk
+  PUBLIC
+    include
+    ${CMAKE_CURRENT_BINARY_DIR}
+  ${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp
+)
 target_link_libraries(${PROJECT_NAME}_sdk
+  ${PROJECT_NAME}_runtime_core
   "${cpp_typesupport_target}"
   ${EIGEN3_LIBRARIES}
   ${GAZEBO_LIBRARIES}
 )
 target_compile_features(${PROJECT_NAME}_sdk PUBLIC cxx_std_17)
 
-# 2. Gazebo插件
+# 3. Gazebo插件
 add_library(xcore_controller_gazebo_plugin SHARED
   src/gazebo/xcore_controller_gazebo_plugin.cpp
 )
 ament_target_dependencies(xcore_controller_gazebo_plugin
   rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs tf2_ros gazebo_ros
 )
+target_include_directories(xcore_controller_gazebo_plugin
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 target_link_libraries(xcore_controller_gazebo_plugin
   ${GAZEBO_LIBRARIES}
   ${EIGEN3_LIBRARIES}
+  ${PROJECT_NAME}_runtime_core
   ${PROJECT_NAME}_sdk
   "${cpp_typesupport_target}"
 )
@@ -201,6 +254,9 @@ set(EXAMPLE_TARGETS)
 foreach(example IN LISTS EXAMPLES)
   set(example_target example_${example})
   add_executable(${example_target} examples/cpp/${example}.cpp)
+  set_target_properties(${example_target} PROPERTIES
+    RULE_LAUNCH_COMPILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/compile_slot.sh"
+  )
   ament_target_dependencies(${example_target}
     rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs
   )
@@ -213,6 +269,7 @@ endforeach()
 
 # 安装规则
 install(TARGETS
+  ${PROJECT_NAME}_runtime_core
   ${PROJECT_NAME}_sdk
   xcore_controller_gazebo_plugin
   ${EXAMPLE_TARGETS}
@@ -239,4 +296,130 @@ ament_export_libraries(
   ${PROJECT_NAME}_sdk
   xcore_controller_gazebo_plugin
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_motion_planner_core
+    test/test_motion_planner_core.cpp
+  )
+  if(TARGET test_motion_planner_core)
+    target_include_directories(test_motion_planner_core
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_link_libraries(test_motion_planner_core
+      ${PROJECT_NAME}_runtime_core
+    )
+    target_compile_features(test_motion_planner_core PUBLIC cxx_std_17)
+  endif()
+
+  ament_add_gtest(test_motion_runtime_state
+    test/test_motion_runtime_state.cpp
+  )
+  if(TARGET test_motion_runtime_state)
+    target_include_directories(test_motion_runtime_state
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_link_libraries(test_motion_runtime_state
+      ${PROJECT_NAME}_runtime_core
+    )
+    target_compile_features(test_motion_runtime_state PUBLIC cxx_std_17)
+  endif()
+
+  ament_add_gtest(test_runtime_adapters
+    test/test_runtime_adapters.cpp
+  )
+  if(TARGET test_runtime_adapters)
+    target_include_directories(test_runtime_adapters
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_link_libraries(test_runtime_adapters
+      ${PROJECT_NAME}_runtime_core
+    )
+    target_compile_features(test_runtime_adapters PUBLIC cxx_std_17)
+  endif()
+
+  ament_add_gtest(test_controller_state
+    test/test_controller_state.cpp
+  )
+
+  ament_add_gtest(test_request_coordinator
+    test/test_request_coordinator.cpp
+  )
+  ament_add_gtest(test_runtime_state
+    test/test_runtime_state.cpp
+  )
+
+  ament_add_gtest(test_service_facade
+    test/test_service_facade.cpp
+  )
+  if(TARGET test_controller_state)
+    target_include_directories(test_controller_state
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_link_libraries(test_controller_state
+      ${PROJECT_NAME}_runtime_core
+    )
+    target_compile_features(test_controller_state PUBLIC cxx_std_17)
+  endif()
+
+  if(TARGET test_request_coordinator)
+    target_include_directories(test_request_coordinator
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_link_libraries(test_request_coordinator
+      ${PROJECT_NAME}_runtime_core
+    )
+    target_compile_features(test_request_coordinator PUBLIC cxx_std_17)
+  endif()
+
+  if(TARGET test_runtime_state)
+    target_include_directories(test_runtime_state
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_link_libraries(test_runtime_state
+      ${PROJECT_NAME}_runtime_core
+    )
+    target_compile_features(test_runtime_state PUBLIC cxx_std_17)
+  endif()
+
+  if(TARGET test_service_facade)
+    target_include_directories(test_service_facade
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_link_libraries(test_service_facade
+      ${PROJECT_NAME}_runtime_core
+    )
+    target_compile_features(test_service_facade PUBLIC cxx_std_17)
+  endif()
+endif()
+
 ament_package()

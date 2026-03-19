@@ -41,6 +41,7 @@ struct MotionCommand {
     double trajectory_dt = 0.01;                 // 轨迹采样周期（秒）
     double trajectory_elapsed = 0.0;             // 已执行轨迹时间（秒）
     int fine_tuning_steps;                        // 精调阶段计数
+    int settle_attempts = 0;                      // 精调阶段总尝试次数
     bool in_fine_tuning;                          // 是否在精调阶段
 };
 

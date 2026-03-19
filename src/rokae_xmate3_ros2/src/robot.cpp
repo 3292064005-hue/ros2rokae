@@ -207,20 +207,33 @@ void xMateRobot::Impl::handleMoveAppendResult(
     const rclcpp_action::ClientGoalHandle<rokae_xmate3_ros2::action::MoveAppend>::WrappedResult &result) {
     {
         std::lock_guard<std::mutex> lock(action_mutex_);
-        move_append_result_ready_ = true;
-        move_append_result_code_ = result.code;
-        move_append_result_success_ = result.result ? result.result->success : false;
-        move_append_result_message_ = result.result ? result.result->message : std::string();
-        if (move_append_result_message_.empty()) {
-            switch (result.code) {
-                case rclcpp_action::ResultCode::ABORTED:
-                    move_append_result_message_ = "MoveAppend action aborted";
-                    break;
-                case rclcpp_action::ResultCode::CANCELED:
-                    move_append_result_message_ = "MoveAppend action canceled";
-                    break;
-                default:
-                    break;
+        const auto result_message = result.result ? result.result->message : std::string();
+        const bool expected_stop_result =
+            suppress_next_stopped_move_append_result_ &&
+            (result_message == "stop service called" || result.code == rclcpp_action::ResultCode::CANCELED);
+        if (expected_stop_result) {
+            suppress_next_stopped_move_append_result_ = false;
+            move_append_result_ready_ = false;
+            move_append_result_code_ = rclcpp_action::ResultCode::UNKNOWN;
+            move_append_result_success_ = true;
+            move_append_result_message_.clear();
+        } else {
+            suppress_next_stopped_move_append_result_ = false;
+            move_append_result_ready_ = true;
+            move_append_result_code_ = result.code;
+            move_append_result_success_ = result.result ? result.result->success : false;
+            move_append_result_message_ = result_message;
+            if (move_append_result_message_.empty()) {
+                switch (result.code) {
+                    case rclcpp_action::ResultCode::ABORTED:
+                        move_append_result_message_ = "MoveAppend action aborted";
+                        break;
+                    case rclcpp_action::ResultCode::CANCELED:
+                        move_append_result_message_ = "MoveAppend action canceled";
+                        break;
+                    default:
+                        break;
+                }
             }
         }
     }
@@ -1285,6 +1298,11 @@ void xMateRobot::stop(std::error_code& ec) {
         return;
     }
 
+    {
+        std::lock_guard<std::mutex> lock(impl_->action_mutex_);
+        impl_->suppress_next_stopped_move_append_result_ = true;
+    }
+
     auto request = std::make_shared<rokae_xmate3_ros2::srv::Stop::Request>();
     auto future = impl_->xmate3_motion_stop_client_->async_send_request(request);
     if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
@@ -2008,10 +2026,14 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
     }
 
     // 【关键】等待直到operation state变为MOVING，确保运动真正开始
+    const bool has_complex_cartesian =
+        !goal_to_send.c_cmds.empty() || !goal_to_send.cf_cmds.empty() || !goal_to_send.sp_cmds.empty();
+    const auto start_timeout = has_complex_cartesian ? std::chrono::seconds(15) : std::chrono::seconds(5);
     RCLCPP_INFO(node_->get_logger(), "等待运动开始...");
     auto start_wait = std::chrono::steady_clock::now();
     bool motion_started = false;
-    while (std::chrono::steady_clock::now() - start_wait < std::chrono::seconds(5)) {
+    bool action_completed_during_wait = false;
+    while (std::chrono::steady_clock::now() - start_wait < start_timeout) {
         pump_callbacks();
         if (checkMoveAppendFailure(ec)) {
             return false;
@@ -2023,6 +2045,16 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
                 break;
             }
         }
+        {
+            std::lock_guard<std::mutex> lock(action_mutex_);
+            action_completed_during_wait =
+                move_append_result_ready_ &&
+                move_append_result_code_ == rclcpp_action::ResultCode::SUCCEEDED &&
+                move_append_result_success_;
+        }
+        if (action_completed_during_wait) {
+            break;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -2032,7 +2064,11 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
         if (checkMoveAppendFailure(ec)) {
             return false;
         }
-        RCLCPP_WARN(node_->get_logger(), "等待运动开始超时，继续执行...");
+        if (action_completed_during_wait) {
+            RCLCPP_INFO(node_->get_logger(), "运动在等待窗口内已完成，跳过开始检测");
+        } else {
+            RCLCPP_WARN(node_->get_logger(), "等待运动开始超时，继续执行...");
+        }
     }
 
     ec.clear();

@@ -276,7 +276,7 @@ std::vector<std::vector<double>> TrajectoryPlanner::planCircularArc(
     // 时间规划（圆弧运动降速至0.5m/s）
     const double max_vel = 0.5 * speed_percent / 100.0;
     const double total_time = arc_length / max_vel;
-    const int num_points = std::max(20, static_cast<int>(std::ceil(total_time / dt)));
+    const int num_points = std::clamp(static_cast<int>(std::ceil(total_time / dt)), 20, 40);
 
     // 姿态拆分
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
@@ -340,7 +340,7 @@ std::vector<std::vector<double>> TrajectoryPlanner::planCircularContinuous(
     // 时间规划
     const double max_vel = 0.5 * speed_percent / 100.0;
     const double total_time = arc_length / max_vel;
-    const int num_points = std::max(20, static_cast<int>(std::ceil(total_time / dt)));
+    const int num_points = std::clamp(static_cast<int>(std::ceil(total_time / dt)), 20, 40);
 
     // 姿态拆分
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
