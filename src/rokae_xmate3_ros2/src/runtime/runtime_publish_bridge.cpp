@@ -1,27 +1,31 @@
 #include "runtime/runtime_publish_bridge.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <limits>
 #include <string>
-#include <utility>
 
 #include <rclcpp/rclcpp.hpp>
 
 namespace rokae_xmate3_ros2::runtime {
 
-RuntimePublishBridge::RuntimePublishBridge(RuntimeContext &runtime_context,
-                                           PathRecordingStateProvider path_recording_state_provider,
-                                           PathSampleRecorder path_sample_recorder)
-    : runtime_context_(runtime_context),
-      path_recording_state_provider_(std::move(path_recording_state_provider)),
-      path_sample_recorder_(std::move(path_sample_recorder)) {}
+namespace {
+
+constexpr std::int64_t kNanosecondsPerSecond = 1000000000LL;
+
+}  // namespace
+
+RuntimePublishBridge::RuntimePublishBridge(RuntimeContext &runtime_context)
+    : runtime_context_(runtime_context) {}
 
 RuntimeView RuntimePublishBridge::currentView() const {
-  return runtime_context_.currentRuntimeView();
+  return runtime_context_.readView().runtime;
 }
 
 rokae_xmate3_ros2::msg::OperationState RuntimePublishBridge::buildOperationStateMessage() const {
+  const auto view = runtime_context_.readView();
   rokae_xmate3_ros2::msg::OperationState msg;
-  msg.state = resolve_operation_state(currentView(), runtime_context_.operationStateContext());
+  msg.state = resolve_operation_state(view.runtime, view.operation_state);
   return msg;
 }
 
@@ -50,6 +54,36 @@ sensor_msgs::msg::JointState RuntimePublishBridge::buildJointStateMessage(
   return msg;
 }
 
+PublisherTickOutput RuntimePublishBridge::buildPublisherTick(const PublisherTickInput &input) {
+  PublisherTickOutput output;
+  const auto view = runtime_context_.readView();
+
+  bool publish_due = true;
+  if (input.min_publish_period_sec > 0.0 && last_publisher_tick_ns_ > 0) {
+    const auto publish_period_ns =
+        static_cast<std::int64_t>(input.min_publish_period_sec * static_cast<double>(kNanosecondsPerSecond));
+    publish_due = (input.stamp.nanoseconds() - last_publisher_tick_ns_) >= publish_period_ns;
+  }
+
+  if (publish_due) {
+    output.publish_operation_state = true;
+    output.operation_state.state = resolve_operation_state(view.runtime, view.operation_state);
+    if (input.joint_names != nullptr) {
+      output.publish_joint_state = true;
+      output.joint_state = buildJointStateMessage(
+          input.stamp, input.frame_id, *input.joint_names, input.position, input.velocity, input.torque);
+    }
+    last_publisher_tick_ns_ = input.stamp.nanoseconds();
+  }
+
+  if (view.program.recording_path) {
+    runtime_context_.programState().recordPathSample(input.position);
+    output.recorded_path_sample = true;
+  }
+
+  return output;
+}
+
 void RuntimePublishBridge::emitRuntimeStatus(const RuntimeStatus &status,
                                              const rclcpp::Time &stamp,
                                              const rclcpp::Logger &logger) {
@@ -73,15 +107,79 @@ void RuntimePublishBridge::emitRuntimeStatus(const RuntimeStatus &status,
   }
 }
 
-bool RuntimePublishBridge::shouldRecordPathSample() const {
-  return static_cast<bool>(path_recording_state_provider_) && path_recording_state_provider_();
+RuntimeStatus RuntimePublishBridge::waitForRequestUpdate(const std::string &request_id,
+                                                         std::uint64_t last_revision,
+                                                         std::chrono::milliseconds timeout) const {
+  return runtime_context_.requestCoordinator().waitForUpdate(request_id, last_revision, timeout);
 }
 
-void RuntimePublishBridge::maybeRecordPathSample(const std::array<double, 6> &joint_position) const {
-  if (!shouldRecordPathSample() || !path_sample_recorder_) {
-    return;
+std::shared_ptr<rokae_xmate3_ros2::action::MoveAppend::Feedback>
+RuntimePublishBridge::buildMoveAppendFeedbackMessage(const FeedbackSnapshot &snapshot) const {
+  auto feedback = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Feedback>();
+  feedback->progress = snapshot.progress;
+  feedback->current_state = snapshot.current_state;
+  feedback->current_cmd_index = snapshot.current_cmd_index;
+  return feedback;
+}
+
+std::shared_ptr<rokae_xmate3_ros2::action::MoveAppend::Result>
+RuntimePublishBridge::buildMoveAppendResult(const std::string &request_id,
+                                            const RuntimeStatus &status) const {
+  auto result = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
+  result->success = status.state == ExecutionState::completed && status.terminal_success;
+  result->cmd_id = request_id;
+  result->message = status.message.empty() ? to_string(status.state) : status.message;
+  return result;
+}
+
+void RuntimePublishBridge::driveMoveAppendGoal(
+    const std::shared_ptr<MoveAppendGoalHandle> &goal_handle,
+    const std::string &request_id) {
+  std::string last_state;
+  std::size_t last_completed = std::numeric_limits<std::size_t>::max();
+  std::uint64_t last_revision = 0;
+
+  while (rclcpp::ok()) {
+    if (goal_handle->is_canceling()) {
+      runtime_context_.requestCoordinator().stop("move append canceled");
+      auto result = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
+      result->success = false;
+      result->cmd_id = request_id;
+      result->message = "Canceled";
+      goal_handle->canceled(result);
+      return;
+    }
+
+    const auto status = waitForRequestUpdate(request_id, last_revision, std::chrono::milliseconds(100));
+    if (status.revision > last_revision) {
+      last_revision = status.revision;
+    }
+
+    const auto feedback_snapshot = buildMoveAppendFeedback(status, last_completed, last_state);
+    if (feedback_snapshot.should_publish) {
+      goal_handle->publish_feedback(buildMoveAppendFeedbackMessage(feedback_snapshot));
+      last_completed = status.completed_segments;
+      last_state = status.message;
+    }
+
+    if (status.terminal()) {
+      auto result = buildMoveAppendResult(request_id, status);
+      if (result->success) {
+        goal_handle->succeed(result);
+      } else if (goal_handle->is_canceling()) {
+        goal_handle->canceled(result);
+      } else {
+        goal_handle->abort(result);
+      }
+      return;
+    }
   }
-  path_sample_recorder_(joint_position);
+
+  auto result = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
+  result->success = false;
+  result->cmd_id = request_id;
+  result->message = "MoveAppend interrupted";
+  goal_handle->abort(result);
 }
 
 FeedbackSnapshot buildMoveAppendFeedback(const RuntimeStatus &status,

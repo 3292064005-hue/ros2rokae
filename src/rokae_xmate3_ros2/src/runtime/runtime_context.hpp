@@ -11,6 +11,12 @@
 
 namespace rokae_xmate3_ros2::runtime {
 
+struct RuntimeContextView {
+  RuntimeView runtime;
+  OperationStateContext operation_state;
+  ProgramSnapshot program;
+};
+
 class RuntimeContext {
  public:
   RuntimeContext();
@@ -39,6 +45,8 @@ class RuntimeContext {
 
   [[nodiscard]] OperationStateContext operationStateContext() const;
   [[nodiscard]] RuntimeView currentRuntimeView() const;
+  [[nodiscard]] ProgramSnapshot currentProgramSnapshot() const;
+  [[nodiscard]] RuntimeContextView readView() const;
 
  private:
   std::shared_ptr<SessionState> session_state_;

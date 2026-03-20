@@ -41,4 +41,16 @@ RuntimeView RuntimeContext::currentRuntimeView() const {
   return request_coordinator_.currentView();
 }
 
+ProgramSnapshot RuntimeContext::currentProgramSnapshot() const {
+  return program_state_->snapshot();
+}
+
+RuntimeContextView RuntimeContext::readView() const {
+  RuntimeContextView view;
+  view.runtime = currentRuntimeView();
+  view.operation_state = operationStateContext();
+  view.program = currentProgramSnapshot();
+  return view;
+}
+
 }  // namespace rokae_xmate3_ros2::runtime

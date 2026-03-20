@@ -406,4 +406,16 @@ std::vector<std::string> ProgramState::querySavedPaths() const {
   return names;
 }
 
+ProgramSnapshot ProgramState::snapshot() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  ProgramSnapshot snapshot;
+  snapshot.rl_project_loaded = rl_project_loaded_;
+  snapshot.rl_project_running = rl_project_running_;
+  snapshot.rl_current_episode = rl_current_episode_;
+  snapshot.recording_path = is_recording_path_;
+  snapshot.loaded_rl_project_name = loaded_rl_project_name_;
+  snapshot.loaded_rl_project_path = loaded_rl_project_path_;
+  return snapshot;
+}
+
 }  // namespace rokae_xmate3_ros2::runtime

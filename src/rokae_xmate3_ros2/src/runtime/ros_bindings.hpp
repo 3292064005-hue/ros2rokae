@@ -16,18 +16,18 @@
 
 namespace rokae_xmate3_ros2::runtime {
 
+class RuntimePublishBridge;
+
 class RosBindings {
  public:
   RosBindings(rclcpp::Node::SharedPtr node,
               RuntimeContext &runtime_context,
+              RuntimePublishBridge *publish_bridge,
               gazebo::xMate3Kinematics &kinematics,
               JointStateFetcher joint_state_fetcher,
               TimeProvider time_provider,
               TrajectoryDtProvider trajectory_dt_provider,
               RequestIdGenerator request_id_generator);
-
-  [[nodiscard]] bool isRecordingPath() const;
-  void recordPathSample(const std::array<double, 6> &joint_position) const;
 
  private:
   void initServices();
@@ -37,6 +37,7 @@ class RosBindings {
 
   rclcpp::Node::SharedPtr node_;
   RuntimeContext &runtime_context_;
+  RuntimePublishBridge *publish_bridge_;
   JointStateFetcher joint_state_fetcher_;
   TrajectoryDtProvider trajectory_dt_provider_;
   RequestIdGenerator request_id_generator_;

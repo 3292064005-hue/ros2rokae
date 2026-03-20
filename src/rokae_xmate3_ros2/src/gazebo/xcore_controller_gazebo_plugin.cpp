@@ -28,6 +28,7 @@
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
+#include "runtime/runtime_control_bridge.hpp"
 #include "runtime/runtime_publish_bridge.hpp"
 #include "runtime/runtime_context.hpp"
 #include "runtime/ros_bindings.hpp"
@@ -147,6 +148,7 @@ private:
 
     std::unique_ptr<runtime::RuntimeContext> runtime_context_;
     std::unique_ptr<runtime::RosBindings> ros_bindings_;
+    std::unique_ptr<runtime::RuntimeControlBridge> control_bridge_;
     std::unique_ptr<runtime::RuntimePublishBridge> publish_bridge_;
     bool joint_positions_initialized_ = false;
 
@@ -253,24 +255,17 @@ void XCoreControllerPlugin::InitROS2() {
     };
 
     InitPublishers();
+    publish_bridge_ = std::make_unique<runtime::RuntimePublishBridge>(*runtime_context_);
     ros_bindings_ = std::make_unique<runtime::RosBindings>(
         node_,
         *runtime_context_,
+        publish_bridge_.get(),
         *kinematics_,
         joint_state_fetcher,
         time_provider,
         trajectory_dt_provider,
         request_id_generator);
-    publish_bridge_ = std::make_unique<runtime::RuntimePublishBridge>(
-        *runtime_context_,
-        [this]() {
-            return ros_bindings_ != nullptr && ros_bindings_->isRecordingPath();
-        },
-        [this](const std::array<double, 6> &joint_position) {
-            if (ros_bindings_ != nullptr) {
-                ros_bindings_->recordPathSample(joint_position);
-            }
-        });
+    control_bridge_ = std::make_unique<runtime::RuntimeControlBridge>(*runtime_context_);
 
     executor_thread_ = std::thread([this]() {
         try {
@@ -357,72 +352,42 @@ void XCoreControllerPlugin::OnUpdate() {
 
     RefreshJointStateCache();
 
-    // 原有发布逻辑
-    static auto last_pub_time = node_->now();
     auto now = node_->now();
-    if ((now - last_pub_time).seconds() >= 0.001 && publish_bridge_ != nullptr) {
-        std::array<double, 6> cached_pos{};
-        std::array<double, 6> cached_vel{};
-        std::array<double, 6> cached_torque{};
-        GetCachedJointState(cached_pos, cached_vel, cached_torque);
-        joint_state_pub_->publish(
-            publish_bridge_->buildJointStateMessage(
-                now, "base_link", joint_names_, cached_pos, cached_vel, cached_torque));
-        operation_state_pub_->publish(publish_bridge_->buildOperationStateMessage());
-        last_pub_time = now;
-    }
-
-    // 路径录制逻辑
     if (publish_bridge_ != nullptr) {
         std::array<double, 6> cached_pos{};
         std::array<double, 6> cached_vel{};
         std::array<double, 6> cached_torque{};
         GetCachedJointState(cached_pos, cached_vel, cached_torque);
-        publish_bridge_->maybeRecordPathSample(cached_pos);
+
+        runtime::PublisherTickInput tick_input;
+        tick_input.stamp = now;
+        tick_input.frame_id = "base_link";
+        tick_input.joint_names = &joint_names_;
+        tick_input.position = cached_pos;
+        tick_input.velocity = cached_vel;
+        tick_input.torque = cached_torque;
+        tick_input.min_publish_period_sec = 0.001;
+
+        const auto publish_tick = publish_bridge_->buildPublisherTick(tick_input);
+        if (publish_tick.publish_joint_state) {
+            joint_state_pub_->publish(publish_tick.joint_state);
+        }
+        if (publish_tick.publish_operation_state) {
+            operation_state_pub_->publish(publish_tick.operation_state);
+        }
     }
 
 }
 
 void XCoreControllerPlugin::ExecuteMotion() {
-    if (!motion_backend_) {
+    if (!motion_backend_ || !control_bridge_) {
         return;
     }
 
     const auto snapshot = motion_backend_->readSnapshot();
-
-    if (!runtime_context_->sessionState().powerOn() && initial_pose_set_) {
-        if (motionRuntime() != nullptr) {
-            motionRuntime()->stop("power off");
-        }
-        const bool was_locked = motion_backend_->brakesLocked();
-        if (!was_locked) {
-            gzmsg << "[xCore Controller] Engaging joint brakes..." << std::endl;
-        }
-        motion_backend_->setBrakeLock(snapshot, true);
-        if (!was_locked && motion_backend_->brakesLocked()) {
-            gzmsg << "[xCore Controller] Joint brakes locked at initial pose." << std::endl;
-        }
-        return;
-    }
-
-    if (motion_backend_->brakesLocked()) {
-        gzmsg << "[xCore Controller] Releasing joint brakes..." << std::endl;
-        motion_backend_->setBrakeLock(snapshot, false);
-        gzmsg << "[xCore Controller] Joint brakes released." << std::endl;
-    }
-
-    if (runtime_context_->sessionState().dragMode()) {
-        motion_backend_->clearControl();
-        return;
-    }
-
-    if (motionRuntime() != nullptr) {
-        const auto status = motionRuntime()->tick(*motion_backend_, current_update_dt_);
-        if (publish_bridge_ != nullptr && node_ != nullptr) {
-            publish_bridge_->emitRuntimeStatus(status, node_->now(), node_->get_logger());
-        }
-    } else {
-        motion_backend_->clearControl();
+    const auto tick_result = control_bridge_->tick(*motion_backend_, snapshot, current_update_dt_);
+    if (publish_bridge_ != nullptr && node_ != nullptr) {
+        publish_bridge_->emitRuntimeStatus(tick_result.status, node_->now(), node_->get_logger());
     }
 }
 

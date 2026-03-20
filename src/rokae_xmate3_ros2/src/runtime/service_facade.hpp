@@ -280,8 +280,6 @@ class PathFacade {
   void handleQueryPathLists(const rokae_xmate3_ros2::srv::QueryPathLists::Request &req,
                             rokae_xmate3_ros2::srv::QueryPathLists::Response &res) const;
 
-  [[nodiscard]] bool isRecording() const;
-  void recordSample(const std::array<double, 6> &joint_position) const;
 
  private:
   ProgramState &program_state_;

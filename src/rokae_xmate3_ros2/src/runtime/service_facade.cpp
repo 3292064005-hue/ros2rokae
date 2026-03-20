@@ -843,10 +843,5 @@ void PathFacade::handleQueryPathLists(const rokae_xmate3_ros2::srv::QueryPathLis
   res.success = true;
 }
 
-bool PathFacade::isRecording() const { return program_state_.isRecordingPath(); }
-
-void PathFacade::recordSample(const std::array<double, 6> &joint_position) const {
-  program_state_.recordPathSample(joint_position);
-}
 
 }  // namespace rokae_xmate3_ros2::runtime

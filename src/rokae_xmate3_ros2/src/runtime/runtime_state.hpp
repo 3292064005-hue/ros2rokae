@@ -34,6 +34,15 @@ struct SoftLimitSnapshot {
   }};
 };
 
+struct ProgramSnapshot {
+  bool rl_project_loaded = false;
+  bool rl_project_running = false;
+  int rl_current_episode = 0;
+  bool recording_path = false;
+  std::string loaded_rl_project_name;
+  std::string loaded_rl_project_path;
+};
+
 class SessionState {
  public:
   void connect(const std::string &remote_ip);
@@ -194,6 +203,7 @@ class ProgramState {
                                   std::vector<std::vector<double>> &path) const;
   void removeSavedPath(const std::string &name, bool remove_all);
   [[nodiscard]] std::vector<std::string> querySavedPaths() const;
+  [[nodiscard]] ProgramSnapshot snapshot() const;
 
  private:
   mutable std::mutex mutex_;

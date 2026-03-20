@@ -167,11 +167,16 @@ add_library(${PROJECT_NAME}_runtime_ros_bridge OBJECT
   src/runtime/runtime_publish_bridge.cpp
 )
 
+add_library(${PROJECT_NAME}_runtime_control_bridge OBJECT
+  src/runtime/runtime_control_bridge.cpp
+)
+
 set(RUNTIME_PRIVATE_TARGETS
   ${PROJECT_NAME}_runtime_motion_core
   ${PROJECT_NAME}_runtime_state
   ${PROJECT_NAME}_runtime_facade
   ${PROJECT_NAME}_runtime_ros_bridge
+  ${PROJECT_NAME}_runtime_control_bridge
 )
 
 foreach(runtime_target IN LISTS RUNTIME_PRIVATE_TARGETS)
@@ -203,6 +208,7 @@ add_library(${PROJECT_NAME}_runtime_core SHARED
   $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_state>
   $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_facade>
   $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_ros_bridge>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_control_bridge>
 )
 target_include_directories(${PROJECT_NAME}_runtime_core
   PUBLIC
@@ -388,6 +394,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_runtime_publish_bridge
     test/test_runtime_publish_bridge.cpp
   )
+  ament_add_gtest(test_runtime_control_bridge
+    test/test_runtime_control_bridge.cpp
+  )
   if(TARGET test_runtime_adapters)
     target_include_directories(test_runtime_adapters
       PRIVATE
@@ -414,6 +423,20 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}_runtime_core
     )
     target_compile_features(test_runtime_publish_bridge PUBLIC cxx_std_17)
+  endif()
+
+  if(TARGET test_runtime_control_bridge)
+    target_include_directories(test_runtime_control_bridge
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_link_libraries(test_runtime_control_bridge
+      ${PROJECT_NAME}_runtime_core
+    )
+    target_compile_features(test_runtime_control_bridge PUBLIC cxx_std_17)
   endif()
 
   ament_add_gtest(test_controller_state

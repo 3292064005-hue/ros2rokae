@@ -11,17 +11,12 @@
 
 namespace rt = rokae_xmate3_ros2::runtime;
 
-TEST(RuntimePublishBridgeTest, BuildsMessagesLogsAndPathSamplesFromRuntimeContext) {
+TEST(RuntimePublishBridgeTest, PublisherTickBuildsMessagesLogsAndPathSamplesFromRuntimeContext) {
   rt::RuntimeContext context;
   context.sessionState().connect("127.0.0.1");
   context.sessionState().setPowerOn(true);
 
-  bool recording = false;
-  std::vector<std::array<double, 6>> samples;
-  rt::RuntimePublishBridge bridge(
-      context,
-      [&recording]() { return recording; },
-      [&samples](const std::array<double, 6> &joint_position) { samples.push_back(joint_position); });
+  rt::RuntimePublishBridge bridge(context);
 
   rt::MotionRequest request;
   request.request_id = "move_1";
@@ -33,27 +28,45 @@ TEST(RuntimePublishBridgeTest, BuildsMessagesLogsAndPathSamplesFromRuntimeContex
   std::string submit_message;
   ASSERT_TRUE(context.motionRuntime().submit(request, submit_message)) << submit_message;
 
-  const auto operation_state = bridge.buildOperationStateMessage();
-  EXPECT_EQ(operation_state.state, rokae_xmate3_ros2::msg::OperationState::MOVING);
+  rt::PublisherTickInput tick_input;
+  tick_input.stamp = rclcpp::Time(123456789);
+  tick_input.frame_id = "base_link";
+  const std::vector<std::string> joint_names = {"j1", "j2", "j3", "j4", "j5", "j6"};
+  tick_input.joint_names = &joint_names;
+  tick_input.position = {0.0, 0.1, 0.2, 0.3, 0.4, 0.5};
+  tick_input.velocity = {0.5, 0.4, 0.3, 0.2, 0.1, 0.0};
+  tick_input.torque = {1.0, 1.1, 1.2, 1.3, 1.4, 1.5};
+  tick_input.min_publish_period_sec = 0.001;
 
-  const auto joint_message = bridge.buildJointStateMessage(
-      rclcpp::Time(123456789),
-      "base_link",
-      {"j1", "j2", "j3", "j4", "j5", "j6"},
-      {0.0, 0.1, 0.2, 0.3, 0.4, 0.5},
-      {0.5, 0.4, 0.3, 0.2, 0.1, 0.0},
-      {1.0, 1.1, 1.2, 1.3, 1.4, 1.5});
-  ASSERT_EQ(joint_message.name.size(), 6u);
-  EXPECT_EQ(joint_message.header.frame_id, "base_link");
-  EXPECT_DOUBLE_EQ(joint_message.position[3], 0.3);
-  EXPECT_DOUBLE_EQ(joint_message.effort[5], 1.5);
+  const auto first_tick = bridge.buildPublisherTick(tick_input);
+  EXPECT_TRUE(first_tick.publish_operation_state);
+  EXPECT_TRUE(first_tick.publish_joint_state);
+  EXPECT_FALSE(first_tick.recorded_path_sample);
+  EXPECT_EQ(first_tick.operation_state.state, rokae_xmate3_ros2::msg::OperationState::MOVING);
+  ASSERT_EQ(first_tick.joint_state.name.size(), 6u);
+  EXPECT_EQ(first_tick.joint_state.header.frame_id, "base_link");
+  EXPECT_DOUBLE_EQ(first_tick.joint_state.position[3], 0.3);
+  EXPECT_DOUBLE_EQ(first_tick.joint_state.effort[5], 1.5);
 
-  bridge.maybeRecordPathSample({0.0, 0.1, 0.2, 0.3, 0.4, 0.5});
-  EXPECT_TRUE(samples.empty());
-  recording = true;
-  bridge.maybeRecordPathSample({0.0, 0.1, 0.2, 0.3, 0.4, 0.5});
-  ASSERT_EQ(samples.size(), 1u);
-  EXPECT_DOUBLE_EQ(samples.back()[4], 0.4);
+  tick_input.stamp = rclcpp::Time(123456789 + 100000);
+  const auto throttled_tick = bridge.buildPublisherTick(tick_input);
+  EXPECT_FALSE(throttled_tick.publish_operation_state);
+  EXPECT_FALSE(throttled_tick.publish_joint_state);
+
+  context.programState().startRecordingPath();
+  tick_input.stamp = rclcpp::Time(123456789 + 2000000);
+  const auto recording_tick = bridge.buildPublisherTick(tick_input);
+  EXPECT_TRUE(recording_tick.publish_operation_state);
+  EXPECT_TRUE(recording_tick.publish_joint_state);
+  EXPECT_TRUE(recording_tick.recorded_path_sample);
+  context.programState().stopRecordingPath();
+  context.programState().saveRecordedPath("capture");
+
+  std::vector<std::vector<double>> saved_path;
+  ASSERT_TRUE(context.programState().getSavedPath("capture", saved_path));
+  ASSERT_EQ(saved_path.size(), 1u);
+  ASSERT_EQ(saved_path.front().size(), 6u);
+  EXPECT_DOUBLE_EQ(saved_path.front()[4], 0.4);
 
   rt::RuntimeStatus status;
   status.request_id = "move_1";
@@ -83,4 +96,27 @@ TEST(RuntimePublishBridgeTest, BuildsMoveAppendFeedbackFromRuntimeStatus) {
   EXPECT_DOUBLE_EQ(feedback.progress, 0.5);
   EXPECT_EQ(feedback.current_state, "settling");
   EXPECT_EQ(feedback.current_cmd_index, 2);
+}
+
+TEST(RuntimePublishBridgeTest, BuildsMoveAppendResultFromTerminalStatus) {
+  rt::RuntimeContext context;
+  rt::RuntimePublishBridge bridge(context);
+
+  rt::RuntimeStatus completed;
+  completed.state = rt::ExecutionState::completed;
+  completed.terminal_success = true;
+  completed.message = "done";
+  const auto ok_result = bridge.buildMoveAppendResult("move_ok", completed);
+  EXPECT_TRUE(ok_result->success);
+  EXPECT_EQ(ok_result->cmd_id, "move_ok");
+  EXPECT_EQ(ok_result->message, "done");
+
+  rt::RuntimeStatus failed;
+  failed.state = rt::ExecutionState::failed;
+  failed.terminal_success = false;
+  failed.message = "planning failed";
+  const auto fail_result = bridge.buildMoveAppendResult("move_fail", failed);
+  EXPECT_FALSE(fail_result->success);
+  EXPECT_EQ(fail_result->cmd_id, "move_fail");
+  EXPECT_EQ(fail_result->message, "planning failed");
 }

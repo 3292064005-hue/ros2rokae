@@ -1,8 +1,6 @@
 #include "runtime/ros_bindings.hpp"
 
 #include <array>
-#include <chrono>
-#include <limits>
 #include <thread>
 
 #include "runtime/runtime_publish_bridge.hpp"
@@ -28,6 +26,7 @@ rclcpp::ServiceBase::SharedPtr CreateFacadeService(
 
 RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
                          RuntimeContext &runtime_context,
+                         RuntimePublishBridge *publish_bridge,
                          gazebo::xMate3Kinematics &kinematics,
                          JointStateFetcher joint_state_fetcher,
                          TimeProvider time_provider,
@@ -35,6 +34,7 @@ RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
                          RequestIdGenerator request_id_generator)
     : node_(std::move(node)),
       runtime_context_(runtime_context),
+      publish_bridge_(publish_bridge),
       joint_state_fetcher_(std::move(joint_state_fetcher)),
       trajectory_dt_provider_(std::move(trajectory_dt_provider)),
       request_id_generator_(std::move(request_id_generator)),
@@ -266,68 +266,15 @@ void RosBindings::executeMoveAppend(
     return;
   }
 
-  std::string last_state;
-  std::size_t last_completed = std::numeric_limits<std::size_t>::max();
-  std::uint64_t last_revision = 0;
-
-  while (rclcpp::ok()) {
-    if (goal_handle->is_canceling()) {
-      runtime_context_.requestCoordinator().stop("move append canceled");
-      result->success = false;
-      result->cmd_id = request_id;
-      result->message = "Canceled";
-      goal_handle->canceled(result);
-      return;
-    }
-
-    const auto status = runtime_context_.requestCoordinator().waitForUpdate(
-        request_id,
-        last_revision,
-        std::chrono::milliseconds(100));
-    if (status.revision > last_revision) {
-      last_revision = status.revision;
-    }
-
-    const auto feedback_snapshot = buildMoveAppendFeedback(status, last_completed, last_state);
-    if (feedback_snapshot.should_publish) {
-      auto feedback = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Feedback>();
-      feedback->progress = feedback_snapshot.progress;
-      feedback->current_state = feedback_snapshot.current_state;
-      feedback->current_cmd_index = feedback_snapshot.current_cmd_index;
-      goal_handle->publish_feedback(feedback);
-      last_completed = status.completed_segments;
-      last_state = status.message;
-    }
-
-    if (status.terminal()) {
-      result->success = status.state == ExecutionState::completed && status.terminal_success;
-      result->cmd_id = request_id;
-      result->message = status.message.empty() ? to_string(status.state) : status.message;
-      if (result->success) {
-        goal_handle->succeed(result);
-      } else if (goal_handle->is_canceling()) {
-        goal_handle->canceled(result);
-      } else {
-        goal_handle->abort(result);
-      }
-      return;
-    }
+  if (publish_bridge_ != nullptr) {
+    publish_bridge_->driveMoveAppendGoal(goal_handle, request_id);
+    return;
   }
 
   result->success = false;
   result->cmd_id = request_id;
-  result->message = "MoveAppend interrupted";
+  result->message = "MoveAppend bridge unavailable";
   goal_handle->abort(result);
-}
-
-bool RosBindings::isRecordingPath() const {
-  return path_facade_ != nullptr && path_facade_->isRecording();
-}
-
-void RosBindings::recordPathSample(const std::array<double, 6> &joint_position) const {
-  if (path_facade_ != nullptr) {
-    path_facade_->recordSample(joint_position);
-  }
 }
 
 }  // namespace rokae_xmate3_ros2::runtime
