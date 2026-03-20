@@ -26,6 +26,9 @@ class RosBindings {
               TrajectoryDtProvider trajectory_dt_provider,
               RequestIdGenerator request_id_generator);
 
+  [[nodiscard]] bool isRecordingPath() const;
+  void recordPathSample(const std::array<double, 6> &joint_position) const;
+
  private:
   void initServices();
   void initActionServers();

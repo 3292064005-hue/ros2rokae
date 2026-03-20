@@ -5,6 +5,7 @@
 
 #include "runtime/runtime_state.hpp"
 #include "runtime/request_coordinator.hpp"
+#include "runtime/runtime_publish_bridge.hpp"
 
 namespace rt = rokae_xmate3_ros2::runtime;
 

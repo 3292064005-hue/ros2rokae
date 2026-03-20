@@ -5,6 +5,8 @@
 #include <limits>
 #include <thread>
 
+#include "runtime/runtime_publish_bridge.hpp"
+
 namespace rokae_xmate3_ros2::runtime {
 namespace {
 
@@ -316,6 +318,16 @@ void RosBindings::executeMoveAppend(
   result->cmd_id = request_id;
   result->message = "MoveAppend interrupted";
   goal_handle->abort(result);
+}
+
+bool RosBindings::isRecordingPath() const {
+  return path_facade_ != nullptr && path_facade_->isRecording();
+}
+
+void RosBindings::recordPathSample(const std::array<double, 6> &joint_position) const {
+  if (path_facade_ != nullptr) {
+    path_facade_->recordSample(joint_position);
+  }
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

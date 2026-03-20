@@ -38,6 +38,7 @@ class RuntimeContext {
   [[nodiscard]] const ProgramState &programState() const;
 
   [[nodiscard]] OperationStateContext operationStateContext() const;
+  [[nodiscard]] RuntimeView currentRuntimeView() const;
 
  private:
   std::shared_ptr<SessionState> session_state_;

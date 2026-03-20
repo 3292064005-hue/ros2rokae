@@ -28,8 +28,7 @@
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
-#include "runtime/operation_state_adapter.hpp"
-#include "runtime/planning_utils.hpp"
+#include "runtime/runtime_publish_bridge.hpp"
 #include "runtime/runtime_context.hpp"
 #include "runtime/ros_bindings.hpp"
 
@@ -128,20 +127,12 @@ private:
     void InitPublishers();
     void OnUpdate();
     void ExecuteMotion();
-    void MaybeLogRuntimeStatus(const runtime::RuntimeStatus &status);
-    [[nodiscard]] runtime::RuntimeView CurrentRuntimeView() const;
-    [[nodiscard]] uint8_t ResolveOperationState(const runtime::RuntimeView &view) const;
     [[nodiscard]] runtime::MotionRuntime *motionRuntime();
     [[nodiscard]] const runtime::MotionRuntime *motionRuntime() const;
-    [[nodiscard]] runtime::MotionRequestCoordinator *requestCoordinator();
-    [[nodiscard]] const runtime::MotionRequestCoordinator *requestCoordinator() const;
     void RefreshJointStateCache();
     void GetCachedJointState(std::array<double, 6> &position,
                              std::array<double, 6> &velocity,
                              std::array<double, 6> &torque);
-    void PublishJointStates();
-    void PublishOperationState();
-
     physics::ModelPtr model_;
     sdf::ElementPtr sdf_;
     std::vector<physics::JointPtr> joints_;
@@ -156,6 +147,7 @@ private:
 
     std::unique_ptr<runtime::RuntimeContext> runtime_context_;
     std::unique_ptr<runtime::RosBindings> ros_bindings_;
+    std::unique_ptr<runtime::RuntimePublishBridge> publish_bridge_;
     bool joint_positions_initialized_ = false;
 
     bool initial_pose_set_ = false;
@@ -169,7 +161,6 @@ private:
     std::array<double, 6> cached_joint_velocity_{};
     std::array<double, 6> cached_joint_torque_{};
     std::unique_ptr<GazeboRuntimeBackend> motion_backend_;
-    std::uint64_t last_runtime_logged_revision_ = 0;
     std::atomic<uint64_t> next_request_id_{1};
 
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
@@ -270,6 +261,16 @@ void XCoreControllerPlugin::InitROS2() {
         time_provider,
         trajectory_dt_provider,
         request_id_generator);
+    publish_bridge_ = std::make_unique<runtime::RuntimePublishBridge>(
+        *runtime_context_,
+        [this]() {
+            return ros_bindings_ != nullptr && ros_bindings_->isRecordingPath();
+        },
+        [this](const std::array<double, 6> &joint_position) {
+            if (ros_bindings_ != nullptr) {
+                ros_bindings_->recordPathSample(joint_position);
+            }
+        });
 
     executor_thread_ = std::thread([this]() {
         try {
@@ -319,15 +320,6 @@ const runtime::MotionRuntime *XCoreControllerPlugin::motionRuntime() const {
     return runtime_context_ ? &runtime_context_->motionRuntime() : nullptr;
 }
 
-runtime::MotionRequestCoordinator *XCoreControllerPlugin::requestCoordinator() {
-    return runtime_context_ ? &runtime_context_->requestCoordinator() : nullptr;
-}
-
-const runtime::MotionRequestCoordinator *XCoreControllerPlugin::requestCoordinator() const {
-    return runtime_context_ ? &runtime_context_->requestCoordinator() : nullptr;
-}
-
-
 void XCoreControllerPlugin::OnUpdate() {
     double sim_dt = kTrajectorySampleDt;
     if (model_ && model_->GetWorld()) {
@@ -368,57 +360,27 @@ void XCoreControllerPlugin::OnUpdate() {
     // 原有发布逻辑
     static auto last_pub_time = node_->now();
     auto now = node_->now();
-    if ((now - last_pub_time).seconds() >= 0.001) {
-        PublishJointStates();
-        PublishOperationState();
-        last_pub_time = now;
-    }
-
-    // 路径录制逻辑
-    if (runtime_context_ != nullptr && runtime_context_->programState().isRecordingPath()) {
+    if ((now - last_pub_time).seconds() >= 0.001 && publish_bridge_ != nullptr) {
         std::array<double, 6> cached_pos{};
         std::array<double, 6> cached_vel{};
         std::array<double, 6> cached_torque{};
         GetCachedJointState(cached_pos, cached_vel, cached_torque);
-        runtime_context_->programState().recordPathSample(cached_pos);
+        joint_state_pub_->publish(
+            publish_bridge_->buildJointStateMessage(
+                now, "base_link", joint_names_, cached_pos, cached_vel, cached_torque));
+        operation_state_pub_->publish(publish_bridge_->buildOperationStateMessage());
+        last_pub_time = now;
     }
 
-}
-
-runtime::RuntimeView XCoreControllerPlugin::CurrentRuntimeView() const {
-    if (requestCoordinator() == nullptr) {
-        return runtime::RuntimeView{};
-    }
-    return requestCoordinator()->currentView();
-}
-
-uint8_t XCoreControllerPlugin::ResolveOperationState(const runtime::RuntimeView &view) const {
-    return runtime::resolve_operation_state(view, runtime_context_->operationStateContext());
-}
-
-void XCoreControllerPlugin::MaybeLogRuntimeStatus(const runtime::RuntimeStatus &status) {
-    if (!node_) {
-        return;
+    // 路径录制逻辑
+    if (publish_bridge_ != nullptr) {
+        std::array<double, 6> cached_pos{};
+        std::array<double, 6> cached_vel{};
+        std::array<double, 6> cached_torque{};
+        GetCachedJointState(cached_pos, cached_vel, cached_torque);
+        publish_bridge_->maybeRecordPathSample(cached_pos);
     }
 
-    const auto event = runtime::build_runtime_log_event(status, last_runtime_logged_revision_);
-    if (!event.should_log) {
-        return;
-    }
-
-    last_runtime_logged_revision_ = event.revision;
-    rokae_xmate3_ros2::msg::LogInfo log;
-    log.timestamp = std::to_string(node_->now().nanoseconds());
-    log.content = event.text;
-    log.repair.clear();
-    log.level = event.warning ? 2 : 1;
-    runtime_context_->dataStoreState().appendLog(log);
-
-    if (event.warning) {
-        RCLCPP_WARN(node_->get_logger(), "%s", event.text.c_str());
-        return;
-    }
-    RCLCPP_INFO(node_->get_logger(), "%s", event.text.c_str());
 }
 
 void XCoreControllerPlugin::ExecuteMotion() {
@@ -456,37 +418,12 @@ void XCoreControllerPlugin::ExecuteMotion() {
 
     if (motionRuntime() != nullptr) {
         const auto status = motionRuntime()->tick(*motion_backend_, current_update_dt_);
-        MaybeLogRuntimeStatus(status);
+        if (publish_bridge_ != nullptr && node_ != nullptr) {
+            publish_bridge_->emitRuntimeStatus(status, node_->now(), node_->get_logger());
+        }
     } else {
         motion_backend_->clearControl();
     }
-}
-
-void XCoreControllerPlugin::PublishJointStates() {
-    sensor_msgs::msg::JointState msg;
-    msg.header.stamp = node_->now();
-    msg.header.frame_id = "base_link";
-
-    std::array<double, 6> cached_pos{};
-    std::array<double, 6> cached_vel{};
-    std::array<double, 6> cached_torque{};
-    GetCachedJointState(cached_pos, cached_vel, cached_torque);
-
-    for (size_t i = 0; i < joint_names_.size() && i < joints_.size(); ++i) {
-        msg.name.push_back(joint_names_[i]);
-        msg.position.push_back(cached_pos[i]);
-        msg.velocity.push_back(cached_vel[i]);
-        msg.effort.push_back(cached_torque[i]);
-    }
-
-    joint_state_pub_->publish(msg);
-}
-
-void XCoreControllerPlugin::PublishOperationState() {
-    rokae_xmate3_ros2::msg::OperationState msg;
-    const auto runtime_view = CurrentRuntimeView();
-    msg.state = ResolveOperationState(runtime_view);
-    operation_state_pub_->publish(msg);
 }
 
 GZ_REGISTER_MODEL_PLUGIN(XCoreControllerPlugin)

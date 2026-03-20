@@ -139,22 +139,70 @@ link_directories(${GAZEBO_LIBRARY_DIRS})
 rosidl_get_typesupport_target(cpp_typesupport_target
   ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
-# 1. 内部 runtime core 库（不导出私有头）
-add_library(${PROJECT_NAME}_runtime_core SHARED
+# 1. 内部 runtime 私有分层（不导出私有头）
+add_library(${PROJECT_NAME}_runtime_motion_core OBJECT
   src/gazebo/kinematics.cpp
   src/gazebo/trajectory_planner.cpp
   src/runtime/planner_core.cpp
   src/runtime/planning_utils.cpp
+  src/runtime/request_adapter.cpp
+  src/runtime/request_coordinator.cpp
+  src/runtime/executor_core.cpp
+  src/runtime/motion_runtime.cpp
+)
+
+add_library(${PROJECT_NAME}_runtime_state OBJECT
   src/runtime/runtime_state.cpp
   src/runtime/controller_state.cpp
   src/runtime/runtime_context.cpp
-  src/runtime/request_adapter.cpp
-  src/runtime/request_coordinator.cpp
   src/runtime/operation_state_adapter.cpp
+)
+
+add_library(${PROJECT_NAME}_runtime_facade OBJECT
   src/runtime/service_facade.cpp
+)
+
+add_library(${PROJECT_NAME}_runtime_ros_bridge OBJECT
   src/runtime/ros_bindings.cpp
-  src/runtime/executor_core.cpp
-  src/runtime/motion_runtime.cpp
+  src/runtime/runtime_publish_bridge.cpp
+)
+
+set(RUNTIME_PRIVATE_TARGETS
+  ${PROJECT_NAME}_runtime_motion_core
+  ${PROJECT_NAME}_runtime_state
+  ${PROJECT_NAME}_runtime_facade
+  ${PROJECT_NAME}_runtime_ros_bridge
+)
+
+foreach(runtime_target IN LISTS RUNTIME_PRIVATE_TARGETS)
+  target_include_directories(${runtime_target}
+    PRIVATE
+      include
+      ${CMAKE_CURRENT_BINARY_DIR}
+      ${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      ${EIGEN3_INCLUDE_DIRS}
+  )
+  ament_target_dependencies(${runtime_target}
+    rclcpp
+    rclcpp_action
+    std_msgs
+    sensor_msgs
+    geometry_msgs
+    rosidl_runtime_cpp
+    unique_identifier_msgs
+    action_msgs
+    gazebo_ros
+  )
+  target_compile_features(${runtime_target} PUBLIC cxx_std_17)
+  set_target_properties(${runtime_target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endforeach()
+
+add_library(${PROJECT_NAME}_runtime_core SHARED
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_motion_core>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_state>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_facade>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_ros_bridge>
 )
 target_include_directories(${PROJECT_NAME}_runtime_core
   PUBLIC
@@ -337,6 +385,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_runtime_adapters
     test/test_runtime_adapters.cpp
   )
+  ament_add_gtest(test_runtime_publish_bridge
+    test/test_runtime_publish_bridge.cpp
+  )
   if(TARGET test_runtime_adapters)
     target_include_directories(test_runtime_adapters
       PRIVATE
@@ -349,6 +400,20 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}_runtime_core
     )
     target_compile_features(test_runtime_adapters PUBLIC cxx_std_17)
+  endif()
+
+  if(TARGET test_runtime_publish_bridge)
+    target_include_directories(test_runtime_publish_bridge
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_link_libraries(test_runtime_publish_bridge
+      ${PROJECT_NAME}_runtime_core
+    )
+    target_compile_features(test_runtime_publish_bridge PUBLIC cxx_std_17)
   endif()
 
   ament_add_gtest(test_controller_state

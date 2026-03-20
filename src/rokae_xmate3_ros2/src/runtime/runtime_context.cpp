@@ -37,4 +37,8 @@ OperationStateContext RuntimeContext::operationStateContext() const {
   return session_state_->makeOperationStateContext(program_state_->rlProjectRunning());
 }
 
+RuntimeView RuntimeContext::currentRuntimeView() const {
+  return request_coordinator_.currentView();
+}
+
 }  // namespace rokae_xmate3_ros2::runtime

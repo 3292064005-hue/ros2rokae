@@ -19,12 +19,6 @@ struct SubmissionResult {
   std::string message;
 };
 
-struct FeedbackSnapshot {
-  bool should_publish = false;
-  double progress = 0.0;
-  std::string current_state;
-  int current_cmd_index = 0;
-};
 
 class MotionRequestCoordinator {
  public:
@@ -62,9 +56,6 @@ class MotionRequestCoordinator {
   MotionRuntime &motion_runtime_;
 };
 
-[[nodiscard]] FeedbackSnapshot buildMoveAppendFeedback(const RuntimeStatus &status,
-                                                       std::size_t last_completed_segments,
-                                                       const std::string &last_message);
 
 }  // namespace rokae_xmate3_ros2::runtime
 

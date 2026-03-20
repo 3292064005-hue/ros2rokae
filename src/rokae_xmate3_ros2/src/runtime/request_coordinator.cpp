@@ -96,25 +96,4 @@ void MotionRequestCoordinator::reset() {
   motion_runtime_.reset();
 }
 
-FeedbackSnapshot buildMoveAppendFeedback(const RuntimeStatus &status,
-                                         std::size_t last_completed_segments,
-                                         const std::string &last_message) {
-  FeedbackSnapshot snapshot;
-  if (status.state == ExecutionState::idle) {
-    return snapshot;
-  }
-  if (status.completed_segments == last_completed_segments && status.message == last_message) {
-    return snapshot;
-  }
-
-  snapshot.should_publish = true;
-  snapshot.progress = status.total_segments == 0
-                          ? 0.0
-                          : static_cast<double>(status.completed_segments) /
-                                static_cast<double>(status.total_segments);
-  snapshot.current_state = to_string(status.state);
-  snapshot.current_cmd_index = static_cast<int>(status.current_segment_index);
-  return snapshot;
-}
-
 }  // namespace rokae_xmate3_ros2::runtime
