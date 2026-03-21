@@ -125,6 +125,8 @@ ros2 run rokae_xmate3_ros2 example_01_basic_connect
 6. `25_rt_s_line.cpp`
 7. `26_rt_torque_control.cpp`
 
+> 说明：20-26 在 Gazebo 中保留 RT API 的调用形状，但语义是 simulation-only / approximate，不代表真机 1kHz 契约。
+
 ## 注意事项
 1. 所有示例都需要先启动仿真。
 2. 示例包含完整的 `std::error_code` 处理。

@@ -95,6 +95,8 @@ ros2 run rokae_xmate3_ros2 example_25_rt_s_line
 - `example_24_rt_follow_position`
 - `example_25_rt_s_line`
 - `example_26_rt_torque_control`
+
+> 说明：`example_20` 到 `example_26` 在 Gazebo 中是 simulated RT facade，用于仿真工作流验证，不承诺真机级 1kHz。
 - `example_99_complete_demo`
 
 ## 5. 常见问题

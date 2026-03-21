@@ -1,5 +1,6 @@
 #include "rokae_xmate3_ros2/robot.hpp"
 #include "rokae_xmate3_ros2/utils.hpp"
+#include "runtime/pose_utils.hpp"
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <chrono>
 #include <system_error>
@@ -760,8 +761,19 @@ std::array<double, 6> xMateRobot::posture(rokae::CoordinateType ct, std::error_c
         return pose;
     }
 
-    (void)ct;
     pose = {fk_pose.x, fk_pose.y, fk_pose.z, fk_pose.rx, fk_pose.ry, fk_pose.rz};
+    if (ct == rokae::CoordinateType::endInRef) {
+        const auto active_toolset = toolset(ec);
+        if (ec) {
+            return pose;
+        }
+        const std::vector<double> flange_pose(pose.begin(), pose.end());
+        const std::vector<double> tool_pose(active_toolset.tool_pose.begin(), active_toolset.tool_pose.end());
+        const std::vector<double> wobj_pose(active_toolset.wobj_pose.begin(), active_toolset.wobj_pose.end());
+        const auto transformed =
+            rokae_xmate3_ros2::runtime::pose_utils::convertFlangeInBaseToEndInRef(flange_pose, tool_pose, wobj_pose);
+        std::copy_n(transformed.begin(), std::min<std::size_t>(transformed.size(), pose.size()), pose.begin());
+    }
     ec.clear();
     return pose;
 }
@@ -940,6 +952,10 @@ rokae::Toolset xMateRobot::toolset(std::error_code& ec) {
     std::copy_n(result->wobj_pose.begin(), wobj_count, toolset.wobj_pose.begin());
     toolset.end = rokae::Frame(toolset.tool_pose);
     toolset.ref = rokae::Frame(toolset.wobj_pose);
+    {
+        std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+        impl_->toolset_cache_ = toolset;
+    }
     ec.clear();
     return toolset;
 }
@@ -977,6 +993,10 @@ void xMateRobot::setToolset(const rokae::Toolset& toolset, std::error_code& ec) 
     }
 
     ec.clear();
+    {
+        std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+        impl_->toolset_cache_ = toolset;
+    }
     RCLCPP_INFO(impl_->node_->get_logger(), "工具工件组设置成功");
 }
 
@@ -2659,6 +2679,10 @@ bool xMateRobot::generateSTrajectory(const std::array<double, 6>& start_joint_po
     auto request = std::make_shared<rokae_xmate3_ros2::srv::GenerateSTrajectory::Request>();
     request->start_joint_pos = start_joint_pos;
     request->target_joint_pos = target_joint_pos;
+    request->max_velocity = 1.0;
+    request->max_acceleration = 0.5;
+    request->blend_radius = 0.01;
+    request->is_cartesian = false;
     auto future = impl_->xmate3_dyn_generate_s_trajectory_client_->async_send_request(request);
     if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
@@ -2978,9 +3002,43 @@ rokae::FrameCalibrationResult xMateRobot::calibrateFrame(rokae::FrameType type,
         return result;
     }
 
-    // 简化版本：直接返回默认结果（实际标定需要运动学计算）
+    Eigen::Vector3d mean_translation = Eigen::Vector3d::Zero();
+    Eigen::Vector4d quaternion_accumulator = Eigen::Vector4d::Zero();
+    for (const auto &point : points) {
+        mean_translation += Eigen::Vector3d(point[0], point[1], point[2]);
+        const auto quat = rokae_xmate3_ros2::runtime::pose_utils::rpyToQuaternion(point[3], point[4], point[5]);
+        quaternion_accumulator += Eigen::Vector4d(quat.w(), quat.x(), quat.y(), quat.z());
+    }
+    mean_translation /= static_cast<double>(points.size());
+    if (quaternion_accumulator.norm() < 1e-9) {
+        quaternion_accumulator = Eigen::Vector4d(1.0, 0.0, 0.0, 0.0);
+    }
+    quaternion_accumulator.normalize();
+    const Eigen::Quaterniond average_quaternion(
+        quaternion_accumulator[0], quaternion_accumulator[1], quaternion_accumulator[2], quaternion_accumulator[3]);
+    Eigen::Isometry3d calibrated_transform = Eigen::Isometry3d::Identity();
+    calibrated_transform.translation() = mean_translation;
+    calibrated_transform.linear() = average_quaternion.toRotationMatrix();
+    const auto calibrated_pose = rokae_xmate3_ros2::runtime::pose_utils::isometryToPose(calibrated_transform);
+    std::array<double, 6> calibrated_frame{};
+    for (size_t i = 0; i < calibrated_frame.size() && i < calibrated_pose.size(); ++i) {
+        calibrated_frame[i] = calibrated_pose[i];
+    }
+    result.frame = rokae::Frame(calibrated_frame);
+
+    double translation_error = 0.0;
+    double orientation_error = 0.0;
+    for (const auto &point : points) {
+        const Eigen::Vector3d translation(point[0], point[1], point[2]);
+        translation_error += (translation - mean_translation).norm();
+        orientation_error += rokae_xmate3_ros2::runtime::pose_utils::angularDistance(
+            std::vector<double>(point.begin(), point.end()), calibrated_pose);
+    }
+    translation_error /= static_cast<double>(points.size());
+    orientation_error /= static_cast<double>(points.size());
+
     result.success = true;
-    result.errors = {0.0, 0.0, 0.0};
+    result.errors = {translation_error, orientation_error, 0.0};
     ec.clear();
 
     // 更新缓存

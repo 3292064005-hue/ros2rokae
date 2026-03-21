@@ -13,7 +13,8 @@ using namespace rokae;
 using namespace example;
 
 int main() {
-  printHeader("示例 20: RT 关节位置控制", "joint_position_control 对齐版");
+  printHeader("示例 20: RT 关节位置控制", "Gazebo simulated RT facade");
+  os << "note: this is a simulation-only RT facade, not a hard real-time 1kHz controller" << std::endl;
 
   error_code ec;
   xMateRobot robot;

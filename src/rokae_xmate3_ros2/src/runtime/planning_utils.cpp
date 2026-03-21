@@ -95,6 +95,27 @@ double cartesian_error_score(const std::vector<double> &expected,
   return pos_error * 1000.0 + ori_error * 100.0;
 }
 
+bool is_fast_solution_acceptable(::gazebo::xMate3Kinematics &kinematics,
+                                 const std::vector<double> &candidate,
+                                 const std::vector<int> &requested_conf,
+                                 bool strict_conf,
+                                 bool avoid_singularity,
+                                 bool soft_limit_enabled,
+                                 const std::array<std::array<double, 2>, 6> &soft_limits,
+                                 const std::vector<std::vector<double>> &joint_trajectory,
+                                 const std::vector<double> &last_joints) {
+  if (candidate.empty()) {
+    return false;
+  }
+  const auto conf_score = score_requested_conf(candidate, requested_conf);
+  const bool conf_ok = !conf_score.has_request || !strict_conf || conf_score.strict_match;
+  const bool soft_limit_ok = !soft_limit_enabled || !violates_soft_limit(candidate, soft_limits);
+  const bool singularity_ok = !avoid_singularity || !kinematics.isNearSingularity(candidate);
+  const bool continuity_ok =
+      joint_trajectory.empty() || max_joint_step(last_joints, candidate) <= kJointBranchJumpThreshold;
+  return conf_ok && soft_limit_ok && singularity_ok && continuity_ok;
+}
+
 }  // namespace
 
 double max_joint_step(const std::vector<double> &lhs, const std::vector<double> &rhs) {
@@ -192,15 +213,33 @@ bool build_joint_trajectory_from_cartesian(
     std::vector<double> resolved_joints;
 
     const auto fast_solution = kinematics.inverseKinematicsSeededFast(pose, last_joints);
-    if (!fast_solution.empty()) {
-      const auto conf_score = score_requested_conf(fast_solution, requested_conf);
-      const bool conf_ok = !conf_score.has_request || !strict_conf || conf_score.strict_match;
-      const bool soft_limit_ok = !soft_limit_enabled || !violates_soft_limit(fast_solution, soft_limits);
-      const bool singularity_ok = !avoid_singularity || !kinematics.isNearSingularity(fast_solution);
-      const bool continuity_ok = joint_trajectory.empty() ||
-                                 max_joint_step(last_joints, fast_solution) <= kJointBranchJumpThreshold;
-      if (conf_ok && soft_limit_ok && singularity_ok && continuity_ok) {
-        resolved_joints = fast_solution;
+    if (is_fast_solution_acceptable(kinematics,
+                                    fast_solution,
+                                    requested_conf,
+                                    strict_conf,
+                                    avoid_singularity,
+                                    soft_limit_enabled,
+                                    soft_limits,
+                                    joint_trajectory,
+                                    last_joints)) {
+      resolved_joints = fast_solution;
+    }
+
+    if (resolved_joints.empty()) {
+      auto singularity_retry_seed = last_joints;
+      if (kinematics.avoidSingularity(singularity_retry_seed)) {
+        const auto singularity_retry = kinematics.inverseKinematicsSeededFast(pose, singularity_retry_seed);
+        if (is_fast_solution_acceptable(kinematics,
+                                        singularity_retry,
+                                        requested_conf,
+                                        strict_conf,
+                                        avoid_singularity,
+                                        soft_limit_enabled,
+                                        soft_limits,
+                                        joint_trajectory,
+                                        last_joints)) {
+          resolved_joints = singularity_retry;
+        }
       }
     }
 
@@ -218,8 +257,25 @@ bool build_joint_trajectory_from_cartesian(
 
     if (!joint_trajectory.empty() &&
         max_joint_step(last_joints, resolved_joints) > kJointBranchJumpThreshold) {
-      error_message = "IK branch changed discontinuously along Cartesian path";
-      return false;
+      auto local_retry_seed = last_joints;
+      if (kinematics.avoidSingularity(local_retry_seed)) {
+        const auto local_retry = kinematics.inverseKinematicsSeededFast(pose, local_retry_seed);
+        if (is_fast_solution_acceptable(kinematics,
+                                        local_retry,
+                                        requested_conf,
+                                        strict_conf,
+                                        avoid_singularity,
+                                        soft_limit_enabled,
+                                        soft_limits,
+                                        joint_trajectory,
+                                        last_joints)) {
+          resolved_joints = local_retry;
+        }
+      }
+      if (max_joint_step(last_joints, resolved_joints) > kJointBranchJumpThreshold) {
+        error_message = "IK branch changed discontinuously along Cartesian path";
+        return false;
+      }
     }
     joint_trajectory.push_back(resolved_joints);
     last_joints = resolved_joints;

@@ -35,7 +35,7 @@ int main() {
   if (!connectRobot(robot, ec)) {
     return 1;
   }
-  if (!prepareAutomaticNrt(robot, ec, 20, 0)) {
+  if (!prepareAutomaticNrt(robot, ec, 120, 0)) {
     cleanupRobot(robot);
     return 1;
   }
@@ -71,7 +71,7 @@ int main() {
   printSection("2 采集标定点");
   std::vector<std::array<double, 6>> captured_points;
   for (size_t i = 0; i < kCalibrationPoses.size(); ++i) {
-    robot.executeCommand(std::vector<MoveAbsJCommand>{MoveAbsJCommand(toVector(kCalibrationPoses[i]), 20, 0)}, ec);
+    robot.executeCommand(std::vector<MoveAbsJCommand>{MoveAbsJCommand(toVector(kCalibrationPoses[i]), 120, 0)}, ec);
     if (reportError("executeCommand(calibration pose)", ec)) {
       cleanupRobot(robot);
       return 1;

@@ -22,8 +22,12 @@ class MotionRuntime {
   MotionRuntime();
   ~MotionRuntime();
 
+  void attachBackend(BackendInterface *backend);
   [[nodiscard]] bool canAcceptRequest() const;
   [[nodiscard]] bool submit(const MotionRequest &request, std::string &message);
+
+  void setActiveSpeedScale(double scale);
+  [[nodiscard]] double activeSpeedScale() const;
 
   void stop(const std::string &message = "stopped");
   void reset();
@@ -56,6 +60,12 @@ class MotionRuntime {
   std::thread planner_thread_;
   MotionPlanner planner_;
   MotionExecutor executor_;
+  double active_speed_scale_ = 1.0;
+  BackendInterface *backend_ = nullptr;
+  bool using_backend_trajectory_ = false;
+  std::optional<MotionPlan> active_trajectory_plan_;
+  std::optional<TrajectoryExecutionGoal> active_trajectory_goal_;
+  double dispatched_speed_scale_ = 1.0;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

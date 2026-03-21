@@ -1,9 +1,27 @@
+import os
 import launch
 import launch_ros
-import os
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
+
+
+def _resolve_package_share():
+    env_share = os.environ.get("ROKAE_XMATE3_ROS2_SHARE_DIR", "")
+    if env_share and os.path.isdir(env_share):
+        return env_share
+    try:
+        return get_package_share_directory("rokae_xmate3_ros2")
+    except PackageNotFoundError:
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _resolve_package_lib_dir(pkg_share):
+    env_lib = os.environ.get("ROKAE_XMATE3_ROS2_LIB_DIR", "")
+    if env_lib and os.path.isdir(env_lib):
+        return env_lib
+    pkg_prefix = os.path.dirname(os.path.dirname(pkg_share))
+    return os.path.join(pkg_prefix, "lib")
 
 
 def generate_launch_description():
@@ -20,9 +38,8 @@ def generate_launch_description():
     - 无GUI: ros2 launch rokae_xmate3_ros2 simulation.launch.py gui:=false
     - 不启动RViz: ros2 launch rokae_xmate3_ros2 simulation.launch.py rviz:=false
     """
-    pkg_share = get_package_share_directory("rokae_xmate3_ros2")
-    pkg_prefix = os.path.dirname(os.path.dirname(pkg_share))
-    pkg_lib_dir = os.path.join(pkg_prefix, "lib")
+    pkg_share = _resolve_package_share()
+    pkg_lib_dir = _resolve_package_lib_dir(pkg_share)
 
     existing_gazebo_model_path = os.environ.get("GAZEBO_MODEL_PATH", "")
     existing_gazebo_resource_path = os.environ.get("GAZEBO_RESOURCE_PATH", "")
@@ -65,13 +82,22 @@ def generate_launch_description():
             default_value='true',
             description='使用仿真时间'
         ),
+        launch.actions.DeclareLaunchArgument(
+            name='enable_ros2_control',
+            default_value='false',
+            description='是否启用 ros2_control / joint_trajectory_controller'
+        ),
     ]
 
     robot_description_content = launch.substitutions.Command(
         [
             'xacro ',
             launch.substitutions.LaunchConfiguration('model'),
-            ' mesh_root:=model://rokae_xmate3_ros2/meshes/'
+            ' mesh_root:=model://rokae_xmate3_ros2/meshes/',
+            ' package_share:=',
+            pkg_share,
+            ' enable_ros2_control:=',
+            launch.substitutions.LaunchConfiguration('enable_ros2_control'),
         ]
     )
     robot_description = launch_ros.parameter_descriptions.ParameterValue(
@@ -151,6 +177,34 @@ def generate_launch_description():
         }
     )
 
+    joint_state_broadcaster_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=[
+            'joint_state_broadcaster',
+            '--controller-manager', '/controller_manager',
+            '--controller-manager-timeout', '120',
+        ],
+        output='screen',
+        parameters=[{'use_sim_time': launch.substitutions.LaunchConfiguration('use_sim_time')}],
+        condition=launch.conditions.IfCondition(
+            launch.substitutions.LaunchConfiguration('enable_ros2_control'))
+    )
+
+    joint_trajectory_controller_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=[
+            'joint_trajectory_controller',
+            '--controller-manager', '/controller_manager',
+            '--controller-manager-timeout', '120',
+        ],
+        output='screen',
+        parameters=[{'use_sim_time': launch.substitutions.LaunchConfiguration('use_sim_time')}],
+        condition=launch.conditions.IfCondition(
+            launch.substitutions.LaunchConfiguration('enable_ros2_control'))
+    )
+
     def log_info(msg):
         return launch.actions.LogInfo(msg=msg)
 
@@ -158,10 +212,21 @@ def generate_launch_description():
         event_handler=launch.event_handlers.OnProcessExit(
             target_action=spawn_entity_node,
             on_exit=[
+                launch.actions.TimerAction(
+                    period=3.0,
+                    actions=[
+                        log_info("正在启动 ros2_control controllers: joint_state_broadcaster, joint_trajectory_controller"),
+                        joint_state_broadcaster_spawner,
+                        joint_trajectory_controller_spawner,
+                    ],
+                    condition=launch.conditions.IfCondition(
+                        launch.substitutions.LaunchConfiguration('enable_ros2_control'))
+                ),
                 log_info("=" * 60),
                 log_info("spawn_entity.py 已退出，请检查上方输出确认机器人是否成功生成。"),
                 log_info("若看到 'Successfully spawned entity [xmate]'，则说明机器人已正确加载。"),
                 log_info("使用 xcore_controller_gazebo_plugin 提供纯 xCore SDK 仿真。"),
+                log_info("默认使用 xCore Gazebo runtime；如需 joint_trajectory_controller，请传入 enable_ros2_control:=true。"),
                 log_info("可用服务和话题:"),
                 log_info("  - /xmate3/cobot/*  (SDK服务)"),
                 log_info("  - /xmate3/joint_states  (关节状态)"),

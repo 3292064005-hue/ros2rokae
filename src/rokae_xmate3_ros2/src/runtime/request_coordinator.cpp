@@ -6,8 +6,11 @@
 namespace rokae_xmate3_ros2::runtime {
 
 MotionRequestCoordinator::MotionRequestCoordinator(MotionOptionsState &motion_options_state,
+                                                   ToolingState &tooling_state,
                                                    MotionRuntime &motion_runtime)
-    : motion_options_state_(motion_options_state), motion_runtime_(motion_runtime) {}
+    : motion_options_state_(motion_options_state),
+      tooling_state_(tooling_state),
+      motion_runtime_(motion_runtime) {}
 
 RuntimeView MotionRequestCoordinator::currentView() const {
   return motion_runtime_.view();
@@ -21,10 +24,14 @@ MotionRequestContext MotionRequestCoordinator::buildContext(const std::string &r
                                                             const std::array<double, 6> &joint_position,
                                                             double trajectory_dt) const {
   std::vector<double> start_joints(joint_position.begin(), joint_position.end());
-  return motion_options_state_.makeMotionRequestContext(
+  auto context = motion_options_state_.makeMotionRequestContext(
       request_id,
       start_joints,
       std::max(trajectory_dt, 1e-3));
+  const auto toolset = tooling_state_.toolset();
+  context.tool_pose = toolset.tool_pose;
+  context.wobj_pose = toolset.wobj_pose;
+  return context;
 }
 
 SubmissionResult MotionRequestCoordinator::submitMoveAppend(

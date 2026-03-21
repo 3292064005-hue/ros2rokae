@@ -4,49 +4,52 @@
  */
 
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
+
 #include <algorithm>
-#include <stdexcept>
+#include <cmath>
 
 namespace gazebo {
 
-// -------------------------- 内部辅助工具函数（仅本文件可见） --------------------------
 namespace {
 
-/**
- * @brief 通用参数安全校验
- */
+constexpr double kMinNrtSpeedMmPerSec = 5.0;
+constexpr double kMaxNrtSpeedMmPerSec = 4000.0;
+constexpr double kReferenceJointFullSpeedMmPerSec = 500.0;
+constexpr double kMinTrajectorySampleDt = 0.001;
+constexpr double kMaxTrajectorySampleDt = 0.05;
+constexpr double kMaxJointStepRad = 0.025;
+constexpr double kMaxCartesianStepMeters = 0.002;
+constexpr double kMaxOrientationStepRad = 0.03;
+
 bool checkInputValid(
     const std::vector<double>& start,
     const std::vector<double>& end,
     size_t expect_dim,
-    double speed_percent,
+    double speed_mm_per_s,
     double dt) {
     if (start.size() != expect_dim || end.size() != expect_dim) return false;
-    if (speed_percent <= 1e-6 || speed_percent > 100.0) return false;
+    if (speed_mm_per_s < kMinNrtSpeedMmPerSec || speed_mm_per_s > kMaxNrtSpeedMmPerSec) return false;
     if (dt <= 1e-9) return false;
     return true;
 }
 
-/**
- * @brief RPY欧拉角转四元数（XYZ固定角）
- */
 Quaterniond rpy2Quat(const std::vector<double>& rpy) {
     return AngleAxisd(rpy[2], Vector3d::UnitZ())
          * AngleAxisd(rpy[1], Vector3d::UnitY())
          * AngleAxisd(rpy[0], Vector3d::UnitX());
 }
 
-/**
- * @brief 四元数转RPY欧拉角
- */
 std::vector<double> quat2Rpy(const Quaterniond& quat) {
     Vector3d rpy = quat.matrix().eulerAngles(2, 1, 0).reverse();
     return {rpy[0], rpy[1], rpy[2]};
 }
 
-/**
- * @brief 姿态球面线性插值（SLERP）
- */
+double orientationDistance(const std::vector<double>& start_pose, const std::vector<double>& end_pose) {
+    const Quaterniond q_start = rpy2Quat({start_pose[3], start_pose[4], start_pose[5]});
+    const Quaterniond q_end = rpy2Quat({end_pose[3], end_pose[4], end_pose[5]});
+    return q_start.angularDistance(q_end);
+}
+
 std::vector<double> slerpAttitude(
     const std::vector<double>& start_rpy,
     const std::vector<double>& end_rpy,
@@ -65,9 +68,6 @@ double signedAngleAroundAxis(const Vector3d& from, const Vector3d& to, const Vec
     return std::atan2(sin_term, cos_term);
 }
 
-/**
- * @brief 三点法计算圆弧的圆心、半径、旋转轴
- */
 bool computeCircleParams(
     const Vector3d& p1, const Vector3d& p2, const Vector3d& p3,
     Vector3d& center, double& radius, Vector3d& rotate_axis) {
@@ -77,12 +77,10 @@ bool computeCircleParams(
     const double w_sq = w.squaredNorm();
 
     if (w_sq < 1e-12) {
-        return false; // 三点共线或几乎共线
+        return false;
     }
 
     rotate_axis = w.normalized();
-
-    // 3D 外接圆圆心公式，结果位于由三点定义的平面上。
     const Vector3d center_offset =
         (u.squaredNorm() * v.cross(w) + v.squaredNorm() * w.cross(u)) / (2.0 * w_sq);
     center = p1 + center_offset;
@@ -91,29 +89,75 @@ bool computeCircleParams(
     return std::isfinite(radius) && radius > 1e-9;
 }
 
-} // 匿名命名空间结束
+double clampCartesianSpeedMetersPerSecond(double speed_mm_per_s) {
+    return std::clamp(speed_mm_per_s, kMinNrtSpeedMmPerSec, kMaxNrtSpeedMmPerSec) / 1000.0;
+}
 
-// -------------------------- 核心规划函数实现 --------------------------
+double clampJointSpeedRadPerSecond(double speed_mm_per_s) {
+    const double normalized =
+        std::clamp(speed_mm_per_s, kMinNrtSpeedMmPerSec, kMaxNrtSpeedMmPerSec) /
+        kReferenceJointFullSpeedMmPerSec;
+    return std::clamp(normalized * M_PI, 0.05, M_PI);
+}
 
-/**
- * @brief 计算梯形加减速的归一化插值比例（修正版）
- * @note 若需S型曲线，可替换为五次多项式或双S型实现
- */
+TrajectorySamples makeSinglePointTrajectory(const std::vector<double>& point, double fallback_dt) {
+    TrajectorySamples result;
+    result.points.push_back(point);
+    result.sample_dt = std::clamp(fallback_dt, kMinTrajectorySampleDt, kMaxTrajectorySampleDt);
+    result.total_time = 0.0;
+    return result;
+}
+
+int determine_interval_count(double total_time,
+                             double requested_dt,
+                             double path_metric,
+                             double max_path_step,
+                             double orientation_metric = 0.0,
+                             double max_orientation_step = kMaxOrientationStepRad) {
+    if (total_time <= 1e-9) {
+        return 1;
+    }
+    const double clamped_max_dt = std::clamp(requested_dt, kMinTrajectorySampleDt, kMaxTrajectorySampleDt);
+    const int time_intervals = std::max(1, static_cast<int>(std::ceil(total_time / clamped_max_dt)));
+    const int path_intervals = max_path_step > 1e-9
+        ? std::max(1, static_cast<int>(std::ceil(path_metric / max_path_step)))
+        : 1;
+    const int orientation_intervals = max_orientation_step > 1e-9
+        ? std::max(1, static_cast<int>(std::ceil(orientation_metric / max_orientation_step)))
+        : 1;
+    const int min_dt_intervals = std::max(1, static_cast<int>(std::ceil(total_time / kMinTrajectorySampleDt)));
+    return std::clamp(std::max({time_intervals, path_intervals, orientation_intervals}), 1, min_dt_intervals);
+}
+
+TrajectorySamples finalizeTrajectory(std::vector<std::vector<double>> trajectory,
+                                     int num_intervals,
+                                     double total_time,
+                                     double fallback_dt) {
+    TrajectorySamples result;
+    result.points = std::move(trajectory);
+    result.total_time = std::max(total_time, 0.0);
+    if (num_intervals > 0 && result.total_time > 1e-9) {
+        result.sample_dt = result.total_time / static_cast<double>(num_intervals);
+    } else {
+        result.sample_dt = std::clamp(fallback_dt, kMinTrajectorySampleDt, kMaxTrajectorySampleDt);
+    }
+    return result;
+}
+
+} // namespace
+
 double TrajectoryPlanner::computeBlendRatio(double t, double T) {
-    constexpr double ACCEL_RATIO = 0.2; // 加减速时间占比
-    const double ta = ACCEL_RATIO * T;  // 加速时间
-    const double td = ta;                // 减速时间
-    const double tc = T - ta - td;       // 匀速时间
+    constexpr double ACCEL_RATIO = 0.2;
+    const double ta = ACCEL_RATIO * T;
+    const double td = ta;
+    const double tc = T - ta - td;
 
-    // 边界值保护
     if (t <= 0.0) return 0.0;
     if (t >= T) return 1.0;
 
-    // 计算归一化最大速度（保证总位移严格为1）
     const double v_max = 1.0 / (0.5 * ta + tc + 0.5 * td);
-    const double a = v_max / ta; // 匀加速度
+    const double a = v_max / ta;
 
-    // 梯形速度规划分段计算
     if (t < ta) {
         return 0.5 * a * t * t;
     } else if (t < ta + tc) {
@@ -124,139 +168,111 @@ double TrajectoryPlanner::computeBlendRatio(double t, double T) {
     }
 }
 
-/**
- * @brief 关节空间直线插补 (MoveJ/MoveAbsJ)
- */
-std::vector<std::vector<double>> TrajectoryPlanner::planJointMove(
+TrajectorySamples TrajectoryPlanner::planJointMove(
     const std::vector<double>& start,
     const std::vector<double>& end,
-    double speed_percent,
+    double speed_mm_per_s,
     double dt) {
-    
-    std::vector<std::vector<double>> trajectory;
-    // 入参合法性校验
-    if (!checkInputValid(start, end, start.size(), speed_percent, dt) || start.empty()) {
-        return trajectory;
+
+    if (!checkInputValid(start, end, start.size(), speed_mm_per_s, dt) || start.empty()) {
+        return {};
     }
 
-    // 计算最大关节位移
     double max_displacement = 0.0;
     for (size_t i = 0; i < start.size(); ++i) {
         max_displacement = std::max(max_displacement, std::abs(end[i] - start[i]));
     }
-    // 零位移直接返回起点
     if (max_displacement < 1e-9) {
-        trajectory.push_back(start);
-        return trajectory;
+        return makeSinglePointTrajectory(start, dt);
     }
 
-    // 时间规划（适配xMate3额定关节最大速度π rad/s）
-    const double max_vel = M_PI * speed_percent / 100.0;
+    const double max_vel = clampJointSpeedRadPerSecond(speed_mm_per_s);
     const double total_time = max_displacement / max_vel;
-    const int num_points = std::max(10, static_cast<int>(std::ceil(total_time / dt)));
+    const int num_points = determine_interval_count(total_time, dt, max_displacement, kMaxJointStepRad);
 
-    // 生成轨迹点
+    std::vector<std::vector<double>> trajectory;
     trajectory.reserve(num_points + 1);
     for (int i = 0; i <= num_points; ++i) {
         const double t = static_cast<double>(i) / num_points * total_time;
         const double s = computeBlendRatio(t, total_time);
-        
+
         std::vector<double> point(start.size());
         for (size_t j = 0; j < start.size(); ++j) {
             point[j] = start[j] + s * (end[j] - start[j]);
         }
-        trajectory.push_back(point);
+        trajectory.push_back(std::move(point));
     }
-    
-    return trajectory;
+
+    return finalizeTrajectory(std::move(trajectory), num_points, total_time, dt);
 }
 
-/**
- * @brief 笛卡尔空间直线插补 (MoveL)
- */
-std::vector<std::vector<double>> TrajectoryPlanner::planCartesianLine(
+TrajectorySamples TrajectoryPlanner::planCartesianLine(
     const std::vector<double>& start,
     const std::vector<double>& end,
-    double speed_percent,
+    double speed_mm_per_s,
     double dt) {
-    
-    std::vector<std::vector<double>> trajectory;
-    // 入参校验：笛卡尔位姿固定6维（xyz+rpy）
-    if (!checkInputValid(start, end, 6, speed_percent, dt)) {
-        return trajectory;
+
+    if (!checkInputValid(start, end, 6, speed_mm_per_s, dt)) {
+        return {};
     }
 
-    // 计算直线位移
     Vector3d p_start(start[0], start[1], start[2]);
     Vector3d p_end(end[0], end[1], end[2]);
     const double displacement = (p_end - p_start).norm();
-    // 零位移直接返回起点
     if (displacement < 1e-9) {
-        trajectory.push_back(start);
-        return trajectory;
+        return makeSinglePointTrajectory(start, dt);
     }
 
-    // 时间规划（适配xMate3额定末端最大线速度1m/s）
-    const double max_vel = 1.0 * speed_percent / 100.0;
+    const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
     const double total_time = displacement / max_vel;
-    const int num_points = std::clamp(static_cast<int>(std::ceil(total_time / dt)), 10, 25);
+    const int num_points = determine_interval_count(
+        total_time, dt, displacement, kMaxCartesianStepMeters, orientationDistance(start, end));
 
-    // 拆分起点/终点姿态
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};
 
-    // 生成轨迹点
+    std::vector<std::vector<double>> trajectory;
     trajectory.reserve(num_points + 1);
     for (int i = 0; i <= num_points; ++i) {
         const double t = static_cast<double>(i) / num_points * total_time;
         const double s = computeBlendRatio(t, total_time);
-        
+
         std::vector<double> point(6);
-        // 位置线性插值
         Vector3d pos = p_start + s * (p_end - p_start);
         for (int j = 0; j < 3; ++j) {
             point[j] = pos[j];
         }
-        // 姿态球面插值SLERP
-        std::vector<double> rpy_slerp = slerpAttitude(start_rpy, end_rpy, s);
+        const std::vector<double> rpy_slerp = slerpAttitude(start_rpy, end_rpy, s);
         for (int j = 0; j < 3; ++j) {
             point[3 + j] = rpy_slerp[j];
         }
-        trajectory.push_back(point);
+        trajectory.push_back(std::move(point));
     }
-    
-    return trajectory;
+
+    return finalizeTrajectory(std::move(trajectory), num_points, total_time, dt);
 }
 
-/**
- * @brief 圆弧插补 (MoveC)
- */
-std::vector<std::vector<double>> TrajectoryPlanner::planCircularArc(
+TrajectorySamples TrajectoryPlanner::planCircularArc(
     const std::vector<double>& start,
     const std::vector<double>& aux,
     const std::vector<double>& end,
-    double speed_percent,
+    double speed_mm_per_s,
     double dt) {
-    
-    std::vector<std::vector<double>> trajectory;
-    // 入参校验
-    if (!checkInputValid(start, end, 6, speed_percent, dt) || aux.size() != 6) {
-        return trajectory;
+
+    if (!checkInputValid(start, end, 6, speed_mm_per_s, dt) || aux.size() != 6) {
+        return {};
     }
 
-    // 三点坐标提取
     Vector3d p1(start[0], start[1], start[2]);
     Vector3d p2(aux[0], aux[1], aux[2]);
     Vector3d p3(end[0], end[1], end[2]);
 
-    // 计算圆弧参数
     Vector3d center, rotate_axis;
     double radius;
     if (!computeCircleParams(p1, p2, p3, center, radius, rotate_axis)) {
-        return trajectory; // 三点共线，返回空轨迹
+        return {};
     }
 
-    // 计算必须经过辅助点的有向圆弧角度，避免退化成始终走短弧。
     Vector3d v_start = p1 - center;
     Vector3d v_aux = p2 - center;
     Vector3d v_end = p3 - center;
@@ -273,16 +289,15 @@ std::vector<std::vector<double>> TrajectoryPlanner::planCircularArc(
     }
     const double arc_length = radius * total_angle;
 
-    // 时间规划（圆弧运动降速至0.5m/s）
-    const double max_vel = 0.5 * speed_percent / 100.0;
+    const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
     const double total_time = arc_length / max_vel;
-    const int num_points = std::clamp(static_cast<int>(std::ceil(total_time / dt)), 20, 40);
+    const int num_points = determine_interval_count(
+        total_time, dt, arc_length, kMaxCartesianStepMeters, orientationDistance(start, end));
 
-    // 姿态拆分
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};
 
-    // 生成圆弧轨迹
+    std::vector<std::vector<double>> trajectory;
     trajectory.reserve(num_points + 1);
     for (int i = 0; i <= num_points; ++i) {
         const double t = static_cast<double>(i) / num_points * total_time;
@@ -290,64 +305,53 @@ std::vector<std::vector<double>> TrajectoryPlanner::planCircularArc(
         const double current_angle = s * total_angle;
 
         std::vector<double> point(6);
-        // 精确圆弧位置计算（绕轴旋转）
         Vector3d pos = center + AngleAxisd(current_angle, rotate_axis) * v_start;
         for (int j = 0; j < 3; ++j) {
             point[j] = pos[j];
         }
-        // 姿态平滑插值
-        std::vector<double> rpy_slerp = slerpAttitude(start_rpy, end_rpy, s);
+        const std::vector<double> rpy_slerp = slerpAttitude(start_rpy, end_rpy, s);
         for (int j = 0; j < 3; ++j) {
             point[3 + j] = rpy_slerp[j];
         }
-        trajectory.push_back(point);
+        trajectory.push_back(std::move(point));
     }
-    
-    return trajectory;
+
+    return finalizeTrajectory(std::move(trajectory), num_points, total_time, dt);
 }
 
-/**
- * @brief 连续圆弧运动 (MoveCF)
- */
-std::vector<std::vector<double>> TrajectoryPlanner::planCircularContinuous(
+TrajectorySamples TrajectoryPlanner::planCircularContinuous(
     const std::vector<double>& start,
     const std::vector<double>& aux,
     const std::vector<double>& end,
     double angle,
-    double speed_percent,
+    double speed_mm_per_s,
     double dt) {
 
-    std::vector<std::vector<double>> trajectory;
-    // 入参校验
-    if (!checkInputValid(start, end, 6, speed_percent, dt) || aux.size() != 6 || std::abs(angle) < 1e-6) {
-        return trajectory;
+    if (!checkInputValid(start, end, 6, speed_mm_per_s, dt) || aux.size() != 6 || std::abs(angle) < 1e-6) {
+        return {};
     }
 
-    // 三点坐标提取
     Vector3d p1(start[0], start[1], start[2]);
     Vector3d p2(aux[0], aux[1], aux[2]);
     Vector3d p3(end[0], end[1], end[2]);
 
-    // 计算圆弧参数
     Vector3d center, rotate_axis;
     double radius;
     if (!computeCircleParams(p1, p2, p3, center, radius, rotate_axis)) {
-        return trajectory;
+        return {};
     }
 
-    // 自定义角度弧长计算
     const double arc_length = radius * std::abs(angle);
-    // 时间规划
-    const double max_vel = 0.5 * speed_percent / 100.0;
+    const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
     const double total_time = arc_length / max_vel;
-    const int num_points = std::clamp(static_cast<int>(std::ceil(total_time / dt)), 20, 40);
+    const int num_points = determine_interval_count(
+        total_time, dt, arc_length, kMaxCartesianStepMeters, orientationDistance(start, end));
 
-    // 姿态拆分
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};
     Vector3d v_start = p1 - center;
 
-    // 生成连续圆弧轨迹
+    std::vector<std::vector<double>> trajectory;
     trajectory.reserve(num_points + 1);
     for (int i = 0; i <= num_points; ++i) {
         const double t = static_cast<double>(i) / num_points * total_time;
@@ -355,55 +359,44 @@ std::vector<std::vector<double>> TrajectoryPlanner::planCircularContinuous(
         const double current_angle = s * angle;
 
         std::vector<double> point(6);
-        // 自定义角度圆弧位置计算
         Vector3d pos = center + AngleAxisd(current_angle, rotate_axis) * v_start;
         for (int j = 0; j < 3; ++j) {
             point[j] = pos[j];
         }
-        // 姿态平滑插值
-        std::vector<double> rpy_slerp = slerpAttitude(start_rpy, end_rpy, s);
+        const std::vector<double> rpy_slerp = slerpAttitude(start_rpy, end_rpy, s);
         for (int j = 0; j < 3; ++j) {
             point[3 + j] = rpy_slerp[j];
         }
-        trajectory.push_back(point);
+        trajectory.push_back(std::move(point));
     }
 
-    return trajectory;
+    return finalizeTrajectory(std::move(trajectory), num_points, total_time, dt);
 }
 
-/**
- * @brief 螺旋线运动 (MoveSP)
- */
-std::vector<std::vector<double>> TrajectoryPlanner::planSpiralMove(
+TrajectorySamples TrajectoryPlanner::planSpiralMove(
     const std::vector<double>& start,
     const std::vector<double>& end,
     double radius,
     double radius_step,
     double angle,
     bool direction,
-    double speed_percent,
+    double speed_mm_per_s,
     double dt) {
 
-    std::vector<std::vector<double>> trajectory;
-    // 入参校验
-    if (!checkInputValid(start, end, 6, speed_percent, dt) || std::abs(angle) < 1e-6 || radius < 0) {
-        return trajectory;
+    if (!checkInputValid(start, end, 6, speed_mm_per_s, dt) || std::abs(angle) < 1e-6 || radius < 0) {
+        return {};
     }
 
-    // 起点终点坐标
     Vector3d p_start(start[0], start[1], start[2]);
     Vector3d p_end(end[0], end[1], end[2]);
     Vector3d spiral_axis = p_end - p_start;
     const double axis_length = spiral_axis.norm();
 
-    // 零轴长直接返回
     if (axis_length < 1e-9) {
-        trajectory.push_back(start);
-        return trajectory;
+        return makeSinglePointTrajectory(start, dt);
     }
     spiral_axis.normalize();
 
-    // 构建螺旋局部坐标系（z轴为螺旋轴）
     Vector3d local_x, local_y;
     if (std::abs(spiral_axis.dot(Vector3d::UnitZ())) < 0.999) {
         local_x = spiral_axis.cross(Vector3d::UnitZ()).normalized();
@@ -412,20 +405,18 @@ std::vector<std::vector<double>> TrajectoryPlanner::planSpiralMove(
     }
     local_y = spiral_axis.cross(local_x).normalized();
 
-    // 螺旋线总长度估算
     const double avg_radius = radius + radius_step * angle * 0.5;
     const double spiral_length = axis_length + avg_radius * std::abs(angle);
-    // 时间规划（螺旋运动降速至0.3m/s）
-    const double max_vel = 0.3 * speed_percent / 100.0;
+    const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
     const double total_time = spiral_length / max_vel;
-    const int num_points = std::max(30, static_cast<int>(std::ceil(total_time / dt)));
+    const int num_points = determine_interval_count(
+        total_time, dt, spiral_length, kMaxCartesianStepMeters, orientationDistance(start, end));
 
-    // 姿态拆分
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};
     const int rotate_dir = direction ? 1 : -1;
 
-    // 生成螺旋轨迹
+    std::vector<std::vector<double>> trajectory;
     trajectory.reserve(num_points + 1);
     for (int i = 0; i <= num_points; ++i) {
         const double t = static_cast<double>(i) / num_points * total_time;
@@ -434,23 +425,21 @@ std::vector<std::vector<double>> TrajectoryPlanner::planSpiralMove(
         const double current_radius = radius + radius_step * s * angle;
 
         std::vector<double> point(6);
-        // 螺旋线位置计算（沿螺旋轴的直线+局部平面圆周运动）
         Vector3d axis_pos = p_start + s * (p_end - p_start);
-        Vector3d circle_offset = current_radius * (cos(current_angle) * local_x + sin(current_angle) * local_y);
+        Vector3d circle_offset = current_radius * (std::cos(current_angle) * local_x + std::sin(current_angle) * local_y);
         Vector3d pos = axis_pos + circle_offset;
 
         for (int j = 0; j < 3; ++j) {
             point[j] = pos[j];
         }
-        // 姿态平滑插值
-        std::vector<double> rpy_slerp = slerpAttitude(start_rpy, end_rpy, s);
+        const std::vector<double> rpy_slerp = slerpAttitude(start_rpy, end_rpy, s);
         for (int j = 0; j < 3; ++j) {
             point[3 + j] = rpy_slerp[j];
         }
-        trajectory.push_back(point);
+        trajectory.push_back(std::move(point));
     }
 
-    return trajectory;
+    return finalizeTrajectory(std::move(trajectory), num_points, total_time, dt);
 }
 
 } // namespace gazebo

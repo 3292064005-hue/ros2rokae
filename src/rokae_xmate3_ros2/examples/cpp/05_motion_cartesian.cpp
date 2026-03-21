@@ -32,7 +32,7 @@ int main() {
   if (!connectRobot(robot, ec)) {
     return 1;
   }
-  if (!prepareAutomaticNrt(robot, ec, 30, 5)) {
+  if (!prepareAutomaticNrt(robot, ec, 180, 5)) {
     cleanupRobot(robot);
     return 1;
   }
@@ -51,7 +51,7 @@ int main() {
   }
 
   printSection("1 MoveAbsJ 到起始位");
-  robot.executeCommand(std::vector<MoveAbsJCommand>{MoveAbsJCommand({0.0, 0.5, 0.0, 0.0, 0.5, 0.0}, 30, 0)}, ec);
+  robot.executeCommand(std::vector<MoveAbsJCommand>{MoveAbsJCommand({0.0, 0.5, 0.0, 0.0, 0.5, 0.0}, 180, 0)}, ec);
   if (reportError("executeCommand(MoveAbsJ start)", ec)) {
     cleanupRobot(robot);
     return 1;
@@ -59,7 +59,7 @@ int main() {
   printCartesianPosition(robot, ec);
 
   printSection("2 MoveJ 到笛卡尔目标");
-  robot.executeCommand(std::vector<MoveJCommand>{MoveJCommand({0.40, 0.00, 0.50, kPi, 0.0, 0.0}, 40, 5)}, ec);
+  robot.executeCommand(std::vector<MoveJCommand>{MoveJCommand({0.40, 0.00, 0.50, kPi, 0.0, 0.0}, 220, 5)}, ec);
   if (reportError("executeCommand(MoveJ)", ec)) {
     cleanupRobot(robot);
     return 1;
@@ -67,7 +67,7 @@ int main() {
   printCartesianPosition(robot, ec);
 
   printSection("3 MoveL 直线运动");
-  robot.executeCommand(std::vector<MoveLCommand>{MoveLCommand({0.30, 0.20, 0.50, kPi, 0.0, 0.0}, 20, 0)}, ec);
+  robot.executeCommand(std::vector<MoveLCommand>{MoveLCommand({0.30, 0.20, 0.50, kPi, 0.0, 0.0}, 180, 0)}, ec);
   if (reportError("executeCommand(MoveL)", ec)) {
     cleanupRobot(robot);
     return 1;
@@ -77,7 +77,7 @@ int main() {
   printSection("4 MoveC 圆弧运动");
   robot.executeCommand(std::vector<MoveCCommand>{MoveCCommand(CartesianPosition({0.40, 0.00, 0.45, kPi, 0.0, 0.0}),
                                                               CartesianPosition({0.35, 0.25, 0.50, kPi, 0.0, 0.0}),
-                                                              18,
+                                                              160,
                                                               0)},
                        ec);
   if (reportError("executeCommand(MoveC)", ec)) {
@@ -87,9 +87,9 @@ int main() {
   printCartesianPosition(robot, ec);
 
   printSection("5 多段 MoveL");
-  robot.executeCommand(std::vector<MoveLCommand>{MoveLCommand({0.40, 0.10, 0.50, kPi, 0.0, 0.0}, 20, 5),
-                                                 MoveLCommand({0.40, -0.10, 0.50, kPi, 0.0, 0.0}, 20, 5),
-                                                 MoveLCommand({0.40, 0.00, 0.40, kPi, 0.0, 0.0}, 20, 0)},
+  robot.executeCommand(std::vector<MoveLCommand>{MoveLCommand({0.40, 0.10, 0.50, kPi, 0.0, 0.0}, 180, 5),
+                                                 MoveLCommand({0.40, -0.10, 0.50, kPi, 0.0, 0.0}, 180, 5),
+                                                 MoveLCommand({0.40, 0.00, 0.40, kPi, 0.0, 0.0}, 180, 0)},
                        ec);
   if (reportError("executeCommand(multi MoveL)", ec)) {
     cleanupRobot(robot);

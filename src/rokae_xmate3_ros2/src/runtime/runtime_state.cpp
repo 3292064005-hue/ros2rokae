@@ -2,7 +2,17 @@
 
 #include <algorithm>
 
+#include "runtime/pose_utils.hpp"
+
 namespace rokae_xmate3_ros2::runtime {
+namespace {
+
+std::vector<double> normalize_runtime_pose(const std::vector<double> &pose) {
+  return pose_utils::sanitizePose(pose);
+}
+
+}  // namespace
+
 void SessionState::connect(const std::string &remote_ip) {
   std::lock_guard<std::mutex> lock(mutex_);
   connected_ = true;
@@ -112,12 +122,12 @@ OperationStateContext SessionState::makeOperationStateContext(bool rl_project_ru
   return context;
 }
 
-void MotionOptionsState::setDefaultSpeed(int speed) {
+void MotionOptionsState::setDefaultSpeed(double speed) {
   std::lock_guard<std::mutex> lock(mutex_);
   default_speed_ = speed;
 }
 
-int MotionOptionsState::defaultSpeed() const {
+double MotionOptionsState::defaultSpeed() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return default_speed_;
 }
@@ -187,6 +197,7 @@ MotionRequestContext MotionOptionsState::makeMotionRequestContext(const std::str
   context.avoid_singularity = avoid_singularity_enabled_;
   context.soft_limit_enabled = soft_limit_enabled_;
   context.soft_limits = soft_limits_;
+  context.speed_scale = speed_scale_;
   context.trajectory_dt = trajectory_dt;
   return context;
 }
@@ -196,15 +207,45 @@ void ToolingState::setToolset(const std::string &tool_name,
                               const std::vector<double> &tool_pose,
                               const std::vector<double> &wobj_pose) {
   std::lock_guard<std::mutex> lock(mutex_);
-  current_tool_name_ = tool_name;
-  current_wobj_name_ = wobj_name;
-  current_tool_pose_ = tool_pose;
-  current_wobj_pose_ = wobj_pose;
+  current_tool_name_ = tool_name.empty() ? "tool0" : tool_name;
+  current_wobj_name_ = wobj_name.empty() ? "wobj0" : wobj_name;
+  current_tool_pose_ = normalize_runtime_pose(tool_pose);
+  current_wobj_pose_ = normalize_runtime_pose(wobj_pose);
+  tool_registry_[current_tool_name_] = current_tool_pose_;
+  wobj_registry_[current_wobj_name_] = current_wobj_pose_;
+  base_pose_ = current_wobj_pose_;
+}
+
+bool ToolingState::setToolsetByName(const std::string &tool_name, const std::string &wobj_name) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto resolved_tool_name = tool_name.empty() ? current_tool_name_ : tool_name;
+  const auto resolved_wobj_name = wobj_name.empty() ? current_wobj_name_ : wobj_name;
+  const auto tool_it = tool_registry_.find(resolved_tool_name);
+  const auto wobj_it = wobj_registry_.find(resolved_wobj_name);
+  if (tool_it == tool_registry_.end() || wobj_it == wobj_registry_.end()) {
+    return false;
+  }
+  current_tool_name_ = resolved_tool_name;
+  current_wobj_name_ = resolved_wobj_name;
+  current_tool_pose_ = tool_it->second;
+  current_wobj_pose_ = wobj_it->second;
+  base_pose_ = current_wobj_pose_;
+  return true;
 }
 
 ToolsetSnapshot ToolingState::toolset() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return ToolsetSnapshot{current_tool_name_, current_wobj_name_, current_tool_pose_, current_wobj_pose_};
+  return ToolsetSnapshot{current_tool_name_, current_wobj_name_, current_tool_pose_, current_wobj_pose_, base_pose_};
+}
+
+void ToolingState::setBaseFrame(const std::vector<double> &base_pose) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  base_pose_ = normalize_runtime_pose(base_pose);
+}
+
+std::vector<double> ToolingState::baseFrame() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return base_pose_;
 }
 
 void DataStoreState::appendLog(const rokae_xmate3_ros2::msg::LogInfo &log) {

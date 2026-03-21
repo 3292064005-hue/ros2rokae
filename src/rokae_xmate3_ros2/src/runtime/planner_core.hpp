@@ -13,6 +13,8 @@ class MotionPlanner {
   MotionPlanner();
 
   [[nodiscard]] MotionPlan plan(const MotionRequest &request) const;
+  void resetDebugCounters() const;
+  [[nodiscard]] ::gazebo::xMate3Kinematics::DebugCounters debugCounters() const;
 
  private:
   std::unique_ptr<::gazebo::xMate3Kinematics> kinematics_;

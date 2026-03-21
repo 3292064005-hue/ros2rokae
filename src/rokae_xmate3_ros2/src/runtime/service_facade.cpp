@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "runtime/planning_utils.hpp"
+#include "runtime/pose_utils.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 namespace {
@@ -34,6 +35,46 @@ std::string basename_without_extension(const std::string &path) {
 
 std::vector<double> snapshot_joints(const std::array<double, 6> &position) {
   return std::vector<double>(position.begin(), position.end());
+}
+
+std::vector<double> resolve_pose_for_coordinate(const std::vector<double> &flange_pose,
+                                                const ToolsetSnapshot &toolset,
+                                                int coordinate_type) {
+  if (coordinate_type == 1) {
+    return pose_utils::convertFlangeInBaseToEndInRef(flange_pose, toolset.tool_pose, toolset.wobj_pose);
+  }
+  return flange_pose;
+}
+
+bool validate_coordinate_type(int coordinate_type, std::string &message) {
+  if (coordinate_type == 0 || coordinate_type == 1) {
+    return true;
+  }
+  message = "unsupported coordinate_type";
+  return false;
+}
+
+double mean_abs(const std::array<double, 6> &values) {
+  double sum = 0.0;
+  for (double value : values) {
+    sum += std::fabs(value);
+  }
+  return sum / static_cast<double>(values.size());
+}
+
+std::vector<double> sample_quintic_segment(const std::vector<double> &start,
+                                           const std::vector<double> &target,
+                                           double s) {
+  const double s2 = s * s;
+  const double s3 = s2 * s;
+  const double s4 = s3 * s;
+  const double s5 = s4 * s;
+  const double blend = 10.0 * s3 - 15.0 * s4 + 6.0 * s5;
+  std::vector<double> point(start.size(), 0.0);
+  for (size_t i = 0; i < start.size() && i < target.size(); ++i) {
+    point[i] = start[i] + (target[i] - start[i]) * blend;
+  }
+  return point;
 }
 
 }  // namespace
@@ -199,6 +240,11 @@ void ControlFacade::handleStop(const rokae_xmate3_ros2::srv::Stop::Request &req,
 
 void ControlFacade::handleSetDefaultSpeed(const rokae_xmate3_ros2::srv::SetDefaultSpeed::Request &req,
                                           rokae_xmate3_ros2::srv::SetDefaultSpeed::Response &res) const {
+  if (req.speed < 5 || req.speed > 4000) {
+    res.success = false;
+    res.message = "default speed must be within [5, 4000] mm/s";
+    return;
+  }
   motion_options_state_.setDefaultSpeed(req.speed);
   res.success = true;
 }
@@ -219,7 +265,15 @@ void ControlFacade::handleSetDefaultConfOpt(
 void ControlFacade::handleAdjustSpeedOnline(
     const rokae_xmate3_ros2::srv::AdjustSpeedOnline::Request &req,
     rokae_xmate3_ros2::srv::AdjustSpeedOnline::Response &res) const {
+  if (req.scale < 0.05 || req.scale > 2.0) {
+    res.success = false;
+    res.message = "speed scale must be within [0.05, 2.0]";
+    return;
+  }
   motion_options_state_.setSpeedScale(req.scale);
+  if (motion_runtime_ != nullptr) {
+    motion_runtime_->setActiveSpeedScale(req.scale);
+  }
   res.success = true;
 }
 
@@ -376,26 +430,39 @@ void QueryFacade::handleGetJointTorque(const rokae_xmate3_ros2::srv::GetJointTor
 
 void QueryFacade::handleGetPosture(const rokae_xmate3_ros2::srv::GetPosture::Request &req,
                                    rokae_xmate3_ros2::srv::GetPosture::Response &res) const {
-  (void)req;
+  std::string message;
+  if (!validate_coordinate_type(req.coordinate_type, message)) {
+    res.success = false;
+    res.message = message;
+    return;
+  }
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> tau{};
   joint_state_fetcher_(pos, vel, tau);
-  const auto pose = kinematics_.forwardKinematicsRPY(snapshot_joints(pos));
+  const auto flange_pose = kinematics_.forwardKinematicsRPY(snapshot_joints(pos));
+  const auto pose = resolve_pose_for_coordinate(flange_pose, tooling_state_.toolset(), req.coordinate_type);
   for (int i = 0; i < 6; ++i) {
     res.posture[i] = pose[i];
   }
   res.success = true;
+  res.message.clear();
 }
 
 void QueryFacade::handleGetCartPosture(const rokae_xmate3_ros2::srv::GetCartPosture::Request &req,
                                        rokae_xmate3_ros2::srv::GetCartPosture::Response &res) const {
-  (void)req;
+  std::string message;
+  if (!validate_coordinate_type(req.coordinate_type, message)) {
+    res.success = false;
+    res.message = message;
+    return;
+  }
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> tau{};
   joint_state_fetcher_(pos, vel, tau);
-  const auto pose = kinematics_.forwardKinematicsRPY(snapshot_joints(pos));
+  const auto flange_pose = kinematics_.forwardKinematicsRPY(snapshot_joints(pos));
+  const auto pose = resolve_pose_for_coordinate(flange_pose, tooling_state_.toolset(), req.coordinate_type);
   res.x = pose[0];
   res.y = pose[1];
   res.z = pose[2];
@@ -403,19 +470,24 @@ void QueryFacade::handleGetCartPosture(const rokae_xmate3_ros2::srv::GetCartPost
   res.ry = pose[4];
   res.rz = pose[5];
   res.success = true;
+  res.message.clear();
 }
 
 void QueryFacade::handleGetBaseFrame(const rokae_xmate3_ros2::srv::GetBaseFrame::Request &req,
                                      rokae_xmate3_ros2::srv::GetBaseFrame::Response &res) const {
   (void)req;
-  res.base_frame = {0, 0, 0, 0, 0, 0};
+  const auto base_pose = tooling_state_.baseFrame();
+  for (size_t i = 0; i < 6 && i < base_pose.size(); ++i) {
+    res.base_frame[i] = base_pose[i];
+  }
   res.success = true;
 }
 
 void QueryFacade::handleCalcFk(const rokae_xmate3_ros2::srv::CalcFk::Request &req,
                                rokae_xmate3_ros2::srv::CalcFk::Response &res) const {
   std::vector<double> joints(req.joint_positions.begin(), req.joint_positions.end());
-  const auto pose = kinematics_.forwardKinematicsRPY(joints);
+  const auto flange_pose = kinematics_.forwardKinematicsRPY(joints);
+  const auto pose = resolve_pose_for_coordinate(flange_pose, tooling_state_.toolset(), 1);
   for (int i = 0; i < 6; ++i) {
     res.posture[i] = pose[i];
   }
@@ -425,6 +497,8 @@ void QueryFacade::handleCalcFk(const rokae_xmate3_ros2::srv::CalcFk::Request &re
 void QueryFacade::handleCalcIk(const rokae_xmate3_ros2::srv::CalcIk::Request &req,
                                rokae_xmate3_ros2::srv::CalcIk::Response &res) const {
   std::vector<double> target(req.target_posture.begin(), req.target_posture.end());
+  target = pose_utils::convertEndInRefToFlangeInBase(
+      target, tooling_state_.toolset().tool_pose, tooling_state_.toolset().wobj_pose);
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> tau{};
@@ -466,8 +540,10 @@ void QueryFacade::handleSetToolset(const rokae_xmate3_ros2::srv::SetToolset::Req
 
 void QueryFacade::handleSetToolsetByName(const rokae_xmate3_ros2::srv::SetToolsetByName::Request &req,
                                          rokae_xmate3_ros2::srv::SetToolsetByName::Response &res) const {
-  (void)req;
-  res.success = true;
+  res.success = tooling_state_.setToolsetByName(req.tool_name, req.wobj_name);
+  if (!res.success) {
+    res.message = "unknown tool_name or wobj_name";
+  }
 }
 
 void QueryFacade::handleGetSoftLimit(const rokae_xmate3_ros2::srv::GetSoftLimit::Request &req,
@@ -525,16 +601,28 @@ void QueryFacade::handleCalcJointTorque(
     res.error_msg = "joint_pos size is invalid";
     return;
   }
+  for (int i = 0; i < 6; ++i) {
+    if (!std::isfinite(req.joint_pos[i]) || !std::isfinite(req.joint_vel[i]) ||
+        !std::isfinite(req.joint_acc[i]) || !std::isfinite(req.external_force[i])) {
+      res.success = false;
+      res.error_code = 4002;
+      res.error_msg = "joint torque inputs must be finite";
+      return;
+    }
+  }
   const Eigen::MatrixXd jacobian = kinematics_.computeJacobian(joints);
   Eigen::Matrix<double, 6, 1> wrench;
   for (int i = 0; i < 6; ++i) {
     wrench(i) = req.external_force[i];
   }
   const Eigen::Matrix<double, 6, 1> tau_ext = jacobian.transpose() * wrench;
+  const double tool_mass = tooling_state_.toolset().tool_pose.empty() ? 0.0 : 0.25;
+  const double velocity_bias = mean_abs(req.joint_vel);
   for (int i = 0; i < 6; ++i) {
-    res.gravity_torque[i] = std::sin(req.joint_pos[i]) * 1.5;
-    res.coriolis_torque[i] = req.joint_vel[i] * 0.05;
-    res.joint_torque[i] = res.gravity_torque[i] + res.coriolis_torque[i] + req.joint_acc[i] * 0.02 + tau_ext(i);
+    res.gravity_torque[i] = std::sin(req.joint_pos[i]) * (1.5 + tool_mass * (0.2 + 0.05 * static_cast<double>(i)));
+    res.coriolis_torque[i] = req.joint_vel[i] * (0.05 + 0.01 * velocity_bias);
+    const double inertia_torque = req.joint_acc[i] * (0.02 + 0.005 * static_cast<double>(i));
+    res.joint_torque[i] = res.gravity_torque[i] + res.coriolis_torque[i] + inertia_torque + tau_ext(i);
   }
   res.success = true;
   res.error_code = 0;
@@ -544,26 +632,81 @@ void QueryFacade::handleCalcJointTorque(
 void QueryFacade::handleGenerateSTrajectory(
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &req,
     rokae_xmate3_ros2::srv::GenerateSTrajectory::Response &res) const {
+  if (req.is_cartesian) {
+    res.success = false;
+    res.error_code = 3003;
+    res.error_msg = "cartesian S-trajectory generation is not available in the Gazebo shim";
+    return;
+  }
+
   std::vector<double> start(req.start_joint_pos.begin(), req.start_joint_pos.end());
   std::vector<double> target(req.target_joint_pos.begin(), req.target_joint_pos.end());
-  const auto trajectory = gazebo::TrajectoryPlanner::planJointMove(
-      start, target, 32.0, std::max(trajectory_dt_provider_(), 1e-3));
-  if (trajectory.empty()) {
+  for (int i = 0; i < 6; ++i) {
+    if (!std::isfinite(start[i]) || !std::isfinite(target[i])) {
+      res.success = false;
+      res.error_code = 3003;
+      res.error_msg = "trajectory inputs must be finite";
+      return;
+    }
+  }
+  if (start.size() != 6 || target.size() != 6) {
+    res.success = false;
+    res.error_code = 3003;
+    res.error_msg = "joint-space S-trajectory requires 6 joint values";
+    return;
+  }
+
+  double max_delta = 0.0;
+  for (size_t i = 0; i < start.size(); ++i) {
+    max_delta = std::max(max_delta, std::fabs(target[i] - start[i]));
+  }
+  if (max_delta < 1e-9) {
+    rokae_xmate3_ros2::msg::JointPos6 joint_msg;
+    for (int i = 0; i < 6; ++i) {
+      joint_msg.pos[i] = start[i];
+    }
+    res.trajectory_points = {joint_msg};
+    res.total_time = 0.0;
+    res.stamp = ToBuiltinTime(time_provider_());
+    res.success = true;
+    res.error_code = 0;
+    return;
+  }
+
+  const double requested_max_velocity = std::clamp(req.max_velocity > 0.0 ? req.max_velocity : 1.0, 0.05, M_PI);
+  const double requested_max_acceleration =
+      std::clamp(req.max_acceleration > 0.0 ? req.max_acceleration : 2.0, 0.05, 10.0 * M_PI);
+  const double accel_time = requested_max_velocity / requested_max_acceleration;
+  const double accel_distance = 0.5 * requested_max_acceleration * accel_time * accel_time;
+  double total_time = 0.0;
+  if (2.0 * accel_distance >= max_delta) {
+    total_time = 2.0 * std::sqrt(max_delta / requested_max_acceleration);
+  } else {
+    const double cruise_distance = max_delta - 2.0 * accel_distance;
+    total_time = 2.0 * accel_time + cruise_distance / requested_max_velocity;
+  }
+  total_time += std::max(req.blend_radius, 0.0) * 0.1;
+
+  const double sample_dt = std::max(trajectory_dt_provider_(), 1e-3);
+  const int sample_count = std::max(2, static_cast<int>(std::ceil(total_time / sample_dt)));
+  res.trajectory_points.clear();
+  res.trajectory_points.reserve(sample_count + 1);
+  for (int i = 0; i <= sample_count; ++i) {
+    const double s = static_cast<double>(i) / static_cast<double>(sample_count);
+    const auto point = sample_quintic_segment(start, target, s);
+    rokae_xmate3_ros2::msg::JointPos6 joint_msg;
+    for (int j = 0; j < 6; ++j) {
+      joint_msg.pos[j] = point[j];
+    }
+    res.trajectory_points.push_back(joint_msg);
+  }
+  if (res.trajectory_points.empty()) {
     res.success = false;
     res.error_code = 3003;
     res.error_msg = "trajectory planning failed";
     return;
   }
-  res.trajectory_points.reserve(trajectory.size());
-  for (const auto &point : trajectory) {
-    rokae_xmate3_ros2::msg::JointPos6 joint_msg;
-    for (int i = 0; i < 6 && i < static_cast<int>(point.size()); ++i) {
-      joint_msg.pos[i] = point[i];
-    }
-    res.trajectory_points.push_back(joint_msg);
-  }
-  const auto dt = std::max(trajectory_dt_provider_(), 1e-3);
-  res.total_time = trajectory.size() > 1 ? (trajectory.size() - 1) * dt : 0.0;
+  res.total_time = total_time;
   res.stamp = ToBuiltinTime(time_provider_());
   res.success = true;
   res.error_code = 0;

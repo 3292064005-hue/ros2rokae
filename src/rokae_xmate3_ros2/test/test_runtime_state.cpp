@@ -33,7 +33,7 @@ TEST(RuntimeStateTest, SessionAndMotionOptionsExposeStableSnapshots) {
 
   const auto request = options.makeMotionRequestContext("req_state", {0, 1, 2, 3, 4, 5}, 0.02);
   EXPECT_EQ(request.request_id, "req_state");
-  EXPECT_EQ(request.default_speed, 66);
+  EXPECT_DOUBLE_EQ(request.default_speed, 66.0);
   EXPECT_EQ(request.default_zone, 7);
   EXPECT_TRUE(request.strict_conf);
   EXPECT_FALSE(request.avoid_singularity);

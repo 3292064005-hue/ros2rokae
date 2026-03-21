@@ -38,6 +38,7 @@ RuntimeLogEvent build_runtime_log_event(const RuntimeStatus &status,
   const auto &message_text = status.message.empty() ? std::string(state_text) : status.message;
   stream << "[runtime] request=" << status.request_id
          << " state=" << state_text
+         << " backend=" << to_string(status.execution_backend)
          << " segment=" << status.current_segment_index << "/" << status.total_segments
          << " completed=" << status.completed_segments
          << " message=" << message_text;

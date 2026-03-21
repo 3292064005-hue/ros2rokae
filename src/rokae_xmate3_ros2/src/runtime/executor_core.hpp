@@ -16,6 +16,7 @@ struct ExecutionStep {
   std::size_t current_segment_index = 0;
   std::size_t completed_segments = 0;
   bool plan_completed = false;
+  bool terminal_success = false;
   std::string message;
 };
 
@@ -31,7 +32,7 @@ class MotionExecutor {
   [[nodiscard]] std::size_t currentSegmentIndex() const noexcept;
   [[nodiscard]] std::size_t totalSegments() const noexcept;
 
-  [[nodiscard]] ExecutionStep tick(const RobotSnapshot &snapshot, double dt);
+  [[nodiscard]] ExecutionStep tick(const RobotSnapshot &snapshot, double dt, double trajectory_time_scale = 1.0);
 
  private:
   struct ActiveSegment {
@@ -64,6 +65,7 @@ class MotionExecutor {
                                                    double dt,
                                                    const std::vector<double> &target_position,
                                                    const std::vector<double> &target_velocity,
+                                                   const std::vector<double> &target_acceleration,
                                                    const std::array<double, 6> &kp,
                                                    const std::array<double, 6> &kd,
                                                    const std::array<double, 6> &ki,
@@ -77,7 +79,10 @@ class MotionExecutor {
   bool hold_position_initialized_ = false;
   std::array<double, 6> effort_error_integral_{};
   std::array<double, 6> effort_last_position_{};
+  std::array<double, 6> effort_last_velocity_{};
   std::array<double, 6> effort_filtered_velocity_{};
+  std::array<double, 6> effort_filtered_acceleration_{};
+  std::array<double, 6> effort_last_command_{};
   bool effort_velocity_initialized_ = false;
 };
 

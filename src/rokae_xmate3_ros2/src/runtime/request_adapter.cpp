@@ -7,6 +7,8 @@
 #include <cmath>
 #include <vector>
 
+#include "runtime/pose_utils.hpp"
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -16,6 +18,15 @@ namespace {
 
 constexpr int kOffsetNone = 0;
 constexpr int kOffsetOffs = 1;
+
+constexpr double kMinNrtSpeedMmPerSec = 5.0;
+constexpr double kMaxNrtSpeedMmPerSec = 4000.0;
+
+[[nodiscard]] double resolve_nrt_speed_mm_per_s(double base_speed, double speed_scale) {
+  const double scaled_speed = std::max(base_speed, kMinNrtSpeedMmPerSec) *
+                              std::clamp(speed_scale, 0.05, 2.0);
+  return std::clamp(scaled_speed, kMinNrtSpeedMmPerSec, kMaxNrtSpeedMmPerSec);
+}
 
 [[nodiscard]] double normalize_angle(double value) {
   while (value > M_PI) {
@@ -99,6 +110,11 @@ constexpr int kOffsetOffs = 1;
   return transform_to_pose(pose_to_transform(pose) * pose_to_transform(offset));
 }
 
+[[nodiscard]] std::vector<double> to_flange_pose_in_base(const std::vector<double> &pose,
+                                                         const MotionRequestContext &context) {
+  return pose_utils::convertEndInRefToFlangeInBase(pose, context.tool_pose, context.wobj_pose);
+}
+
 }  // namespace
 
 bool build_motion_request(const rokae_xmate3_ros2::action::MoveAppend::Goal &goal,
@@ -108,7 +124,7 @@ bool build_motion_request(const rokae_xmate3_ros2::action::MoveAppend::Goal &goa
   request = MotionRequest{};
   request.request_id = context.request_id;
   request.start_joints = context.start_joints;
-  request.default_speed = context.default_speed;
+  request.default_speed = resolve_nrt_speed_mm_per_s(context.default_speed, context.speed_scale);
   request.default_zone = context.default_zone;
   request.strict_conf = context.strict_conf;
   request.avoid_singularity = context.avoid_singularity;
@@ -120,7 +136,8 @@ bool build_motion_request(const rokae_xmate3_ros2::action::MoveAppend::Goal &goa
     MotionCommandSpec spec;
     spec.kind = MotionKind::move_absj;
     spec.target_joints.assign(cmd.target.joints.begin(), cmd.target.joints.end());
-    spec.speed = cmd.speed > 0 ? cmd.speed : context.default_speed;
+    const double requested_speed = cmd.speed > 0 ? static_cast<double>(cmd.speed) : context.default_speed;
+    spec.speed = resolve_nrt_speed_mm_per_s(requested_speed, context.speed_scale);
     spec.zone = cmd.zone;
     request.commands.push_back(std::move(spec));
   };
@@ -131,9 +148,12 @@ bool build_motion_request(const rokae_xmate3_ros2::action::MoveAppend::Goal &goa
   for (const auto &cmd : goal.j_cmds) {
     MotionCommandSpec spec;
     spec.kind = MotionKind::move_j;
-    spec.target_cartesian = apply_offset(msg_pose_to_vector(cmd.target), cmd.offset_type, cmd.offset_pose);
+    spec.target_cartesian = to_flange_pose_in_base(
+        apply_offset(msg_pose_to_vector(cmd.target), cmd.offset_type, cmd.offset_pose),
+        context);
     spec.requested_conf = cmd.target.conf_data;
-    spec.speed = cmd.speed > 0 ? cmd.speed : context.default_speed;
+    const double requested_speed = cmd.speed > 0 ? static_cast<double>(cmd.speed) : context.default_speed;
+    spec.speed = resolve_nrt_speed_mm_per_s(requested_speed, context.speed_scale);
     spec.zone = cmd.zone;
     request.commands.push_back(std::move(spec));
   }
@@ -141,9 +161,12 @@ bool build_motion_request(const rokae_xmate3_ros2::action::MoveAppend::Goal &goa
   for (const auto &cmd : goal.l_cmds) {
     MotionCommandSpec spec;
     spec.kind = MotionKind::move_l;
-    spec.target_cartesian = apply_offset(msg_pose_to_vector(cmd.target), cmd.offset_type, cmd.offset_pose);
+    spec.target_cartesian = to_flange_pose_in_base(
+        apply_offset(msg_pose_to_vector(cmd.target), cmd.offset_type, cmd.offset_pose),
+        context);
     spec.requested_conf = cmd.target.conf_data;
-    spec.speed = cmd.speed > 0 ? cmd.speed : context.default_speed;
+    const double requested_speed = cmd.speed > 0 ? static_cast<double>(cmd.speed) : context.default_speed;
+    spec.speed = resolve_nrt_speed_mm_per_s(requested_speed, context.speed_scale);
     spec.zone = cmd.zone;
     request.commands.push_back(std::move(spec));
   }
@@ -151,10 +174,15 @@ bool build_motion_request(const rokae_xmate3_ros2::action::MoveAppend::Goal &goa
   for (const auto &cmd : goal.c_cmds) {
     MotionCommandSpec spec;
     spec.kind = MotionKind::move_c;
-    spec.target_cartesian = apply_offset(msg_pose_to_vector(cmd.target), cmd.target_offset_type, cmd.target_offset_pose);
-    spec.aux_cartesian = apply_offset(msg_pose_to_vector(cmd.aux), cmd.aux_offset_type, cmd.aux_offset_pose);
+    spec.target_cartesian = to_flange_pose_in_base(
+        apply_offset(msg_pose_to_vector(cmd.target), cmd.target_offset_type, cmd.target_offset_pose),
+        context);
+    spec.aux_cartesian = to_flange_pose_in_base(
+        apply_offset(msg_pose_to_vector(cmd.aux), cmd.aux_offset_type, cmd.aux_offset_pose),
+        context);
     spec.requested_conf = cmd.target.conf_data;
-    spec.speed = cmd.speed > 0 ? cmd.speed : context.default_speed;
+    const double requested_speed = cmd.speed > 0 ? static_cast<double>(cmd.speed) : context.default_speed;
+    spec.speed = resolve_nrt_speed_mm_per_s(requested_speed, context.speed_scale);
     spec.zone = cmd.zone;
     request.commands.push_back(std::move(spec));
   }
@@ -162,10 +190,15 @@ bool build_motion_request(const rokae_xmate3_ros2::action::MoveAppend::Goal &goa
   for (const auto &cmd : goal.cf_cmds) {
     MotionCommandSpec spec;
     spec.kind = MotionKind::move_cf;
-    spec.target_cartesian = apply_offset(msg_pose_to_vector(cmd.target), cmd.target_offset_type, cmd.target_offset_pose);
-    spec.aux_cartesian = apply_offset(msg_pose_to_vector(cmd.aux), cmd.aux_offset_type, cmd.aux_offset_pose);
+    spec.target_cartesian = to_flange_pose_in_base(
+        apply_offset(msg_pose_to_vector(cmd.target), cmd.target_offset_type, cmd.target_offset_pose),
+        context);
+    spec.aux_cartesian = to_flange_pose_in_base(
+        apply_offset(msg_pose_to_vector(cmd.aux), cmd.aux_offset_type, cmd.aux_offset_pose),
+        context);
     spec.requested_conf = cmd.target.conf_data;
-    spec.speed = cmd.speed > 0 ? cmd.speed : context.default_speed;
+    const double requested_speed = cmd.speed > 0 ? static_cast<double>(cmd.speed) : context.default_speed;
+    spec.speed = resolve_nrt_speed_mm_per_s(requested_speed, context.speed_scale);
     spec.zone = cmd.zone;
     spec.angle = cmd.angle;
     request.commands.push_back(std::move(spec));
@@ -174,9 +207,12 @@ bool build_motion_request(const rokae_xmate3_ros2::action::MoveAppend::Goal &goa
   for (const auto &cmd : goal.sp_cmds) {
     MotionCommandSpec spec;
     spec.kind = MotionKind::move_sp;
-    spec.target_cartesian = apply_offset(msg_pose_to_vector(cmd.target), cmd.offset_type, cmd.offset_pose);
+    spec.target_cartesian = to_flange_pose_in_base(
+        apply_offset(msg_pose_to_vector(cmd.target), cmd.offset_type, cmd.offset_pose),
+        context);
     spec.requested_conf = cmd.target.conf_data;
-    spec.speed = cmd.speed > 0 ? cmd.speed : context.default_speed;
+    const double requested_speed = cmd.speed > 0 ? static_cast<double>(cmd.speed) : context.default_speed;
+    spec.speed = resolve_nrt_speed_mm_per_s(requested_speed, context.speed_scale);
     spec.zone = cmd.zone;
     spec.radius = cmd.radius;
     spec.radius_step = cmd.radius_step;
@@ -213,7 +249,7 @@ bool build_replay_request(const std::vector<std::vector<double>> &recorded_path,
   request = MotionRequest{};
   request.request_id = context.request_id;
   request.start_joints = context.start_joints;
-  request.default_speed = context.default_speed;
+  request.default_speed = resolve_nrt_speed_mm_per_s(context.default_speed, context.speed_scale);
   request.default_zone = context.default_zone;
   request.strict_conf = context.strict_conf;
   request.avoid_singularity = context.avoid_singularity;
@@ -227,7 +263,9 @@ bool build_replay_request(const std::vector<std::vector<double>> &recorded_path,
   cmd.preplanned_trajectory = recorded_path;
   cmd.preplanned_dt = std::max(context.trajectory_dt, 1e-3) / std::max(rate, 0.05);
   cmd.target_joints = recorded_path.back();
-  cmd.speed = static_cast<int>(context.default_speed * rate);
+  cmd.speed = resolve_nrt_speed_mm_per_s(
+      std::max(context.default_speed * rate, 1.0),
+      context.speed_scale);
   cmd.zone = context.default_zone;
   request.commands.push_back(std::move(cmd));
   return true;

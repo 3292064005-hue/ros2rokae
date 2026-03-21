@@ -22,6 +22,11 @@ rclcpp::ServiceBase::SharedPtr CreateFacadeService(
       });
 }
 
+bool is_retryable_submission_failure(const std::string &message) {
+  return message == "runtime is busy with another motion request" ||
+         message == "runtime planner queue is busy";
+}
+
 }  // namespace
 
 RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
@@ -227,9 +232,6 @@ void RosBindings::initActionServers() {
         if (!runtime_context_.sessionState().powerOn()) {
           return rclcpp_action::GoalResponse::REJECT;
         }
-        if (!runtime_context_.requestCoordinator().canAcceptRequest()) {
-          return rclcpp_action::GoalResponse::REJECT;
-        }
         return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
       },
       [this](const std::shared_ptr<rclcpp_action::ServerGoalHandle<rokae_xmate3_ros2::action::MoveAppend>> goal_handle) {
@@ -253,11 +255,28 @@ void RosBindings::executeMoveAppend(
   joint_state_fetcher_(cached_pos, cached_vel, cached_torque);
 
   const auto request_id = request_id_generator_("move_");
-  const auto submission = runtime_context_.requestCoordinator().submitMoveAppend(
-      *goal,
-      cached_pos,
-      trajectory_dt_provider_(),
-      request_id);
+  SubmissionResult submission;
+  constexpr auto kSubmissionRetryTimeout = std::chrono::milliseconds(1200);
+  constexpr auto kSubmissionRetrySleep = std::chrono::milliseconds(10);
+  const auto retry_deadline = std::chrono::steady_clock::now() + kSubmissionRetryTimeout;
+
+  while (true) {
+    joint_state_fetcher_(cached_pos, cached_vel, cached_torque);
+    submission = runtime_context_.requestCoordinator().submitMoveAppend(
+        *goal,
+        cached_pos,
+        trajectory_dt_provider_(),
+        request_id);
+    if (submission.success) {
+      break;
+    }
+    if (!is_retryable_submission_failure(submission.message) ||
+        std::chrono::steady_clock::now() >= retry_deadline) {
+      break;
+    }
+    std::this_thread::sleep_for(kSubmissionRetrySleep);
+  }
+
   if (!submission.success) {
     result->success = false;
     result->cmd_id = request_id;

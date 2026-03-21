@@ -9,9 +9,12 @@ RuntimeContext::RuntimeContext()
       data_store_state_(std::make_shared<DataStoreState>()),
       program_state_(std::make_shared<ProgramState>()),
       controller_state_(session_state_, motion_options_state_, tooling_state_, data_store_state_, program_state_),
-      request_coordinator_(*motion_options_state_, motion_runtime_) {}
+      request_coordinator_(*motion_options_state_, *tooling_state_, motion_runtime_) {}
 
-void RuntimeContext::attachBackend(BackendInterface *backend) { backend_ = backend; }
+void RuntimeContext::attachBackend(BackendInterface *backend) {
+  backend_ = backend;
+  motion_runtime_.attachBackend(backend);
+}
 BackendInterface *RuntimeContext::backend() const { return backend_; }
 
 ControllerState &RuntimeContext::controllerState() { return controller_state_; }

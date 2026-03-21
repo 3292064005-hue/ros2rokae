@@ -14,7 +14,8 @@ using namespace rokae;
 using namespace example;
 
 int main() {
-  printHeader("示例 23: RT 笛卡尔阻抗控制", "cartesian_impedance_control 对齐版");
+  printHeader("示例 23: RT 笛卡尔阻抗控制", "Gazebo simulated RT facade");
+  os << "note: cartesian impedance behavior here is approximate and simulation-only" << std::endl;
 
   error_code ec;
   xMateRobot robot;

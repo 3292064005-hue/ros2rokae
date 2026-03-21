@@ -15,7 +15,8 @@ using namespace rokae;
 using namespace example;
 
 int main() {
-  printHeader("示例 25: RT S-Line 规划", "joint_s_line / cartesian_s_line 对齐版");
+  printHeader("示例 25: RT S-Line 规划", "Gazebo simulated RT facade");
+  os << "note: S-line generation is simulated and intended for planning/trajectory inspection" << std::endl;
 
   error_code ec;
   xMateRobot robot;

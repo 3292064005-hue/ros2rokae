@@ -31,7 +31,7 @@ struct MotionCommand {
     std::vector<double> target_joints;      // 目标关节位置
     std::vector<double> target_cartesian;   // 目标笛卡尔位置 [x,y,z,rx,ry,rz]
     std::vector<double> aux_cartesian;      // 辅助点（圆弧运动用）
-    int speed;                              // 速度百分比 1-100
+    int speed;                              // 末端最大线速度 mm/s
     int zone;                               // 转弯区半径 mm
     int cmd_id;                             // 指令ID
 

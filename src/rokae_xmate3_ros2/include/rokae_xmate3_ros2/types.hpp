@@ -400,8 +400,8 @@ struct WorkToolInfo {
 
 struct MoveAbsJCommand {
   JointPosition target{};
-  int speed = 100;
-  int zone = 0;
+  int speed = 100;  // mm/s
+  int zone = 0;     // mm
 
   MoveAbsJCommand() = default;
   explicit MoveAbsJCommand(std::initializer_list<double> joints) : target(joints) {}
@@ -417,8 +417,8 @@ struct MoveAbsJCommand {
 
 struct MoveJCommand {
   CartesianPosition target{};
-  int speed = 100;
-  int zone = 0;
+  int speed = 100;  // mm/s
+  int zone = 0;     // mm
   CartesianPosition::Offset offset{};
 
   MoveJCommand() = default;
@@ -435,8 +435,8 @@ struct MoveJCommand {
 
 struct MoveLCommand {
   CartesianPosition target{};
-  int speed = 100;
-  int zone = 0;
+  int speed = 100;  // mm/s
+  int zone = 0;     // mm
   CartesianPosition::Offset offset{};
 
   MoveLCommand() = default;
@@ -454,8 +454,8 @@ struct MoveLCommand {
 struct MoveCCommand {
   CartesianPosition target{};
   CartesianPosition aux{};
-  int speed = 100;
-  int zone = 0;
+  int speed = 100;  // mm/s
+  int zone = 0;     // mm
   CartesianPosition::Offset targetOffset{};
   CartesianPosition::Offset auxOffset{};
 
@@ -470,8 +470,8 @@ struct MoveCCommand {
 struct MoveCFCommand {
   CartesianPosition target{};
   CartesianPosition aux{};
-  int speed = 100;
-  int zone = 0;
+  int speed = 100;  // mm/s
+  int zone = 0;     // mm
   double angle = 0.0;
   CartesianPosition::Offset targetOffset{};
   CartesianPosition::Offset auxOffset{};
@@ -490,8 +490,8 @@ struct MoveSPCommand {
   double radius_step = 0.0;
   double angle = 0.0;
   bool direction = true;
-  int speed = 100;
-  int zone = 0;
+  int speed = 100;  // mm/s
+  int zone = 0;     // mm
 
   MoveSPCommand() = default;
   explicit MoveSPCommand(const CartesianPosition &target_pose) : target(target_pose) {}

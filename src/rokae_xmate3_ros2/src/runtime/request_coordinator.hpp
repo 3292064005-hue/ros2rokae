@@ -22,7 +22,9 @@ struct SubmissionResult {
 
 class MotionRequestCoordinator {
  public:
-  MotionRequestCoordinator(MotionOptionsState &motion_options_state, MotionRuntime &motion_runtime);
+  MotionRequestCoordinator(MotionOptionsState &motion_options_state,
+                           ToolingState &tooling_state,
+                           MotionRuntime &motion_runtime);
 
   [[nodiscard]] RuntimeView currentView() const;
   [[nodiscard]] bool canAcceptRequest() const;
@@ -53,6 +55,7 @@ class MotionRequestCoordinator {
                                                   double trajectory_dt) const;
 
   MotionOptionsState &motion_options_state_;
+  ToolingState &tooling_state_;
   MotionRuntime &motion_runtime_;
 };
 

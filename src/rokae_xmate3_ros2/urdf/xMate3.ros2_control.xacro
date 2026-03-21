@@ -13,39 +13,51 @@
         <command_interface name="position"/>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
+        <state_interface name="effort"/>
       </joint>
 
       <joint name="xmate_joint_2">
         <command_interface name="position"/>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
+        <state_interface name="effort"/>
       </joint>
 
       <joint name="xmate_joint_3">
         <command_interface name="position"/>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
+        <state_interface name="effort"/>
       </joint>
 
       <joint name="xmate_joint_4">
         <command_interface name="position"/>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
+        <state_interface name="effort"/>
       </joint>
 
       <joint name="xmate_joint_5">
         <command_interface name="position"/>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
+        <state_interface name="effort"/>
       </joint>
 
       <joint name="xmate_joint_6">
         <command_interface name="position"/>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
+        <state_interface name="effort"/>
       </joint>
 
     </ros2_control>
+
+    <gazebo>
+      <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+        <parameters>$(arg package_share)/config/ros2_control.yaml</parameters>
+      </plugin>
+    </gazebo>
 
   </xacro:macro>
 

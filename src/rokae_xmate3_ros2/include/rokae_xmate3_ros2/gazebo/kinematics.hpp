@@ -19,6 +19,14 @@ using namespace Eigen;
  */
 class xMate3Kinematics {
 public:
+    using Vector6d = Matrix<double, 6, 1>;
+    using Matrix6d = Matrix<double, 6, 6>;
+
+    struct DebugCounters {
+        std::size_t jacobian_calls = 0;
+        std::size_t svd_calls = 0;
+    };
+
     xMate3Kinematics();
     
     /**
@@ -53,7 +61,7 @@ public:
     /**
      * @brief 计算雅可比矩阵
      */
-    MatrixXd computeJacobian(const std::vector<double>& joints);
+    Matrix6d computeJacobian(const std::vector<double>& joints);
 
     /**
      * @brief 检测是否接近奇异位
@@ -74,16 +82,20 @@ public:
      */
     bool avoidSingularity(std::vector<double>& joints);
 
+    void resetDebugCounters();
+    [[nodiscard]] DebugCounters debugCounters() const;
+
 private:
-    using Vector6d = Matrix<double, 6, 1>;
-    using Matrix6d = Matrix<double, 6, 6>;
+    struct SingularityAnalysis;
 
     std::vector<double> dh_a_, dh_alpha_, dh_d_;
     std::vector<double> joint_limits_min_, joint_limits_max_;
+    mutable DebugCounters debug_counters_{};
     std::vector<Matrix4d> computeAllTransforms(const std::vector<double>& joints);
     Matrix4d dhTransform(int i, double theta);
     Matrix4d rpyToTransform(const std::vector<double>& pose);
     Vector6d computePoseError(const Matrix4d& T_target, const Matrix4d& T_current);
+    [[nodiscard]] SingularityAnalysis analyzeSingularity(const std::vector<double>& joints);
 
     // 奇异位检测阈值
     static constexpr double SINGULARITY_THRESHOLD = 0.15;

@@ -14,7 +14,9 @@ constexpr double kFinalVelocityToleranceRad = 0.08;
 constexpr double kSoftFinalPositionToleranceRad = 0.02;
 constexpr double kSoftFinalVelocityToleranceRad = 0.18;
 constexpr double kVelocityEstimateTimeConstant = 0.03;
+constexpr double kAccelerationEstimateTimeConstant = 0.05;
 constexpr double kVelocitySpikeClampRad = 6.0;
+constexpr double kAccelerationSpikeClampRad = 30.0;
 constexpr int kSettleCyclesRequired = 12;
 constexpr int kSettleCyclesMax = 500;
 constexpr int kSoftSettleWarmupCycles = 35;
@@ -34,13 +36,16 @@ constexpr std::array<double, 6> kStrongHoldTrackKd = {54.0, 56.0, 45.0, 22.0, 15
 constexpr std::array<double, 6> kStrongHoldTrackKi = {40.0, 42.0, 34.0, 14.0, 7.0, 3.0};
 constexpr std::array<double, 6> kIntegralClamp = {0.70, 0.70, 0.65, 0.42, 0.32, 0.22};
 constexpr std::array<double, 6> kVelocityFeedforward = {1.5, 1.7, 1.5, 0.8, 0.5, 0.2};
+constexpr std::array<double, 6> kAccelerationFeedforward = {1.2, 1.4, 1.1, 0.5, 0.35, 0.15};
 constexpr std::array<double, 6> kGravityCompensation = {0.0, 10.0, 7.0, 1.5, 0.8, 0.2};
 constexpr std::array<double, 6> kStaticFrictionComp = {0.8, 1.0, 0.8, 0.3, 0.2, 0.1};
 constexpr std::array<double, 6> kEffortLimit = {300.0, 300.0, 300.0, 300.0, 300.0, 300.0};
+constexpr std::array<double, 6> kTorqueRateLimit = {1200.0, 1200.0, 1000.0, 450.0, 320.0, 180.0};
 
 struct TrajectoryTrackingSample {
   std::vector<double> position;
   std::vector<double> velocity;
+  std::vector<double> acceleration;
   bool finished = false;
 };
 
@@ -57,7 +62,8 @@ double normalize_angle(double value) {
 
 TrajectoryTrackingSample sampleJointTrajectory(const std::vector<std::vector<double>> &trajectory,
                                                double elapsed_time,
-                                               double sample_dt) {
+                                               double sample_dt,
+                                               double total_time) {
   TrajectoryTrackingSample sample;
   if (trajectory.empty()) {
     sample.finished = true;
@@ -66,13 +72,15 @@ TrajectoryTrackingSample sampleJointTrajectory(const std::vector<std::vector<dou
 
   sample.position = trajectory.back();
   sample.velocity.assign(sample.position.size(), 0.0);
+  sample.acceleration.assign(sample.position.size(), 0.0);
 
   if (trajectory.size() == 1 || sample_dt <= 1e-9) {
     sample.finished = true;
     return sample;
   }
 
-  const double max_time = static_cast<double>(trajectory.size() - 1) * sample_dt;
+  const double derived_total_time = static_cast<double>(trajectory.size() - 1) * sample_dt;
+  const double max_time = total_time > 1e-9 ? total_time : derived_total_time;
   const double clamped_time = std::clamp(elapsed_time, 0.0, max_time);
   const double sample_index = clamped_time / sample_dt;
   const size_t index = static_cast<size_t>(std::floor(sample_index));
@@ -84,11 +92,46 @@ TrajectoryTrackingSample sampleJointTrajectory(const std::vector<std::vector<dou
   const double alpha = sample_index - static_cast<double>(index);
   sample.position.resize(trajectory[index].size(), 0.0);
   sample.velocity.resize(trajectory[index].size(), 0.0);
+  sample.acceleration.resize(trajectory[index].size(), 0.0);
+
+  auto estimate_tangent = [&](size_t point_index, size_t axis_index) {
+    if (trajectory.size() == 2) {
+      return (trajectory[1][axis_index] - trajectory[0][axis_index]) / sample_dt;
+    }
+    if (point_index == 0) {
+      return (trajectory[1][axis_index] - trajectory[0][axis_index]) / sample_dt;
+    }
+    if (point_index + 1 >= trajectory.size()) {
+      return (trajectory[point_index][axis_index] - trajectory[point_index - 1][axis_index]) / sample_dt;
+    }
+    return (trajectory[point_index + 1][axis_index] - trajectory[point_index - 1][axis_index]) / (2.0 * sample_dt);
+  };
+
+  const double u = alpha;
+  const double u2 = u * u;
+  const double u3 = u2 * u;
+  const double h00 = 2.0 * u3 - 3.0 * u2 + 1.0;
+  const double h10 = u3 - 2.0 * u2 + u;
+  const double h01 = -2.0 * u3 + 3.0 * u2;
+  const double h11 = u3 - u2;
+  const double dh00 = 6.0 * u2 - 6.0 * u;
+  const double dh10 = 3.0 * u2 - 4.0 * u + 1.0;
+  const double dh01 = -6.0 * u2 + 6.0 * u;
+  const double dh11 = 3.0 * u2 - 2.0 * u;
+  const double ddh00 = 12.0 * u - 6.0;
+  const double ddh10 = 6.0 * u - 4.0;
+  const double ddh01 = -12.0 * u + 6.0;
+  const double ddh11 = 6.0 * u - 2.0;
   for (size_t i = 0; i < trajectory[index].size(); ++i) {
     const double p0 = trajectory[index][i];
     const double p1 = trajectory[index + 1][i];
-    sample.position[i] = p0 + alpha * (p1 - p0);
-    sample.velocity[i] = (p1 - p0) / sample_dt;
+    const double m0 = estimate_tangent(index, i);
+    const double m1 = estimate_tangent(index + 1, i);
+    sample.position[i] = h00 * p0 + h10 * sample_dt * m0 + h01 * p1 + h11 * sample_dt * m1;
+    sample.velocity[i] = (dh00 / sample_dt) * p0 + dh10 * m0 + (dh01 / sample_dt) * p1 + dh11 * m1;
+    sample.acceleration[i] =
+        (ddh00 / (sample_dt * sample_dt)) * p0 + (ddh10 / sample_dt) * m0 +
+        (ddh01 / (sample_dt * sample_dt)) * p1 + (ddh11 / sample_dt) * m1;
   }
   sample.finished = clamped_time >= max_time;
   return sample;
@@ -102,7 +145,10 @@ MotionExecutor::MotionExecutor() {
 
 void MotionExecutor::resetControllerState() {
   effort_error_integral_.fill(0.0);
+  effort_last_velocity_.fill(0.0);
   effort_filtered_velocity_.fill(0.0);
+  effort_filtered_acceleration_.fill(0.0);
+  effort_last_command_.fill(0.0);
   effort_velocity_initialized_ = false;
 }
 
@@ -189,6 +235,7 @@ MotionExecutor::TrackingStatus MotionExecutor::applyEffortTracking(
     double dt,
     const std::vector<double> &target_position,
     const std::vector<double> &target_velocity,
+    const std::vector<double> &target_acceleration,
     const std::array<double, 6> &kp,
     const std::array<double, 6> &kd,
     const std::array<double, 6> &ki,
@@ -198,10 +245,14 @@ MotionExecutor::TrackingStatus MotionExecutor::applyEffortTracking(
   status.settled = true;
   const double safe_dt = std::clamp(dt, 1e-4, 0.05);
   const double velocity_alpha = std::clamp(safe_dt / (kVelocityEstimateTimeConstant + safe_dt), 0.05, 1.0);
+  const double acceleration_alpha =
+      std::clamp(safe_dt / (kAccelerationEstimateTimeConstant + safe_dt), 0.05, 1.0);
 
   if (!effort_velocity_initialized_) {
     effort_last_position_ = snapshot.joint_position;
+    effort_last_velocity_.fill(0.0);
     effort_filtered_velocity_.fill(0.0);
+    effort_filtered_acceleration_.fill(0.0);
     effort_velocity_initialized_ = true;
   }
 
@@ -212,15 +263,30 @@ MotionExecutor::TrackingStatus MotionExecutor::applyEffortTracking(
     const double estimated_velocity = std::clamp(delta_pos / safe_dt,
                                                  -kVelocitySpikeClampRad,
                                                  kVelocitySpikeClampRad);
+    const double measured_velocity = snapshot.joint_velocity[i];
+    const bool measured_velocity_valid =
+        std::isfinite(measured_velocity) && std::fabs(measured_velocity) <= kVelocitySpikeClampRad * 2.0;
+    const double raw_velocity = measured_velocity_valid ? measured_velocity : estimated_velocity;
     effort_filtered_velocity_[i] =
-        velocity_alpha * estimated_velocity + (1.0 - velocity_alpha) * effort_filtered_velocity_[i];
+        velocity_alpha * raw_velocity + (1.0 - velocity_alpha) * effort_filtered_velocity_[i];
+    const double estimated_acceleration = std::clamp(
+        (effort_filtered_velocity_[i] - effort_last_velocity_[i]) / safe_dt,
+        -kAccelerationSpikeClampRad,
+        kAccelerationSpikeClampRad);
+    effort_filtered_acceleration_[i] =
+        acceleration_alpha * estimated_acceleration +
+        (1.0 - acceleration_alpha) * effort_filtered_acceleration_[i];
+    effort_last_velocity_[i] = effort_filtered_velocity_[i];
     effort_last_position_[i] = current_pos;
 
     const double current_vel = effort_filtered_velocity_[i];
+    const double current_acc = effort_filtered_acceleration_[i];
     const double desired_pos = i < static_cast<int>(target_position.size()) ? target_position[i] : current_pos;
     const double desired_vel = i < static_cast<int>(target_velocity.size()) ? target_velocity[i] : 0.0;
+    const double desired_acc = i < static_cast<int>(target_acceleration.size()) ? target_acceleration[i] : 0.0;
     const double pos_error = desired_pos - current_pos;
     const double vel_error = desired_vel - current_vel;
+    const double acc_error = desired_acc - current_acc;
 
     effort_error_integral_[i] = std::clamp(
         effort_error_integral_[i] + pos_error * safe_dt,
@@ -239,10 +305,16 @@ MotionExecutor::TrackingStatus MotionExecutor::applyEffortTracking(
         kd[i] * vel_error +
         ki[i] * effort_error_integral_[i] +
         kVelocityFeedforward[i] * desired_vel +
+        kAccelerationFeedforward[i] * acc_error +
         kGravityCompensation[i] * std::sin(current_pos) +
         static_friction;
+    const double max_effort_delta = kTorqueRateLimit[i] * safe_dt;
+    axis_effort = std::clamp(axis_effort,
+                             effort_last_command_[i] - max_effort_delta,
+                             effort_last_command_[i] + max_effort_delta);
     axis_effort = std::clamp(axis_effort, -kEffortLimit[i], kEffortLimit[i]);
     effort[i] = axis_effort;
+    effort_last_command_[i] = axis_effort;
 
     status.max_position_error = std::max(status.max_position_error, std::fabs(pos_error));
     status.max_velocity_error = std::max(status.max_velocity_error, std::fabs(vel_error));
@@ -258,7 +330,9 @@ MotionExecutor::TrackingStatus MotionExecutor::applyEffortTracking(
 ExecutionStep MotionExecutor::holdPositionStep(const RobotSnapshot &snapshot, double dt) {
   ensureHoldPosition(snapshot);
   const std::vector<double> zero_velocity(hold_position_.size(), 0.0);
+  const std::vector<double> zero_acceleration(hold_position_.size(), 0.0);
   const auto tracking = applyEffortTracking(snapshot, dt, hold_position_, zero_velocity,
+                                            zero_acceleration,
                                             kHoldTrackKp, kHoldTrackKd, kHoldTrackKi,
                                             kFinalPositionToleranceRad, kFinalVelocityToleranceRad);
   ExecutionStep step;
@@ -267,7 +341,7 @@ ExecutionStep MotionExecutor::holdPositionStep(const RobotSnapshot &snapshot, do
   return step;
 }
 
-ExecutionStep MotionExecutor::tick(const RobotSnapshot &snapshot, double dt) {
+ExecutionStep MotionExecutor::tick(const RobotSnapshot &snapshot, double dt, double trajectory_time_scale) {
   ensureHoldPosition(snapshot);
 
   if (!active_plan_) {
@@ -282,6 +356,7 @@ ExecutionStep MotionExecutor::tick(const RobotSnapshot &snapshot, double dt) {
       ExecutionStep step = holdPositionStep(snapshot, dt);
       step.state = ExecutionState::completed;
       step.plan_completed = true;
+      step.terminal_success = true;
       return step;
     }
   }
@@ -296,17 +371,38 @@ ExecutionStep MotionExecutor::tick(const RobotSnapshot &snapshot, double dt) {
   }
 
   if (!segment.in_fine_tuning && !segment.segment.joint_trajectory.empty()) {
-    segment.trajectory_elapsed += std::clamp(dt, 1e-4, 0.05);
+    const double clamped_scale = std::clamp(trajectory_time_scale, 0.05, 2.0);
+    const double trajectory_dt = std::clamp(dt * clamped_scale, 1e-4, 0.05);
+    segment.trajectory_elapsed += trajectory_dt;
     const auto sample = sampleJointTrajectory(segment.segment.joint_trajectory,
                                               segment.trajectory_elapsed,
-                                              segment.segment.trajectory_dt);
-    const auto tracking = applyEffortTracking(snapshot, dt, sample.position, sample.velocity,
+                                              segment.segment.trajectory_dt,
+                                              segment.segment.trajectory_total_time);
+    std::vector<double> scaled_velocity = sample.velocity;
+    std::vector<double> scaled_acceleration = sample.acceleration;
+    for (double &value : scaled_velocity) {
+      value *= clamped_scale;
+    }
+    for (double &value : scaled_acceleration) {
+      value *= clamped_scale * clamped_scale;
+    }
+    const auto tracking = applyEffortTracking(snapshot, dt, sample.position, scaled_velocity,
+                                              scaled_acceleration,
                                               kActiveTrackKp, kActiveTrackKd, kActiveTrackKi,
                                               kTrackingPositionToleranceRad,
                                               kTrackingVelocityToleranceRad);
     step.command = tracking.command;
     step.state = ExecutionState::executing;
     if (sample.finished) {
+      if (segment.segment.blend_to_next && active_plan_ && segment_index_ + 1 < active_plan_->segments.size()) {
+        ++segment_index_;
+        step.completed_segments = segment_index_;
+        step.state = ExecutionState::queued;
+        step.message = "blending to next segment";
+        active_segment_.reset();
+        resetControllerState();
+        return step;
+      }
       segment.in_fine_tuning = true;
       segment.fine_tuning_steps = 0;
       segment.settle_attempts = 0;
@@ -331,8 +427,10 @@ ExecutionStep MotionExecutor::tick(const RobotSnapshot &snapshot, double dt) {
       segment.segment.target_joints,
       use_strong_settle ? kStrongHoldVelocityAssistGain : kHoldVelocityAssistGain,
       use_strong_settle ? kStrongHoldVelocityAssistLimit : kHoldVelocityAssistLimit);
+  const std::vector<double> zero_acceleration(segment.segment.target_joints.size(), 0.0);
   const auto tracking = applyEffortTracking(snapshot, dt, segment.segment.target_joints,
-                                            assisted_velocity, hold_kp, hold_kd, hold_ki,
+                                            assisted_velocity, zero_acceleration,
+                                            hold_kp, hold_kd, hold_ki,
                                             kFinalPositionToleranceRad,
                                             kFinalVelocityToleranceRad);
   step.command = tracking.command;
@@ -357,11 +455,13 @@ ExecutionStep MotionExecutor::tick(const RobotSnapshot &snapshot, double dt) {
 
     if (segment_index_ >= active_plan_->segments.size()) {
       active_plan_.reset();
-      step.state = ExecutionState::completed;
+      const bool settled_without_fallback = segment.settle_attempts < kSettleCyclesMax;
+      step.state = settled_without_fallback ? ExecutionState::completed : ExecutionState::completed_relaxed;
       step.plan_completed = true;
-      step.message = segment.settle_attempts >= kSettleCyclesMax
-                         ? "plan completed after settle timeout fallback"
-                         : "plan completed";
+      step.terminal_success = settled_without_fallback;
+      step.message = settled_without_fallback
+                         ? "plan completed"
+                         : "completed_with_relaxed_settle";
     } else {
       step.state = ExecutionState::queued;
     }

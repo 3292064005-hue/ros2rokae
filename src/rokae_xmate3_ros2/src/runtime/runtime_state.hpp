@@ -20,6 +20,7 @@ struct ToolsetSnapshot {
   std::string wobj_name;
   std::vector<double> tool_pose;
   std::vector<double> wobj_pose;
+  std::vector<double> base_pose;
 };
 
 struct SoftLimitSnapshot {
@@ -89,8 +90,8 @@ class SessionState {
 
 class MotionOptionsState {
  public:
-  void setDefaultSpeed(int speed);
-  [[nodiscard]] int defaultSpeed() const;
+  void setDefaultSpeed(double speed);
+  [[nodiscard]] double defaultSpeed() const;
 
   void setDefaultZone(int zone);
   [[nodiscard]] int defaultZone() const;
@@ -113,7 +114,7 @@ class MotionOptionsState {
 
  private:
   mutable std::mutex mutex_;
-  int default_speed_ = 50;
+  double default_speed_ = 50.0;
   int default_zone_ = 0;
   double speed_scale_ = 1.0;
   bool default_conf_opt_forced_ = false;
@@ -135,14 +136,20 @@ class ToolingState {
                   const std::string &wobj_name,
                   const std::vector<double> &tool_pose,
                   const std::vector<double> &wobj_pose);
+  [[nodiscard]] bool setToolsetByName(const std::string &tool_name, const std::string &wobj_name);
   [[nodiscard]] ToolsetSnapshot toolset() const;
+  void setBaseFrame(const std::vector<double> &base_pose);
+  [[nodiscard]] std::vector<double> baseFrame() const;
 
  private:
   mutable std::mutex mutex_;
-  std::string current_tool_name_;
-  std::string current_wobj_name_;
-  std::vector<double> current_tool_pose_;
-  std::vector<double> current_wobj_pose_;
+  std::string current_tool_name_{"tool0"};
+  std::string current_wobj_name_{"wobj0"};
+  std::vector<double> current_tool_pose_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  std::vector<double> current_wobj_pose_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  std::vector<double> base_pose_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  std::map<std::string, std::vector<double>> tool_registry_{{"tool0", {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}}};
+  std::map<std::string, std::vector<double>> wobj_registry_{{"wobj0", {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}}};
 };
 
 class DataStoreState {

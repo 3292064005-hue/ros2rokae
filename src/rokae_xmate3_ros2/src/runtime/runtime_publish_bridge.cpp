@@ -126,7 +126,9 @@ std::shared_ptr<rokae_xmate3_ros2::action::MoveAppend::Result>
 RuntimePublishBridge::buildMoveAppendResult(const std::string &request_id,
                                             const RuntimeStatus &status) const {
   auto result = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
-  result->success = status.state == ExecutionState::completed && status.terminal_success;
+  result->success = (status.state == ExecutionState::completed ||
+                     status.state == ExecutionState::completed_relaxed) &&
+                    status.terminal_success;
   result->cmd_id = request_id;
   result->message = status.message.empty() ? to_string(status.state) : status.message;
   return result;

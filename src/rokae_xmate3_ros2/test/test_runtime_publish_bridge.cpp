@@ -111,6 +111,15 @@ TEST(RuntimePublishBridgeTest, BuildsMoveAppendResultFromTerminalStatus) {
   EXPECT_EQ(ok_result->cmd_id, "move_ok");
   EXPECT_EQ(ok_result->message, "done");
 
+  rt::RuntimeStatus relaxed;
+  relaxed.state = rt::ExecutionState::completed_relaxed;
+  relaxed.terminal_success = false;
+  relaxed.message = "completed_with_relaxed_settle";
+  const auto relaxed_result = bridge.buildMoveAppendResult("move_relaxed", relaxed);
+  EXPECT_FALSE(relaxed_result->success);
+  EXPECT_EQ(relaxed_result->cmd_id, "move_relaxed");
+  EXPECT_EQ(relaxed_result->message, "completed_with_relaxed_settle");
+
   rt::RuntimeStatus failed;
   failed.state = rt::ExecutionState::failed;
   failed.terminal_success = false;

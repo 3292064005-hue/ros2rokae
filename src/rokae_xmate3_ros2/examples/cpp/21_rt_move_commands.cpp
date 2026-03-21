@@ -11,7 +11,8 @@ using namespace rokae;
 using namespace example;
 
 int main() {
-  printHeader("示例 21: RT MoveJ / MoveL / MoveC", "move_commands 对齐版");
+  printHeader("示例 21: RT MoveJ / MoveL / MoveC", "Gazebo simulated RT facade");
+  os << "note: RT move commands are executed as simulated RT commands in Gazebo" << std::endl;
 
   error_code ec;
   xMateRobot robot;

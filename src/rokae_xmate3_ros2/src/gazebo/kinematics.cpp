@@ -86,31 +86,38 @@ std::vector<double> xMate3Kinematics::forwardKinematicsRPY(const std::vector<dou
 
     return pose;
 }
+struct xMate3Kinematics::SingularityAnalysis {
+    Matrix6d jacobian = Matrix6d::Zero();
+    JacobiSVD<Matrix6d> svd;
+    double min_sigma = 0.0;
+    bool near_singularity = true;
+    double singularity_measure = 1.0;
+
+    SingularityAnalysis();
+};
+
+xMate3Kinematics::SingularityAnalysis::SingularityAnalysis()
+    : svd(Matrix6d::Identity(), ComputeFullU | ComputeFullV) {}
+
 // -------------------------- 逆运动学 - 多解输出版（带奇异位处理） --------------------------
 // 新增返回值：所有满足精度的有效逆解，按与当前关节的运动距离从小到大排序
 std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolution(
         const std::vector<double>& target,
         const std::vector<double>& current_joints) {
-
     Matrix4d T_target = rpyToTransform(target);
 
-    // ========== 迭代参数（增强鲁棒性配置） ==========
-    const int max_iter = 1000;          // 增加迭代次数
-    const double position_tolerance = 1e-5;  // 稍微放宽容差
+    const int max_iter = 1000;
+    const double position_tolerance = 1e-5;
     const double orientation_tolerance = 1e-3;
     const double orientation_weight = 0.8;
-    const double max_joint_step = 0.02;      // 减小步长，增加稳定性
-    const double min_lambda = 0.02;           // 增加最小阻尼
-    const double max_lambda = 0.8;            // 增加最大阻尼
+    const double max_joint_step = 0.02;
+    const double min_lambda = 0.02;
+    const double max_lambda = 0.8;
+    const double solution_valid_threshold = 5e-3;
+    const double duplicate_threshold = 0.05;
 
-    // ========== 多解核心：有效解校验阈值 ==========
-    const double solution_valid_threshold = 5e-3; // 放宽有效解阈值
-    const double duplicate_threshold = 0.05;      // 去重阈值：关节角差的范数小于此值视为同一解
-
-    // ========== 增强版单种子求解核心逻辑（带奇异位处理） ==========
     auto solveFromSeed = [&](std::vector<double> joints) -> std::pair<std::vector<double>, double> {
-        // 预检查：如果种子在奇异位附近，先调整
-        if (isNearSingularity(joints)) {
+        if (analyzeSingularity(joints).near_singularity) {
             avoidSingularity(joints);
         }
 
@@ -121,50 +128,36 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
             Matrix4d T_current = forwardKinematics(joints);
             Vector6d error = computePoseError(T_target, T_current);
 
-            double pos_err = error.head<3>().norm();
-            double ori_err = error.tail<3>().norm();
-            double current_score = pos_err + orientation_weight * ori_err;
-
-            // 保存最佳解
+            const double pos_err = error.head<3>().norm();
+            const double ori_err = error.tail<3>().norm();
+            const double current_score = pos_err + orientation_weight * ori_err;
             if (current_score < best_score) {
                 best_score = current_score;
                 best_joints = joints;
             }
-
             if (pos_err < position_tolerance && ori_err < orientation_tolerance) {
                 break;
             }
 
-            // 检查是否接近奇异位
-            bool near_singular = isNearSingularity(joints);
-            double singularity_measure = computeSingularityMeasure(joints);
-
-            MatrixXd J = computeJacobian(joints);
+            const auto singularity = analyzeSingularity(joints);
             Matrix6d W = Matrix6d::Identity();
             W(3,3) = W(4,4) = W(5,5) = orientation_weight;
-
-            // 在奇异位附近增加方向权重
-            if (near_singular) {
-                // 对关节4和6增加阻尼，避免过大运动
-                W(3,3) *= 0.3;  // 降低姿态权重
+            if (singularity.near_singularity) {
+                W(3,3) *= 0.3;
                 W(4,4) *= 0.3;
                 W(5,5) *= 0.3;
             }
 
             Vector6d err_w = error;
             err_w.tail<3>() *= W(3,3);
-            MatrixXd Jw = W * J;
+            const Matrix6d Jw = W * singularity.jacobian;
+            const double lambda_base = min_lambda + max_lambda * (1.0 - static_cast<double>(iter) / max_iter);
+            const double lambda = lambda_base * (1.0 + 2.0 * singularity.singularity_measure);
+            const Matrix6d JJt = Jw * Jw.transpose();
+            Vector6d delta_q =
+                Jw.transpose() * (JJt + lambda * lambda * Matrix6d::Identity()).inverse() * err_w;
 
-            // 根据奇异度动态调整lambda
-            double lambda_base = min_lambda + max_lambda * (1.0 - (double)iter/max_iter);
-            double lambda = lambda_base * (1.0 + 2.0 * singularity_measure);  // 奇异位时增加阻尼
-
-            MatrixXd JJt = Jw * Jw.transpose();
-            Vector6d delta_q = Jw.transpose() * (JJt + lambda * lambda * Matrix6d::Identity()).inverse() * err_w;
-
-            // 在奇异位附近进一步限制关节步长
-            double step_scale = near_singular ? 0.5 : 1.0;
-
+            const double step_scale = singularity.near_singularity ? 0.5 : 1.0;
             for (int i = 0; i < 6; ++i) {
                 double step = delta_q(i);
                 step = std::clamp(step, -max_joint_step * step_scale, max_joint_step * step_scale);
@@ -173,20 +166,17 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
             }
         }
 
-        // 如果最终解不够好，尝试用最佳解
         Matrix4d T_final = forwardKinematics(joints);
         Vector6d final_error = computePoseError(T_target, T_final);
         double final_pos_err = final_error.head<3>().norm();
         double final_ori_err = final_error.tail<3>().norm();
         double score = final_pos_err + orientation_weight * final_ori_err;
 
-        // 检查最佳解是否更好
         Matrix4d T_best = forwardKinematics(best_joints);
         Vector6d best_error = computePoseError(T_target, T_best);
-        double best_pos_err = best_error.head<3>().norm();
-        double best_ori_err = best_error.tail<3>().norm();
-        double best_final_score = best_pos_err + orientation_weight * best_ori_err;
-
+        const double best_pos_err = best_error.head<3>().norm();
+        const double best_ori_err = best_error.tail<3>().norm();
+        const double best_final_score = best_pos_err + orientation_weight * best_ori_err;
         if (best_final_score < score) {
             joints = best_joints;
             score = best_final_score;
@@ -194,112 +184,94 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
             final_ori_err = best_ori_err;
         }
 
-        // 标记无效解
         if (final_pos_err > solution_valid_threshold || final_ori_err > solution_valid_threshold) {
             score = std::numeric_limits<double>::infinity();
         }
-
         return {joints, score};
     };
 
-    // ========== 多解核心：覆盖8种构型的种子库（增加奇异位规避） ==========
     std::vector<std::vector<double>> seeds;
-    // 1. 必选：当前关节种子（优先收敛到最近解）
     {
         std::vector<double> seed = current_joints;
-        if (isNearSingularity(seed)) {
+        if (analyzeSingularity(seed).near_singularity) {
             avoidSingularity(seed);
         }
         seeds.push_back(seed);
     }
-
-    // 2. 覆盖肩左/肩右 构型（关节1正负极限附近）
     {
         std::vector<double> seed_shoulder_left = current_joints;
         seed_shoulder_left[0] = std::clamp(2.0, joint_limits_min_[0], joint_limits_max_[0]);
-        seed_shoulder_left[4] = 0.3;  // 主动避开奇异位
+        seed_shoulder_left[4] = 0.3;
         seeds.push_back(seed_shoulder_left);
     }
     {
         std::vector<double> seed_shoulder_right = current_joints;
         seed_shoulder_right[0] = std::clamp(-2.0, joint_limits_min_[0], joint_limits_max_[0]);
-        seed_shoulder_right[4] = -0.3;  // 主动避开奇异位
+        seed_shoulder_right[4] = -0.3;
         seeds.push_back(seed_shoulder_right);
     }
-
-    // 3. 覆盖肘上/肘下 构型（关节3正负极限附近）
     {
         std::vector<double> seed_elbow_up = current_joints;
         seed_elbow_up[2] = std::clamp(1.5, joint_limits_min_[2], joint_limits_max_[2]);
-        seed_elbow_up[4] = 0.4;  // 主动避开奇异位
+        seed_elbow_up[4] = 0.4;
         seeds.push_back(seed_elbow_up);
     }
     {
         std::vector<double> seed_elbow_down = current_joints;
         seed_elbow_down[2] = std::clamp(-1.5, joint_limits_min_[2], joint_limits_max_[2]);
-        seed_elbow_down[4] = -0.4;  // 主动避开奇异位
+        seed_elbow_down[4] = -0.4;
         seeds.push_back(seed_elbow_down);
     }
-
-    // 4. 覆盖腕正/腕翻 构型（关节6正负180度）
     {
         std::vector<double> seed_wrist_flip = current_joints;
         seed_wrist_flip[5] = std::clamp(M_PI, joint_limits_min_[5], joint_limits_max_[5]);
-        seed_wrist_flip[4] = 0.25;  // 主动避开奇异位
+        seed_wrist_flip[4] = 0.25;
         seeds.push_back(seed_wrist_flip);
     }
     {
         std::vector<double> seed_wrist_noflip = current_joints;
         seed_wrist_noflip[5] = std::clamp(0.0, joint_limits_min_[5], joint_limits_max_[5]);
-        seed_wrist_noflip[4] = -0.25;  // 主动避开奇异位
+        seed_wrist_noflip[4] = -0.25;
         seeds.push_back(seed_wrist_noflip);
     }
-
-    // 5. 补充：关节零位种子（兜底覆盖基础构型）- 但避开奇异位
     {
-        std::vector<double> zero_seed = {0,0,0,0,0,0};
-        zero_seed[4] = 0.2;  // 避开奇异位
+        std::vector<double> zero_seed = {0, 0, 0, 0, 0, 0};
+        zero_seed[4] = 0.2;
         seeds.push_back(zero_seed);
     }
     {
-        std::vector<double> zero_seed2 = {0,0,0,0,0,0};
-        zero_seed2[4] = -0.2;  // 另一个方向避开奇异位
+        std::vector<double> zero_seed2 = {0, 0, 0, 0, 0, 0};
+        zero_seed2[4] = -0.2;
         seeds.push_back(zero_seed2);
     }
-
-    // 6. 新增：专门针对奇异位附近的种子
     {
         std::vector<double> seed_sing_avoid1 = current_joints;
-        seed_sing_avoid1[4] = 0.5;  // 明确避开奇异
+        seed_sing_avoid1[4] = 0.5;
         seeds.push_back(seed_sing_avoid1);
     }
     {
         std::vector<double> seed_sing_avoid2 = current_joints;
-        seed_sing_avoid2[4] = -0.5;  // 明确避开奇异
+        seed_sing_avoid2[4] = -0.5;
         seeds.push_back(seed_sing_avoid2);
     }
 
-    // ========== 批量求解 ==========
     std::vector<std::vector<double>> candidate_solutions;
     for (const auto& seed : seeds) {
         auto [candidate_joints, score] = solveFromSeed(seed);
-        // 只保留有效解
         if (score < std::numeric_limits<double>::infinity()) {
             candidate_solutions.push_back(candidate_joints);
         }
     }
 
-    // ========== 多解核心：去重处理 ==========
     std::vector<std::vector<double>> unique_solutions;
     for (const auto& sol : candidate_solutions) {
         bool is_duplicate = false;
         for (const auto& unique_sol : unique_solutions) {
-            // 计算两个解的关节角差的范数
             double diff_norm = 0.0;
             for (int i = 0; i < 6; ++i) {
-                diff_norm += pow(sol[i] - unique_sol[i], 2);
+                diff_norm += std::pow(sol[i] - unique_sol[i], 2);
             }
-            diff_norm = sqrt(diff_norm);
+            diff_norm = std::sqrt(diff_norm);
             if (diff_norm < duplicate_threshold) {
                 is_duplicate = true;
                 break;
@@ -310,13 +282,13 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
         }
     }
 
-    // ========== 多解优化：按与当前关节的运动距离排序 ==========
     std::sort(unique_solutions.begin(), unique_solutions.end(),
         [&current_joints](const std::vector<double>& a, const std::vector<double>& b) {
-            double dist_a = 0.0, dist_b = 0.0;
+            double dist_a = 0.0;
+            double dist_b = 0.0;
             for (int i = 0; i < 6; ++i) {
-                dist_a += fabs(a[i] - current_joints[i]);
-                dist_b += fabs(b[i] - current_joints[i]);
+                dist_a += std::fabs(a[i] - current_joints[i]);
+                dist_b += std::fabs(b[i] - current_joints[i]);
             }
             return dist_a < dist_b;
         });
@@ -324,7 +296,6 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
     return unique_solutions;
 }
 
-// 保留原单解函数，兼容原有代码调用
 std::vector<double> xMate3Kinematics::inverseKinematics(
         const std::vector<double>& target,
         const std::vector<double>& current_joints) {
@@ -353,7 +324,7 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
     const double solution_valid_threshold = 5e-3;
 
     std::vector<double> joints = seed_joints;
-    if (isNearSingularity(joints)) {
+    if (analyzeSingularity(joints).near_singularity) {
         avoidSingularity(joints);
     }
 
@@ -371,17 +342,14 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
             best_score = current_score;
             best_joints = joints;
         }
-
         if (pos_err < position_tolerance && ori_err < orientation_tolerance) {
             break;
         }
 
-        const bool near_singular = isNearSingularity(joints);
-        const double singularity_measure = computeSingularityMeasure(joints);
-        MatrixXd J = computeJacobian(joints);
+        const auto singularity = analyzeSingularity(joints);
         Matrix6d W = Matrix6d::Identity();
         W(3,3) = W(4,4) = W(5,5) = orientation_weight;
-        if (near_singular) {
+        if (singularity.near_singularity) {
             W(3,3) *= 0.3;
             W(4,4) *= 0.3;
             W(5,5) *= 0.3;
@@ -389,13 +357,14 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
 
         Vector6d err_w = error;
         err_w.tail<3>() *= W(3,3);
-        MatrixXd Jw = W * J;
+        const Matrix6d Jw = W * singularity.jacobian;
         const double lambda_base = min_lambda + max_lambda * (1.0 - static_cast<double>(iter) / max_iter);
-        const double lambda = lambda_base * (1.0 + 2.0 * singularity_measure);
-        MatrixXd JJt = Jw * Jw.transpose();
-        Vector6d delta_q = Jw.transpose() * (JJt + lambda * lambda * Matrix6d::Identity()).inverse() * err_w;
+        const double lambda = lambda_base * (1.0 + 2.0 * singularity.singularity_measure);
+        const Matrix6d JJt = Jw * Jw.transpose();
+        Vector6d delta_q =
+            Jw.transpose() * (JJt + lambda * lambda * Matrix6d::Identity()).inverse() * err_w;
 
-        const double step_scale = near_singular ? 0.6 : 1.0;
+        const double step_scale = singularity.near_singularity ? 0.6 : 1.0;
         for (int i = 0; i < 6; ++i) {
             double step = delta_q(i);
             step = std::clamp(step, -max_joint_step * step_scale, max_joint_step * step_scale);
@@ -427,54 +396,29 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
 
     return joints;
 }
-// -------------------------- 逆运动学 - 优化迭代参数 --------------------------
 
-// -------------------------- 核心修复：位姿误差有限差分雅可比 --------------------------
-MatrixXd xMate3Kinematics::computeJacobian(const std::vector<double>& joints)
-{
-    MatrixXd J(6, 6);
+xMate3Kinematics::Matrix6d xMate3Kinematics::computeJacobian(const std::vector<double>& joints) {
+    ++debug_counters_.jacobian_calls;
+
+    Matrix6d J = Matrix6d::Zero();
     const double delta = 1e-6;
+    const Matrix4d T_current = forwardKinematics(joints);
 
-    // 当前位姿
-    Matrix4d T_current = forwardKinematics(joints);
-
-    // 遍历每个关节
     for (int i = 0; i < 6; ++i) {
         std::vector<double> joints_plus = joints;
         joints_plus[i] += delta;
-        Matrix4d T_plus = forwardKinematics(joints_plus);
-        Vector6d error = computePoseError(T_plus, T_current);
+        const Matrix4d T_plus = forwardKinematics(joints_plus);
+        const Vector6d error = computePoseError(T_plus, T_current);
         J.col(i) = error / delta;
     }
 
     return J;
 }
 
-// -------------------------- 奇异位检测：关节4和6共轴检测 --------------------------
-bool xMate3Kinematics::isNearSingularity(const std::vector<double>& joints) {
+xMate3Kinematics::SingularityAnalysis xMate3Kinematics::analyzeSingularity(const std::vector<double>& joints) {
+    SingularityAnalysis analysis;
     if (joints.size() < 6) {
-        return true;
-    }
-
-    // 腕部奇异：关节5接近0时，关节4与6接近共轴。
-    if (std::fabs(joints[4]) < WRIST_SINGULARITY_THRESHOLD) {
-        return true;
-    }
-
-    // 同时结合整体雅可比条件数，避免只盯着腕部奇异。
-    const MatrixXd jacobian = computeJacobian(joints);
-    JacobiSVD<MatrixXd> svd(jacobian, ComputeThinU | ComputeThinV);
-    if (svd.singularValues().size() == 0) {
-        return true;
-    }
-
-    const double min_sigma = svd.singularValues().tail(1)(0);
-    return min_sigma < JACOBIAN_SINGULARITY_THRESHOLD;
-}
-
-double xMate3Kinematics::computeSingularityMeasure(const std::vector<double>& joints) {
-    if (joints.size() < 6) {
-        return 1.0;
+        return analysis;
     }
 
     double wrist_measure = 0.0;
@@ -483,34 +427,45 @@ double xMate3Kinematics::computeSingularityMeasure(const std::vector<double>& jo
         wrist_measure = 1.0 - (j5 / WRIST_SINGULARITY_THRESHOLD);
     }
 
-    const MatrixXd jacobian = computeJacobian(joints);
-    JacobiSVD<MatrixXd> svd(jacobian, ComputeThinU | ComputeThinV);
-    if (svd.singularValues().size() == 0) {
-        return 1.0;
+    analysis.jacobian = computeJacobian(joints);
+    ++debug_counters_.svd_calls;
+    analysis.svd = JacobiSVD<Matrix6d>(analysis.jacobian, ComputeFullU | ComputeFullV);
+    if (analysis.svd.singularValues().size() == 0) {
+        return analysis;
     }
 
-    const double min_sigma = svd.singularValues().tail(1)(0);
+    analysis.min_sigma = analysis.svd.singularValues().tail<1>()(0);
     const double jacobian_measure = std::clamp(
-        1.0 - (min_sigma / JACOBIAN_SINGULARITY_THRESHOLD), 0.0, 1.0);
+        1.0 - (analysis.min_sigma / JACOBIAN_SINGULARITY_THRESHOLD), 0.0, 1.0);
+    analysis.singularity_measure = std::max(wrist_measure, jacobian_measure);
+    analysis.near_singularity =
+        std::fabs(joints[4]) < WRIST_SINGULARITY_THRESHOLD ||
+        analysis.min_sigma < JACOBIAN_SINGULARITY_THRESHOLD;
+    return analysis;
+}
 
-    return std::max(wrist_measure, jacobian_measure);
+bool xMate3Kinematics::isNearSingularity(const std::vector<double>& joints) {
+    return analyzeSingularity(joints).near_singularity;
+}
+
+double xMate3Kinematics::computeSingularityMeasure(const std::vector<double>& joints) {
+    return analyzeSingularity(joints).singularity_measure;
 }
 
 bool xMate3Kinematics::avoidSingularity(std::vector<double>& joints) {
-    // 如果不在奇异位附近，无需调整
-    if (!isNearSingularity(joints)) {
+    const auto before = analyzeSingularity(joints);
+    if (!before.near_singularity) {
         return true;
     }
 
-    // 优先把腕部拉离 joint5=0 的共轴奇异位置。
     const double current_j5 = joints[4];
     const double target_offset = SINGULARITY_AVOIDANCE_OFFSET;
     joints[4] = current_j5 >= 0.0 ? std::max(target_offset, joint_limits_min_[4])
                                   : std::min(-target_offset, joint_limits_max_[4]);
     joints[4] = std::clamp(joints[4], joint_limits_min_[4], joint_limits_max_[4]);
 
-    // 如果整体雅可比仍然接近奇异，再补一个轻微的肘部/腕部扰动，帮助种子跳出坏分支。
-    if (computeSingularityMeasure(joints) > 0.7) {
+    const auto after_wrist_adjust = analyzeSingularity(joints);
+    if (after_wrist_adjust.singularity_measure > 0.7) {
         joints[2] = std::clamp(joints[2] + (joints[2] >= 0.0 ? 0.12 : -0.12),
                                joint_limits_min_[2], joint_limits_max_[2]);
         joints[3] = std::clamp(joints[3] + (joints[3] >= 0.0 ? 0.08 : -0.08),
@@ -520,6 +475,14 @@ bool xMate3Kinematics::avoidSingularity(std::vector<double>& joints) {
     }
 
     return true;
+}
+
+void xMate3Kinematics::resetDebugCounters() {
+    debug_counters_ = DebugCounters{};
+}
+
+xMate3Kinematics::DebugCounters xMate3Kinematics::debugCounters() const {
+    return debug_counters_;
 }
 
 // -------------------------- 改进DH变换矩阵 - 完全保留你的原版 --------------------------

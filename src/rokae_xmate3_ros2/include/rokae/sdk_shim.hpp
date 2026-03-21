@@ -228,6 +228,11 @@ inline void publish_safety_event(const std::shared_ptr<RobotSession> &session, b
   }
 }
 
+inline int rt_speed_ratio_to_nrt_speed_mm_per_s(double speed_ratio) {
+  const double clamped_ratio = std::clamp(speed_ratio, 0.01, 1.0);
+  return std::clamp(static_cast<int>(std::lround(clamped_ratio * 4000.0)), 5, 4000);
+}
+
 inline bool wait_until_idle(const std::shared_ptr<RobotSession> &session,
                             error_code &ec,
                             std::chrono::milliseconds timeout = std::chrono::seconds(30)) {
@@ -500,6 +505,7 @@ public:
     detail::remember_error(session_, ec);
   }
 
+  // Gazebo shim note: this keeps the SDK RT API shape, but runs as a simulated RT facade.
   template <class Command>
   void setControlLoop(const std::function<Command(void)> &callback, int priority = 0, bool useStateDataInLoop = false) noexcept {
     (void)priority;
@@ -567,7 +573,7 @@ public:
           }
         }
       } else if (value.type() == typeid(Torque)) {
-        // Gazebo shim: torque loop is acknowledged but not directly executed.
+        // Gazebo shim: torque loop is simulation-only and not a true hardware torque servo.
       }
       detail::remember_error(session_, ec);
     };
@@ -653,7 +659,7 @@ protected:
   std::atomic<bool> loop_running_{false};
   bool use_state_data_in_loop_ = false;
   std::chrono::steady_clock::time_point last_dispatch_time_{};
-  std::chrono::milliseconds dispatch_interval_{20};
+  std::chrono::milliseconds dispatch_interval_{1};
   bool has_last_joint_command_ = false;
   JointPosition last_joint_command_;
   bool has_last_cartesian_command_ = false;
@@ -706,7 +712,7 @@ public:
     (void)start;
     MoveAbsJCommand cmd;
     cmd.target = JointPosition(std::vector<double>(target.begin(), target.end()));
-    cmd.speed = std::clamp(static_cast<int>(std::lround(speed * 100.0)), 1, 100);
+    cmd.speed = detail::rt_speed_ratio_to_nrt_speed_mm_per_s(speed);
     cmd.zone = 0;
     this->session_->robot->moveReset(ec);
     if (!ec) {
@@ -728,7 +734,7 @@ public:
     error_code ec;
     (void)start;
     MoveLCommand cmd(target);
-    cmd.speed = std::clamp(static_cast<int>(std::lround(speed * 100.0)), 1, 100);
+    cmd.speed = detail::rt_speed_ratio_to_nrt_speed_mm_per_s(speed);
     this->session_->robot->moveReset(ec);
     if (!ec) {
       this->session_->robot->moveL(cmd, ec);
@@ -749,7 +755,7 @@ public:
     error_code ec;
     (void)start;
     MoveCCommand cmd(target, aux);
-    cmd.speed = std::clamp(static_cast<int>(std::lround(speed * 100.0)), 1, 100);
+    cmd.speed = detail::rt_speed_ratio_to_nrt_speed_mm_per_s(speed);
     this->session_->robot->moveReset(ec);
     if (!ec) {
       this->session_->robot->moveC(cmd, ec);

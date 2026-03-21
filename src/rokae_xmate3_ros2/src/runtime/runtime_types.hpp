@@ -19,6 +19,15 @@ enum class MotionKind {
   move_sp,
 };
 
+enum class PathFamily {
+  none,
+  joint,
+  cartesian_line,
+  cartesian_arc,
+  cartesian_continuous_circle,
+  cartesian_spiral,
+};
+
 enum class ExecutionState {
   idle,
   planning,
@@ -26,8 +35,15 @@ enum class ExecutionState {
   executing,
   settling,
   completed,
+  completed_relaxed,
   failed,
   stopped,
+};
+
+enum class ExecutionBackend {
+  none,
+  effort,
+  jtc,
 };
 
 struct MotionCommandSpec {
@@ -36,7 +52,7 @@ struct MotionCommandSpec {
   std::vector<double> target_cartesian;
   std::vector<double> aux_cartesian;
   std::vector<int> requested_conf;
-  int speed = 0;
+  double speed = 0.0;
   int zone = 0;
   double angle = 0.0;
   double radius = 0.0;
@@ -51,7 +67,7 @@ struct MotionRequest {
   std::string request_id;
   std::vector<double> start_joints;
   std::vector<MotionCommandSpec> commands;
-  int default_speed = 50;
+  double default_speed = 50.0;
   int default_zone = 0;
   bool strict_conf = false;
   bool avoid_singularity = true;
@@ -72,15 +88,24 @@ struct PlannedSegment {
   std::vector<double> target_joints;
   std::vector<double> target_cartesian;
   std::vector<double> aux_cartesian;
-  int speed = 0;
+  double speed = 0.0;
   int zone = 0;
+  bool blend_to_next = false;
   std::vector<std::vector<double>> joint_trajectory;
   double trajectory_dt = 0.01;
+  double trajectory_total_time = 0.0;
+  PathFamily path_family = PathFamily::none;
+  double path_length_m = 0.0;
+  double path_entry_trim_m = 0.0;
+  double path_exit_trim_m = 0.0;
+  bool path_blended = false;
+  double blend_length_m = 0.0;
 };
 
 struct MotionPlan {
   std::string request_id;
   std::vector<PlannedSegment> segments;
+  std::vector<std::string> notes;
   std::string error_message;
 
   [[nodiscard]] bool valid() const noexcept {
@@ -103,6 +128,33 @@ struct ControlCommand {
   bool has_effort = false;
 };
 
+struct TrajectoryExecutionPoint {
+  std::vector<double> position;
+  double time_from_start = 0.0;
+};
+
+struct TrajectoryExecutionGoal {
+  std::string request_id;
+  std::vector<TrajectoryExecutionPoint> points;
+  std::vector<double> segment_end_times;
+  std::size_t total_segments = 0;
+  std::size_t segment_index_offset = 0;
+  double original_time_offset = 0.0;
+  double original_time_scale = 1.0;
+};
+
+struct TrajectoryExecutionState {
+  std::string request_id;
+  bool active = false;
+  bool accepted = false;
+  bool completed = false;
+  bool succeeded = false;
+  bool canceled = false;
+  bool failed = false;
+  double desired_time_from_start = 0.0;
+  std::string message;
+};
+
 struct RuntimeStatus {
   std::string request_id;
   ExecutionState state = ExecutionState::idle;
@@ -112,10 +164,11 @@ struct RuntimeStatus {
   std::size_t current_segment_index = 0;
   bool terminal_success = false;
   std::uint64_t revision = 0;
+  ExecutionBackend execution_backend = ExecutionBackend::none;
 
   [[nodiscard]] bool terminal() const noexcept {
-    return state == ExecutionState::completed || state == ExecutionState::failed ||
-           state == ExecutionState::stopped;
+    return state == ExecutionState::completed || state == ExecutionState::completed_relaxed ||
+           state == ExecutionState::failed || state == ExecutionState::stopped;
   }
 };
 
@@ -143,6 +196,14 @@ class BackendInterface {
     (void)locked;
   }
   [[nodiscard]] virtual bool brakesLocked() const { return false; }
+  [[nodiscard]] virtual bool supportsTrajectoryExecution() const { return false; }
+  virtual bool startTrajectoryExecution(const TrajectoryExecutionGoal &goal, std::string &message) {
+    (void)goal;
+    message = "trajectory execution backend unavailable";
+    return false;
+  }
+  virtual void cancelTrajectoryExecution(const std::string &reason) { (void)reason; }
+  [[nodiscard]] virtual TrajectoryExecutionState readTrajectoryExecutionState() const { return {}; }
 };
 
 inline const char *to_string(MotionKind kind) noexcept {
@@ -164,6 +225,23 @@ inline const char *to_string(MotionKind kind) noexcept {
   }
 }
 
+inline const char *to_string(PathFamily family) noexcept {
+  switch (family) {
+    case PathFamily::joint:
+      return "joint";
+    case PathFamily::cartesian_line:
+      return "cartesian_line";
+    case PathFamily::cartesian_arc:
+      return "cartesian_arc";
+    case PathFamily::cartesian_continuous_circle:
+      return "cartesian_continuous_circle";
+    case PathFamily::cartesian_spiral:
+      return "cartesian_spiral";
+    default:
+      return "none";
+  }
+}
+
 inline const char *to_string(ExecutionState state) noexcept {
   switch (state) {
     case ExecutionState::planning:
@@ -176,6 +254,8 @@ inline const char *to_string(ExecutionState state) noexcept {
       return "settling";
     case ExecutionState::completed:
       return "completed";
+    case ExecutionState::completed_relaxed:
+      return "completed_relaxed";
     case ExecutionState::failed:
       return "failed";
     case ExecutionState::stopped:
@@ -185,14 +265,26 @@ inline const char *to_string(ExecutionState state) noexcept {
   }
 }
 
+inline const char *to_string(ExecutionBackend backend) noexcept {
+  switch (backend) {
+    case ExecutionBackend::effort:
+      return "effort";
+    case ExecutionBackend::jtc:
+      return "jtc";
+    default:
+      return "none";
+  }
+}
+
 inline bool is_active_state(ExecutionState state) noexcept {
   return state == ExecutionState::planning || state == ExecutionState::queued ||
          state == ExecutionState::executing || state == ExecutionState::settling;
 }
 
 inline bool is_terminal_state(ExecutionState state) noexcept {
-  return state == ExecutionState::completed || state == ExecutionState::failed ||
-         state == ExecutionState::stopped || state == ExecutionState::idle;
+  return state == ExecutionState::completed || state == ExecutionState::completed_relaxed ||
+         state == ExecutionState::failed || state == ExecutionState::stopped ||
+         state == ExecutionState::idle;
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

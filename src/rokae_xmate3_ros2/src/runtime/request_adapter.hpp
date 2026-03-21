@@ -13,11 +13,14 @@ namespace rokae_xmate3_ros2::runtime {
 struct MotionRequestContext {
   std::string request_id;
   std::vector<double> start_joints;
-  int default_speed = 50;
+  std::vector<double> tool_pose;
+  std::vector<double> wobj_pose;
+  double default_speed = 50.0;
   int default_zone = 0;
   bool strict_conf = false;
   bool avoid_singularity = true;
   bool soft_limit_enabled = false;
+  double speed_scale = 1.0;
   std::array<std::array<double, 2>, 6> soft_limits{{
       {{-3.14, 3.14}},
       {{-3.14, 3.14}},

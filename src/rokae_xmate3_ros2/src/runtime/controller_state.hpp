@@ -43,8 +43,8 @@ class ControllerState {
   void setOperateMode(uint8_t mode);
   [[nodiscard]] rokae_xmate3_ros2::msg::OperateMode operateMode() const;
 
-  void setDefaultSpeed(int speed);
-  [[nodiscard]] int defaultSpeed() const;
+  void setDefaultSpeed(double speed);
+  [[nodiscard]] double defaultSpeed() const;
 
   void setDefaultZone(int zone);
   [[nodiscard]] int defaultZone() const;

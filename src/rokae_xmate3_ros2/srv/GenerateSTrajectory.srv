@@ -2,10 +2,10 @@
 # 请求部分（Request）
 float64[6] start_joint_pos  # 起始关节位置（弧度）
 float64[6] target_joint_pos # 目标关节位置（弧度）
-float64 MAX_VELOCITY = 1.0  # 最大关节速度（弧度/秒），默认1.0
-float64 MAX_ACCELERATION = 0.5  # 最大关节加速度（弧度/秒²），默认0.5
-float64 BLEND_RADIUS = 0.01  # 轨迹融合半径（弧度），默认0.01
-bool IS_CARTESIAN = false   # 是否为笛卡尔空间轨迹（false=关节空间，true=笛卡尔）
+float64 max_velocity        # 最大关节速度（弧度/秒）
+float64 max_acceleration    # 最大关节加速度（弧度/秒²）
+float64 blend_radius        # 轨迹融合半径（弧度）
+bool is_cartesian           # 是否为笛卡尔空间轨迹（false=关节空间，true=笛卡尔）
 
 ---
 # 响应部分（Response）

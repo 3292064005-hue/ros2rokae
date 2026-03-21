@@ -30,7 +30,7 @@ TEST(ControllerStateTest, BuildsRequestAndOperationContextsFromSingleStateStore)
 
   const auto request = state.makeMotionRequestContext("req_1", {1, 2, 3, 4, 5, 6}, 0.02);
   EXPECT_EQ(request.request_id, "req_1");
-  EXPECT_EQ(request.default_speed, 72);
+  EXPECT_DOUBLE_EQ(request.default_speed, 72.0);
   EXPECT_EQ(request.default_zone, 9);
   EXPECT_TRUE(request.strict_conf);
   EXPECT_FALSE(request.avoid_singularity);

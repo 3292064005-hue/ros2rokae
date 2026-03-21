@@ -69,6 +69,7 @@ bool runTorqueLoop(xMateRobot &robot,
 
 int main() {
   printHeader("示例 26: RT 力矩控制", "torque_control Gazebo smoke 版");
+  os << "note: torque control in Gazebo is simulation-only and approximate" << std::endl;
 
   error_code ec;
   xMateRobot robot;

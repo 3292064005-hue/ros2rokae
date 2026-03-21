@@ -42,7 +42,7 @@
 - `MoveCF`
 - `MoveSP`
 - Jog / 路径录制 / 路径回放
-- RT 位置 / 阻抗 / 跟随 / S 线 / 力矩 smoke 示例
+- RT 位置 / 阻抗 / 跟随 / S 线 / 力矩 smoke 示例（Gazebo simulated RT facade）
 
 ### 运动学与模型
 - 正运动学 (FK)
@@ -170,7 +170,7 @@ ros2 run rokae_xmate3_ros2 example_25_rt_s_line
 | 17 | 4.3/4.5 | 状态缓存与异步轮询 |
 | 18 | 4.8 | 工具、工件与坐标系标定 |
 | 19 | 4.8 | 末端力矩、奇异规避与诊断 |
-| 20-26 | 4.5 | RT 控制系列示例 |
+| 20-26 | 4.5 | RT 控制系列示例（Gazebo simulated RT facade） |
 | 99 | - | 综合演示 |
 
 更多说明请参考 [examples/README.md](examples/README.md)。
@@ -192,10 +192,12 @@ auto joints = robot.getJointPos(ec);
 
 ### 运动控制
 
+`setDefaultSpeed()` 使用 `mm/s`，`setDefaultZone()` 使用 `mm`，`adjustSpeedOnline(scale)` 会对当前与后续 NRT 轨迹做仿真重定时。
+
 ```cpp
 robot.setMotionControlMode(rokae::MotionControlMode::NrtCommand, ec);
-robot.setDefaultSpeed(50, ec);
-robot.setDefaultZone(5, ec);
+robot.setDefaultSpeed(500, ec);  // mm/s
+robot.setDefaultZone(5, ec);      // mm
 robot.moveReset(ec);
 robot.moveStart(ec);
 ```

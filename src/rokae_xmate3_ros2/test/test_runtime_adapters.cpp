@@ -36,10 +36,10 @@ TEST(RuntimeRequestAdapterTest, BuildsMoveAppendRequestWithOffsetsAndDefaults) {
   ASSERT_TRUE(rt::build_motion_request(goal, context, request, error)) << error;
   ASSERT_EQ(request.commands.size(), 1u);
   EXPECT_EQ(request.request_id, "req_1");
-  EXPECT_EQ(request.default_speed, 42);
+  EXPECT_DOUBLE_EQ(request.default_speed, 42.0);
   EXPECT_TRUE(request.strict_conf);
   EXPECT_EQ(request.commands.front().kind, rt::MotionKind::move_l);
-  EXPECT_EQ(request.commands.front().speed, 42);
+  EXPECT_DOUBLE_EQ(request.commands.front().speed, 42.0);
   EXPECT_EQ(request.commands.front().zone, 7);
   EXPECT_EQ(request.commands.front().requested_conf.size(), 6u);
   EXPECT_NEAR(request.commands.front().target_cartesian[0], 0.41, 1e-9);
@@ -69,7 +69,7 @@ TEST(RuntimeRequestAdapterTest, BuildsReplayRequestFromRecordedPath) {
   EXPECT_EQ(request.commands.front().preplanned_trajectory.size(), 2u);
   EXPECT_EQ(request.commands.front().target_joints, path.back());
   EXPECT_NEAR(request.commands.front().preplanned_dt, 0.04, 1e-9);
-  EXPECT_EQ(request.commands.front().speed, 25);
+  EXPECT_DOUBLE_EQ(request.commands.front().speed, 25.0);
 }
 
 TEST(RuntimeOperationStateAdapterTest, MapsStateAndFormatsLogEvent) {
@@ -84,6 +84,7 @@ TEST(RuntimeOperationStateAdapterTest, MapsStateAndFormatsLogEvent) {
   view.status.completed_segments = 1;
   view.status.message = "tracking";
   view.status.revision = 7;
+  view.status.execution_backend = rt::ExecutionBackend::jtc;
 
   rt::OperationStateContext context;
   context.connected = true;
@@ -97,4 +98,5 @@ TEST(RuntimeOperationStateAdapterTest, MapsStateAndFormatsLogEvent) {
   EXPECT_EQ(log_event.revision, 7u);
   EXPECT_NE(log_event.text.find("request=move_9"), std::string::npos);
   EXPECT_NE(log_event.text.find("state=executing"), std::string::npos);
+  EXPECT_NE(log_event.text.find("backend=jtc"), std::string::npos);
 }

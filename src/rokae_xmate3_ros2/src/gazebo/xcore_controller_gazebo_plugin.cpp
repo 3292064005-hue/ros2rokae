@@ -13,6 +13,9 @@
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <builtin_interfaces/msg/duration.hpp>
+#include <control_msgs/action/follow_joint_trajectory.hpp>
+#include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 #include <array>
 #include <atomic>
 #include <thread>
@@ -22,6 +25,7 @@
 #include <mutex>
 #include <algorithm>
 #include <cmath>
+#include <future>
 #include <limits>
 
 #include <builtin_interfaces/msg/time.hpp>
@@ -53,6 +57,16 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
   GazeboRuntimeBackend(std::vector<physics::JointPtr> *joints,
                        const std::array<std::pair<double, double>, 6> *original_joint_limits)
       : joints_(joints), original_joint_limits_(original_joint_limits) {}
+
+  void configureTrajectoryClient(const rclcpp::Node::SharedPtr &node,
+                                 const std::vector<std::string> &joint_names) {
+    node_ = node;
+    trajectory_joint_names_ = joint_names;
+    if (node_ != nullptr) {
+      trajectory_client_ =
+          rclcpp_action::create_client<FollowJointTrajectory>(node_, "/joint_trajectory_controller/follow_joint_trajectory");
+    }
+  }
 
   runtime::RobotSnapshot readSnapshot() const override {
     runtime::RobotSnapshot snapshot;
@@ -87,33 +101,207 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
   }
 
   void setBrakeLock(const runtime::RobotSnapshot &snapshot, bool locked) override {
-    if (!joints_ || !original_joint_limits_ || locked == brakes_locked_) {
+    if (!joints_ || locked == brakes_locked_) {
       return;
     }
 
     if (locked) {
       clearControl();
       for (size_t i = 0; i < 6 && i < joints_->size(); ++i) {
-        (*joints_)[i]->SetLowerLimit(0, snapshot.joint_position[i]);
-        (*joints_)[i]->SetUpperLimit(0, snapshot.joint_position[i]);
+        // Avoid mutating Gazebo joint limits while gazebo_ros2_control owns the model.
+        // Locking the simulated brake is represented by clearing effort commands and
+        // zeroing the commanded joint velocity so the SDK-facing state machine remains
+        // deterministic without destabilizing controller_manager startup.
         (*joints_)[i]->SetVelocity(0, 0.0);
-      }
-    } else {
-      for (size_t i = 0; i < 6 && i < joints_->size(); ++i) {
-        (*joints_)[i]->SetLowerLimit(0, (*original_joint_limits_)[i].first);
-        (*joints_)[i]->SetUpperLimit(0, (*original_joint_limits_)[i].second);
       }
     }
 
+    (void)snapshot;
     brakes_locked_ = locked;
   }
 
   [[nodiscard]] bool brakesLocked() const override { return brakes_locked_; }
 
+  [[nodiscard]] bool supportsTrajectoryExecution() const override {
+    return trajectory_client_ != nullptr && trajectory_client_->action_server_is_ready();
+  }
+
+  bool startTrajectoryExecution(const runtime::TrajectoryExecutionGoal &goal,
+                                std::string &message) override {
+    if (trajectory_client_ == nullptr) {
+      message = "joint_trajectory_controller client is unavailable";
+      return false;
+    }
+    if (!trajectory_client_->wait_for_action_server(std::chrono::seconds(3))) {
+      message = "joint_trajectory_controller action server is unavailable";
+      return false;
+    }
+    if (goal.points.empty()) {
+      message = "trajectory goal is empty";
+      return false;
+    }
+
+    control_msgs::action::FollowJointTrajectory::Goal goal_msg;
+    goal_msg.trajectory.joint_names = trajectory_joint_names_;
+    goal_msg.trajectory.points.reserve(goal.points.size());
+    for (const auto &point : goal.points) {
+      trajectory_msgs::msg::JointTrajectoryPoint ros_point;
+      ros_point.positions = point.position;
+      const auto sec = static_cast<int32_t>(std::floor(point.time_from_start));
+      const auto fractional = point.time_from_start - static_cast<double>(sec);
+      ros_point.time_from_start.sec = sec;
+      ros_point.time_from_start.nanosec =
+          static_cast<uint32_t>(std::clamp(fractional * 1e9, 0.0, 999999999.0));
+      goal_msg.trajectory.points.push_back(std::move(ros_point));
+    }
+
+    std::uint64_t generation = 0;
+    {
+      std::lock_guard<std::mutex> lock(trajectory_mutex_);
+      generation = ++trajectory_generation_;
+      trajectory_state_ = runtime::TrajectoryExecutionState{};
+      trajectory_state_.request_id = goal.request_id;
+      trajectory_state_.message = "sending trajectory";
+      trajectory_segment_end_times_ = goal.segment_end_times;
+      goal_handle_.reset();
+    }
+
+    typename rclcpp_action::Client<FollowJointTrajectory>::SendGoalOptions options;
+    options.goal_response_callback =
+        [this, request_id = goal.request_id, generation](std::shared_ptr<FollowJointTrajectoryGoalHandle> goal_handle) {
+          std::lock_guard<std::mutex> lock(trajectory_mutex_);
+          if (generation != trajectory_generation_) {
+            return;
+          }
+          trajectory_state_.request_id = request_id;
+          trajectory_state_.accepted = (goal_handle != nullptr);
+          trajectory_state_.active = (goal_handle != nullptr);
+          trajectory_state_.completed = (goal_handle == nullptr);
+          trajectory_state_.failed = (goal_handle == nullptr);
+          trajectory_state_.message = goal_handle != nullptr ? "trajectory accepted" : "trajectory goal rejected";
+          goal_handle_ = goal_handle;
+        };
+    options.feedback_callback =
+        [this, request_id = goal.request_id, generation](FollowJointTrajectoryGoalHandle::SharedPtr,
+                                                         const std::shared_ptr<const FollowJointTrajectory::Feedback> feedback) {
+          std::lock_guard<std::mutex> lock(trajectory_mutex_);
+          if (generation != trajectory_generation_) {
+            return;
+          }
+          trajectory_state_.request_id = request_id;
+          trajectory_state_.accepted = true;
+          trajectory_state_.active = true;
+          trajectory_state_.desired_time_from_start = durationToSec(feedback->desired.time_from_start);
+          trajectory_state_.message = "executing";
+        };
+    options.result_callback =
+        [this, request_id = goal.request_id, generation](const FollowJointTrajectoryGoalHandle::WrappedResult &result) {
+          std::lock_guard<std::mutex> lock(trajectory_mutex_);
+          if (generation != trajectory_generation_) {
+            return;
+          }
+          trajectory_state_.request_id = request_id;
+          trajectory_state_.active = false;
+          trajectory_state_.completed = true;
+          trajectory_state_.succeeded = result.code == rclcpp_action::ResultCode::SUCCEEDED;
+          trajectory_state_.canceled = result.code == rclcpp_action::ResultCode::CANCELED;
+          trajectory_state_.failed = result.code == rclcpp_action::ResultCode::ABORTED ||
+                                     result.code == rclcpp_action::ResultCode::UNKNOWN;
+          if (result.result != nullptr && !result.result->error_string.empty()) {
+            trajectory_state_.message = result.result->error_string;
+          } else if (trajectory_state_.succeeded) {
+            trajectory_state_.message = "trajectory completed";
+          } else if (trajectory_state_.canceled) {
+            trajectory_state_.message = "trajectory canceled";
+          } else {
+            trajectory_state_.message = "trajectory aborted";
+          }
+        };
+
+    const auto goal_future = trajectory_client_->async_send_goal(goal_msg, options);
+    if (goal_future.wait_for(std::chrono::seconds(3)) != std::future_status::ready) {
+      std::lock_guard<std::mutex> lock(trajectory_mutex_);
+      if (generation == trajectory_generation_) {
+        trajectory_state_.active = false;
+        trajectory_state_.completed = true;
+        trajectory_state_.failed = true;
+        trajectory_state_.message = "timed out waiting for trajectory goal response";
+      }
+      message = "timed out waiting for trajectory goal response";
+      return false;
+    }
+
+    const auto goal_handle = goal_future.get();
+    if (goal_handle == nullptr) {
+      std::lock_guard<std::mutex> lock(trajectory_mutex_);
+      if (generation == trajectory_generation_) {
+        trajectory_state_.active = false;
+        trajectory_state_.completed = true;
+        trajectory_state_.failed = true;
+        trajectory_state_.message = "trajectory goal rejected";
+      }
+      message = "trajectory goal rejected";
+      return false;
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(trajectory_mutex_);
+      if (generation == trajectory_generation_) {
+        goal_handle_ = goal_handle;
+        trajectory_state_.request_id = goal.request_id;
+        trajectory_state_.accepted = true;
+        trajectory_state_.active = true;
+        trajectory_state_.completed = false;
+        trajectory_state_.failed = false;
+        trajectory_state_.canceled = false;
+        trajectory_state_.succeeded = false;
+        trajectory_state_.message = "trajectory accepted";
+      }
+    }
+    message.clear();
+    return true;
+  }
+
+  void cancelTrajectoryExecution(const std::string &reason) override {
+    std::shared_ptr<FollowJointTrajectoryGoalHandle> goal_handle;
+    {
+      std::lock_guard<std::mutex> lock(trajectory_mutex_);
+      ++trajectory_generation_;
+      trajectory_state_.active = false;
+      trajectory_state_.completed = true;
+      trajectory_state_.canceled = true;
+      trajectory_state_.message = reason.empty() ? "trajectory canceled" : reason;
+      goal_handle = goal_handle_;
+    }
+    if (trajectory_client_ != nullptr && goal_handle != nullptr) {
+      (void)trajectory_client_->async_cancel_goal(goal_handle);
+    }
+  }
+
+  [[nodiscard]] runtime::TrajectoryExecutionState readTrajectoryExecutionState() const override {
+    std::lock_guard<std::mutex> lock(trajectory_mutex_);
+    return trajectory_state_;
+  }
+
  private:
+  using FollowJointTrajectory = control_msgs::action::FollowJointTrajectory;
+  using FollowJointTrajectoryGoalHandle = rclcpp_action::ClientGoalHandle<FollowJointTrajectory>;
+
+  static double durationToSec(const builtin_interfaces::msg::Duration &duration) {
+    return static_cast<double>(duration.sec) + static_cast<double>(duration.nanosec) * 1e-9;
+  }
+
   std::vector<physics::JointPtr> *joints_;
   const std::array<std::pair<double, double>, 6> *original_joint_limits_;
   bool brakes_locked_ = false;
+  rclcpp::Node::SharedPtr node_;
+  rclcpp_action::Client<FollowJointTrajectory>::SharedPtr trajectory_client_;
+  std::vector<std::string> trajectory_joint_names_;
+  mutable std::mutex trajectory_mutex_;
+  std::shared_ptr<FollowJointTrajectoryGoalHandle> goal_handle_;
+  runtime::TrajectoryExecutionState trajectory_state_;
+  std::vector<double> trajectory_segment_end_times_;
+  std::uint64_t trajectory_generation_ = 0;
 };
 
 class XCoreControllerPlugin : public ModelPlugin {
@@ -200,9 +388,7 @@ void XCoreControllerPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
         original_joint_limits_[i] = default_limits[i];
     }
 
-    motion_backend_ = std::make_unique<GazeboRuntimeBackend>(&joints_, &original_joint_limits_);
     runtime_context_ = std::make_unique<runtime::RuntimeContext>();
-    runtime_context_->attachBackend(motion_backend_.get());
 
     // ========== 删除原来这里的初始位置设置代码 ==========
     joint_positions_initialized_ = false;
@@ -238,6 +424,9 @@ void XCoreControllerPlugin::InitROS2() {
 
     node_ = std::make_shared<rclcpp::Node>("xcore_gazebo_controller");
     kinematics_ = std::make_unique<xMate3Kinematics>();
+    motion_backend_ = std::make_unique<GazeboRuntimeBackend>(&joints_, &original_joint_limits_);
+    motion_backend_->configureTrajectoryClient(node_, joint_names_);
+    runtime_context_->attachBackend(motion_backend_.get());
     executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
     executor_->add_node(node_);
 
@@ -247,9 +436,7 @@ void XCoreControllerPlugin::InitROS2() {
         GetCachedJointState(position, velocity, torque);
     };
     auto time_provider = [this]() { return node_->get_clock()->now(); };
-    auto trajectory_dt_provider = [this]() {
-        return current_update_dt_ > 1e-6 ? current_update_dt_ : kTrajectorySampleDt;
-    };
+    auto trajectory_dt_provider = []() { return kTrajectorySampleDt; };
     auto request_id_generator = [this](const std::string &prefix) {
         return prefix + std::to_string(next_request_id_.fetch_add(1));
     };

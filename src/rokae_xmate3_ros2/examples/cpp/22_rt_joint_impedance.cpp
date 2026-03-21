@@ -13,7 +13,8 @@ using namespace rokae;
 using namespace example;
 
 int main() {
-  printHeader("示例 22: RT 关节阻抗控制", "joint_impedance_control 对齐版");
+  printHeader("示例 22: RT 关节阻抗控制", "Gazebo simulated RT facade");
+  os << "note: joint impedance behavior here is approximate and simulation-only" << std::endl;
 
   error_code ec;
   xMateRobot robot;

@@ -51,8 +51,8 @@ rokae_xmate3_ros2::msg::OperateMode ControllerState::operateMode() const {
   return session_state_->operateMode();
 }
 
-void ControllerState::setDefaultSpeed(int speed) { motion_options_state_->setDefaultSpeed(speed); }
-int ControllerState::defaultSpeed() const { return motion_options_state_->defaultSpeed(); }
+void ControllerState::setDefaultSpeed(double speed) { motion_options_state_->setDefaultSpeed(speed); }
+double ControllerState::defaultSpeed() const { return motion_options_state_->defaultSpeed(); }
 
 void ControllerState::setDefaultZone(int zone) { motion_options_state_->setDefaultZone(zone); }
 int ControllerState::defaultZone() const { return motion_options_state_->defaultZone(); }

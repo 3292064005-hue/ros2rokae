@@ -19,10 +19,11 @@ class RuntimeControlBridge {
 
   [[nodiscard]] ControlTickResult tick(BackendInterface &backend,
                                        const RobotSnapshot &snapshot,
-                                       double dt) const;
+                                       double dt);
 
  private:
   RuntimeContext &runtime_context_;
+  double servo_accumulator_sec_ = 0.0;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime
