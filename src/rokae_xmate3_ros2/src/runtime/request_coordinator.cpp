@@ -62,7 +62,7 @@ SubmissionResult MotionRequestCoordinator::submitMoveAppend(
 }
 
 SubmissionResult MotionRequestCoordinator::submitReplayPath(
-    const std::vector<std::vector<double>> &recorded_path,
+    const ReplayPathAsset &replay_asset,
     double rate,
     const std::array<double, 6> &joint_position,
     double trajectory_dt,
@@ -73,7 +73,7 @@ SubmissionResult MotionRequestCoordinator::submitReplayPath(
   MotionRequest request;
   std::string request_error;
   const auto context = buildContext(request_id, joint_position, trajectory_dt);
-  if (!build_replay_request(recorded_path, rate, context, request, request_error)) {
+  if (!build_replay_request(replay_asset, rate, context, request, request_error)) {
     result.message = request_error;
     return result;
   }

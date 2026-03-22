@@ -6,6 +6,7 @@
 #include <cmath>
 #include <utility>
 
+#include "runtime/joint_retimer.hpp"
 #include "runtime/planning_utils.hpp"
 #include "runtime/pose_utils.hpp"
 
@@ -62,19 +63,23 @@ double mean_abs(const std::array<double, 6> &values) {
   return sum / static_cast<double>(values.size());
 }
 
-std::vector<double> sample_quintic_segment(const std::vector<double> &start,
-                                           const std::vector<double> &target,
-                                           double s) {
-  const double s2 = s * s;
-  const double s3 = s2 * s;
-  const double s4 = s3 * s;
-  const double s5 = s4 * s;
-  const double blend = 10.0 * s3 - 15.0 * s4 + 6.0 * s5;
-  std::vector<double> point(start.size(), 0.0);
-  for (size_t i = 0; i < start.size() && i < target.size(); ++i) {
-    point[i] = start[i] + (target[i] - start[i]) * blend;
-  }
-  return point;
+std::array<double, 6> uniform_axis_limits(double value, double minimum_limit) {
+  std::array<double, 6> limits{};
+  const double resolved = std::max(value, minimum_limit);
+  limits.fill(resolved);
+  return limits;
+}
+
+JointRetimerConfig make_joint_retimer_config(double sample_dt) {
+  const auto planner_config = ::gazebo::TrajectoryPlanner::config();
+  JointRetimerConfig config;
+  config.joint_speed_limits_rad_per_sec = planner_config.joint_speed_limits_rad_per_sec;
+  config.joint_acc_limits_rad_per_sec2 = planner_config.joint_acc_limits_rad_per_sec2;
+  config.sample_dt = std::max(sample_dt, 1e-3);
+  config.min_sample_dt = planner_config.min_sample_dt;
+  config.max_sample_dt = planner_config.max_sample_dt;
+  config.max_joint_step_rad = planner_config.max_joint_step_rad;
+  return config;
 }
 
 }  // namespace
@@ -170,9 +175,21 @@ void ControlFacade::handleClearServoAlarm(const rokae_xmate3_ros2::srv::ClearSer
 void ControlFacade::handleEnableCollisionDetection(
     const rokae_xmate3_ros2::srv::EnableCollisionDetection::Request &req,
     rokae_xmate3_ros2::srv::EnableCollisionDetection::Response &res) const {
-  (void)req;
+  std::array<double, 6> sensitivity{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
+  if (!req.sensitivity.empty()) {
+    if (req.sensitivity.size() < 6) {
+      res.success = false;
+      res.message = "collision sensitivity requires 6 joint values";
+      return;
+    }
+    for (int i = 0; i < 6; ++i) {
+      sensitivity[i] = std::clamp(req.sensitivity[i], 0.1, 10.0);
+    }
+  }
   session_state_.setCollisionDetectionEnabled(true);
+  session_state_.setCollisionDetectionConfig(sensitivity, req.behaviour, req.fallback);
   res.success = true;
+  res.message = "collision detection enabled";
 }
 
 void ControlFacade::handleDisableCollisionDetection(
@@ -181,6 +198,7 @@ void ControlFacade::handleDisableCollisionDetection(
   (void)req;
   session_state_.setCollisionDetectionEnabled(false);
   res.success = true;
+  res.message = "collision detection disabled";
 }
 
 void ControlFacade::handleSetSoftLimit(const rokae_xmate3_ros2::srv::SetSoftLimit::Request &req,
@@ -251,6 +269,13 @@ void ControlFacade::handleSetDefaultSpeed(const rokae_xmate3_ros2::srv::SetDefau
 
 void ControlFacade::handleSetDefaultZone(const rokae_xmate3_ros2::srv::SetDefaultZone::Request &req,
                                          rokae_xmate3_ros2::srv::SetDefaultZone::Response &res) const {
+  const auto zone_range = motion_options_state_.zoneValidRange();
+  if (req.zone < zone_range[0] || req.zone > zone_range[1]) {
+    res.success = false;
+    res.message = "default zone must be within [" + std::to_string(zone_range[0]) + ", " +
+                  std::to_string(zone_range[1]) + "] mm";
+    return;
+  }
   motion_options_state_.setDefaultZone(req.zone);
   res.success = true;
 }
@@ -610,16 +635,23 @@ void QueryFacade::handleCalcJointTorque(
       return;
     }
   }
-  const Eigen::MatrixXd jacobian = kinematics_.computeJacobian(joints);
+  const auto jacobian = kinematics_.computeJacobian(joints);
   Eigen::Matrix<double, 6, 1> wrench;
   for (int i = 0; i < 6; ++i) {
     wrench(i) = req.external_force[i];
   }
   const Eigen::Matrix<double, 6, 1> tau_ext = jacobian.transpose() * wrench;
-  const double tool_mass = tooling_state_.toolset().tool_pose.empty() ? 0.0 : 0.25;
+  const auto toolset = tooling_state_.toolset();
+  const double tool_mass = toolset.tool_mass;
+  const double tool_com_norm = std::sqrt(
+      toolset.tool_com[0] * toolset.tool_com[0] +
+      toolset.tool_com[1] * toolset.tool_com[1] +
+      toolset.tool_com[2] * toolset.tool_com[2]);
   const double velocity_bias = mean_abs(req.joint_vel);
   for (int i = 0; i < 6; ++i) {
-    res.gravity_torque[i] = std::sin(req.joint_pos[i]) * (1.5 + tool_mass * (0.2 + 0.05 * static_cast<double>(i)));
+    res.gravity_torque[i] =
+        std::sin(req.joint_pos[i]) *
+        (1.5 + tool_mass * (0.2 + 0.05 * static_cast<double>(i)) + tool_com_norm * 0.5);
     res.coriolis_torque[i] = req.joint_vel[i] * (0.05 + 0.01 * velocity_bias);
     const double inertia_torque = req.joint_acc[i] * (0.02 + 0.005 * static_cast<double>(i));
     res.joint_torque[i] = res.gravity_torque[i] + res.coriolis_torque[i] + inertia_torque + tau_ext(i);
@@ -673,40 +705,37 @@ void QueryFacade::handleGenerateSTrajectory(
     return;
   }
 
-  const double requested_max_velocity = std::clamp(req.max_velocity > 0.0 ? req.max_velocity : 1.0, 0.05, M_PI);
-  const double requested_max_acceleration =
-      std::clamp(req.max_acceleration > 0.0 ? req.max_acceleration : 2.0, 0.05, 10.0 * M_PI);
-  const double accel_time = requested_max_velocity / requested_max_acceleration;
-  const double accel_distance = 0.5 * requested_max_acceleration * accel_time * accel_time;
-  double total_time = 0.0;
-  if (2.0 * accel_distance >= max_delta) {
-    total_time = 2.0 * std::sqrt(max_delta / requested_max_acceleration);
-  } else {
-    const double cruise_distance = max_delta - 2.0 * accel_distance;
-    total_time = 2.0 * accel_time + cruise_distance / requested_max_velocity;
-  }
-  total_time += std::max(req.blend_radius, 0.0) * 0.1;
-
   const double sample_dt = std::max(trajectory_dt_provider_(), 1e-3);
-  const int sample_count = std::max(2, static_cast<int>(std::ceil(total_time / sample_dt)));
+  auto retimer_config = make_joint_retimer_config(sample_dt);
+  const double blend_window = std::clamp(req.blend_radius, 0.0, 1.0);
+  const double smoothing_scale = 1.0 / (1.0 + 0.25 * blend_window);
+  const auto velocity_limits =
+      uniform_axis_limits(std::clamp(req.max_velocity > 0.0 ? req.max_velocity : M_PI, 0.05, M_PI) *
+                              smoothing_scale,
+                          0.05);
+  const auto acceleration_limits =
+      uniform_axis_limits(
+          std::clamp(req.max_acceleration > 0.0 ? req.max_acceleration : 2.0 * M_PI, 0.05, 10.0 * M_PI) *
+              smoothing_scale * smoothing_scale,
+          0.05);
+  const auto retimed = retimeJointQuintic(start, target, retimer_config, velocity_limits, acceleration_limits);
+  if (retimed.empty()) {
+    res.success = false;
+    res.error_code = 3003;
+    res.error_msg = "trajectory planning failed";
+    return;
+  }
+
   res.trajectory_points.clear();
-  res.trajectory_points.reserve(sample_count + 1);
-  for (int i = 0; i <= sample_count; ++i) {
-    const double s = static_cast<double>(i) / static_cast<double>(sample_count);
-    const auto point = sample_quintic_segment(start, target, s);
+  res.trajectory_points.reserve(retimed.positions.size());
+  for (const auto &point : retimed.positions) {
     rokae_xmate3_ros2::msg::JointPos6 joint_msg;
     for (int j = 0; j < 6; ++j) {
       joint_msg.pos[j] = point[j];
     }
     res.trajectory_points.push_back(joint_msg);
   }
-  if (res.trajectory_points.empty()) {
-    res.success = false;
-    res.error_code = 3003;
-    res.error_msg = "trajectory planning failed";
-    return;
-  }
-  res.total_time = total_time;
+  res.total_time = retimed.total_time;
   res.stamp = ToBuiltinTime(time_provider_());
   res.success = true;
   res.error_code = 0;
@@ -898,11 +927,13 @@ void IoProgramFacade::handleSetAO(const rokae_xmate3_ros2::srv::SetAO::Request &
 }
 
 PathFacade::PathFacade(ProgramState &program_state,
+                       ToolingState &tooling_state,
                        MotionRequestCoordinator *request_coordinator,
                        JointStateFetcher joint_state_fetcher,
                        TrajectoryDtProvider trajectory_dt_provider,
                        RequestIdGenerator request_id_generator)
     : program_state_(program_state),
+      tooling_state_(tooling_state),
       request_coordinator_(request_coordinator),
       joint_state_fetcher_(std::move(joint_state_fetcher)),
       trajectory_dt_provider_(std::move(trajectory_dt_provider)),
@@ -911,7 +942,7 @@ PathFacade::PathFacade(ProgramState &program_state,
 void PathFacade::handleStartRecordPath(const rokae_xmate3_ros2::srv::StartRecordPath::Request &req,
                                        rokae_xmate3_ros2::srv::StartRecordPath::Response &res) const {
   (void)req;
-  program_state_.startRecordingPath();
+  program_state_.startRecordingPath(tooling_state_.toolset(), "sdk_record");
   res.success = true;
 }
 
@@ -938,13 +969,13 @@ void PathFacade::handleSaveRecordPath(const rokae_xmate3_ros2::srv::SaveRecordPa
 
 void PathFacade::handleReplayPath(const rokae_xmate3_ros2::srv::ReplayPath::Request &req,
                                   rokae_xmate3_ros2::srv::ReplayPath::Response &res) const {
-  std::vector<std::vector<double>> saved_path;
-  if (!program_state_.getSavedPath(req.name, saved_path)) {
+  ReplayPathAsset replay_asset;
+  if (!program_state_.getReplayAsset(req.name, replay_asset)) {
     res.success = false;
     res.message = "Path not found";
     return;
   }
-  if (saved_path.empty()) {
+  if (replay_asset.samples.empty()) {
     res.success = false;
     res.message = "Path is empty";
     return;
@@ -963,8 +994,18 @@ void PathFacade::handleReplayPath(const rokae_xmate3_ros2::srv::ReplayPath::Requ
   std::array<double, 6> vel{};
   std::array<double, 6> tau{};
   joint_state_fetcher_(pos, vel, tau);
+  if (!replay_asset.toolset.tool_name.empty() || !replay_asset.toolset.wobj_name.empty()) {
+    tooling_state_.setToolset(replay_asset.toolset.tool_name,
+                              replay_asset.toolset.wobj_name,
+                              replay_asset.toolset.tool_pose,
+                              replay_asset.toolset.wobj_pose);
+    tooling_state_.setBaseFrame(replay_asset.toolset.base_pose);
+    tooling_state_.setToolDynamics(replay_asset.toolset.tool_name,
+                                   replay_asset.toolset.tool_mass,
+                                   replay_asset.toolset.tool_com);
+  }
   const auto submission = request_coordinator_->submitReplayPath(
-      saved_path,
+      replay_asset,
       req.rate,
       pos,
       trajectory_dt_provider_(),

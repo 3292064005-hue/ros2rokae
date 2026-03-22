@@ -21,6 +21,15 @@ struct ToolsetSnapshot {
   std::vector<double> tool_pose;
   std::vector<double> wobj_pose;
   std::vector<double> base_pose;
+  double tool_mass = 0.0;
+  std::array<double, 3> tool_com{{0.0, 0.0, 0.0}};
+};
+
+struct CollisionDetectionSnapshot {
+  bool enabled = false;
+  std::array<double, 6> sensitivity{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
+  std::uint8_t behaviour = 1;
+  double fallback = 0.0;
 };
 
 struct SoftLimitSnapshot {
@@ -44,6 +53,18 @@ struct ProgramSnapshot {
   std::string loaded_rl_project_path;
 };
 
+struct RecordedPathSample {
+  double time_from_start_sec = 0.0;
+  std::array<double, 6> joint_position{};
+  std::array<double, 6> joint_velocity{};
+};
+
+struct ReplayPathAsset {
+  std::vector<RecordedPathSample> samples;
+  ToolsetSnapshot toolset;
+  std::string source{"sdk_record"};
+};
+
 class SessionState {
  public:
   void connect(const std::string &remote_ip);
@@ -63,6 +84,10 @@ class SessionState {
 
   void setCollisionDetectionEnabled(bool enabled);
   [[nodiscard]] bool collisionDetectionEnabled() const;
+  void setCollisionDetectionConfig(const std::array<double, 6> &sensitivity,
+                                   std::uint8_t behaviour,
+                                   double fallback);
+  [[nodiscard]] CollisionDetectionSnapshot collisionDetection() const;
 
   void setMotionMode(int mode);
   [[nodiscard]] int motionMode() const;
@@ -82,6 +107,9 @@ class SessionState {
   bool drag_mode_ = false;
   bool simulation_mode_ = true;
   bool collision_detection_enabled_ = false;
+  std::array<double, 6> collision_sensitivity_{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
+  std::uint8_t collision_behaviour_ = 1;
+  double collision_fallback_ = 0.0;
   int motion_mode_ = 0;
   rokae_xmate3_ros2::msg::OperateMode operate_mode_{};
   int rt_control_mode_ = -1;
@@ -95,6 +123,8 @@ class MotionOptionsState {
 
   void setDefaultZone(int zone);
   [[nodiscard]] int defaultZone() const;
+  void setZoneValidRange(int min_zone, int max_zone);
+  [[nodiscard]] std::array<int, 2> zoneValidRange() const;
 
   void setSpeedScale(double scale);
   [[nodiscard]] double speedScale() const;
@@ -116,6 +146,8 @@ class MotionOptionsState {
   mutable std::mutex mutex_;
   double default_speed_ = 50.0;
   int default_zone_ = 0;
+  int zone_valid_min_ = 0;
+  int zone_valid_max_ = 200;
   double speed_scale_ = 1.0;
   bool default_conf_opt_forced_ = false;
   bool avoid_singularity_enabled_ = true;
@@ -137,6 +169,7 @@ class ToolingState {
                   const std::vector<double> &tool_pose,
                   const std::vector<double> &wobj_pose);
   [[nodiscard]] bool setToolsetByName(const std::string &tool_name, const std::string &wobj_name);
+  void setToolDynamics(const std::string &tool_name, double mass, const std::array<double, 3> &com);
   [[nodiscard]] ToolsetSnapshot toolset() const;
   void setBaseFrame(const std::vector<double> &base_pose);
   [[nodiscard]] std::vector<double> baseFrame() const;
@@ -148,8 +181,12 @@ class ToolingState {
   std::vector<double> current_tool_pose_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   std::vector<double> current_wobj_pose_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   std::vector<double> base_pose_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  double current_tool_mass_ = 0.0;
+  std::array<double, 3> current_tool_com_{{0.0, 0.0, 0.0}};
   std::map<std::string, std::vector<double>> tool_registry_{{"tool0", {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}}};
   std::map<std::string, std::vector<double>> wobj_registry_{{"wobj0", {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}}};
+  std::map<std::string, double> tool_mass_registry_{{"tool0", 0.0}};
+  std::map<std::string, std::array<double, 3>> tool_com_registry_{{"tool0", {{0.0, 0.0, 0.0}}}};
 };
 
 class DataStoreState {
@@ -201,13 +238,18 @@ class ProgramState {
   void setRlProjectRunning(bool running, int current_episode);
 
   void startRecordingPath();
+  void startRecordingPath(const ToolsetSnapshot &toolset, const std::string &source);
   void stopRecordingPath();
   void cancelRecordingPath();
   [[nodiscard]] bool isRecordingPath() const;
+  void recordPathSample(double timestamp_sec,
+                        const std::array<double, 6> &joint_position,
+                        const std::array<double, 6> &joint_velocity);
   void recordPathSample(const std::array<double, 6> &joint_position);
   void saveRecordedPath(const std::string &name);
   [[nodiscard]] bool getSavedPath(const std::string &name,
                                   std::vector<std::vector<double>> &path) const;
+  [[nodiscard]] bool getReplayAsset(const std::string &name, ReplayPathAsset &asset) const;
   void removeSavedPath(const std::string &name, bool remove_all);
   [[nodiscard]] std::vector<std::string> querySavedPaths() const;
   [[nodiscard]] ProgramSnapshot snapshot() const;
@@ -220,8 +262,12 @@ class ProgramState {
   std::string loaded_rl_project_name_;
   std::string loaded_rl_project_path_;
   bool is_recording_path_ = false;
-  std::vector<std::vector<double>> recorded_path_;
-  std::map<std::string, std::vector<std::vector<double>>> saved_paths_;
+  bool record_time_origin_initialized_ = false;
+  double record_time_origin_sec_ = 0.0;
+  ToolsetSnapshot recorded_toolset_;
+  std::string record_source_{"sdk_record"};
+  std::vector<RecordedPathSample> recorded_path_;
+  std::map<std::string, ReplayPathAsset> saved_paths_;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

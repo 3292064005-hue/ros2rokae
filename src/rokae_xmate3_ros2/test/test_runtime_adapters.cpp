@@ -4,8 +4,10 @@
 #include <string>
 #include <vector>
 
+#include "rokae/model.h"
 #include "runtime/operation_state_adapter.hpp"
 #include "runtime/request_adapter.hpp"
+#include "runtime/runtime_state.hpp"
 #include "rokae_xmate3_ros2/msg/operation_state.hpp"
 
 namespace rt = rokae_xmate3_ros2::runtime;
@@ -48,28 +50,79 @@ TEST(RuntimeRequestAdapterTest, BuildsMoveAppendRequestWithOffsetsAndDefaults) {
 }
 
 TEST(RuntimeRequestAdapterTest, BuildsReplayRequestFromRecordedPath) {
-  const std::vector<std::vector<double>> path = {
-      {0.0, 0.1, 1.5, 0.0, 1.3, 3.14},
-      {0.05, 0.2, 1.4, 0.0, 1.2, 3.10},
+  rt::ReplayPathAsset asset;
+  asset.samples = {
+      {0.0, {0.0, 0.1, 1.5, 0.0, 1.3, 3.14}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}},
+      {0.4, {0.05, 0.2, 1.4, 0.0, 1.2, 3.10}, {0.3, 0.2, -0.2, 0.0, -0.1, -0.1}},
   };
 
   rt::MotionRequestContext context;
   context.request_id = "replay_1";
-  context.start_joints = path.front();
+  context.start_joints.assign(asset.samples.front().joint_position.begin(),
+                              asset.samples.front().joint_position.end());
   context.default_speed = 50;
   context.default_zone = 5;
   context.trajectory_dt = 0.02;
 
   rt::MotionRequest request;
   std::string error;
-  ASSERT_TRUE(rt::build_replay_request(path, 0.5, context, request, error)) << error;
+  ASSERT_TRUE(rt::build_replay_request(asset, 0.5, context, request, error)) << error;
   ASSERT_EQ(request.commands.size(), 1u);
   EXPECT_EQ(request.commands.front().kind, rt::MotionKind::move_absj);
   EXPECT_TRUE(request.commands.front().use_preplanned_trajectory);
-  EXPECT_EQ(request.commands.front().preplanned_trajectory.size(), 2u);
-  EXPECT_EQ(request.commands.front().target_joints, path.back());
-  EXPECT_NEAR(request.commands.front().preplanned_dt, 0.04, 1e-9);
+  EXPECT_EQ(request.commands.front().target_joints,
+            std::vector<double>(asset.samples.back().joint_position.begin(), asset.samples.back().joint_position.end()));
+  EXPECT_FALSE(request.commands.front().preplanned_trajectory.empty());
+  EXPECT_EQ(request.commands.front().preplanned_trajectory.size(),
+            request.commands.front().preplanned_velocity_trajectory.size());
+  EXPECT_EQ(request.commands.front().preplanned_trajectory.size(),
+            request.commands.front().preplanned_acceleration_trajectory.size());
+  EXPECT_NEAR(request.commands.front().preplanned_dt, 0.02, 1e-9);
+  EXPECT_NEAR(request.commands.front().preplanned_dt *
+                  static_cast<double>(request.commands.front().preplanned_trajectory.size() - 1),
+              0.8,
+              1e-9);
   EXPECT_DOUBLE_EQ(request.commands.front().speed, 25.0);
+  EXPECT_NEAR(request.commands.front().preplanned_velocity_trajectory.back()[0], 0.15, 1e-9);
+  EXPECT_NEAR(request.commands.front().preplanned_velocity_trajectory.back()[2], -0.1, 1e-9);
+}
+
+TEST(RuntimeRequestAdapterTest, ReplayRequestRetimesByRecordedTimelineInsteadOfDtOnly) {
+  rt::ReplayPathAsset asset;
+  asset.samples = {
+      {0.0, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}},
+      {0.2, {0.1, 0.0, 0.0, 0.0, 0.0, 0.0}, {0.4, 0.0, 0.0, 0.0, 0.0, 0.0}},
+      {0.5, {0.2, 0.0, 0.0, 0.0, 0.0, 0.0}, {0.2, 0.0, 0.0, 0.0, 0.0, 0.0}},
+  };
+
+  rt::MotionRequestContext context;
+  context.request_id = "replay_rate_contract";
+  context.start_joints.assign(asset.samples.front().joint_position.begin(),
+                              asset.samples.front().joint_position.end());
+  context.default_speed = 120.0;
+  context.default_zone = 0;
+  context.trajectory_dt = 0.05;
+
+  rt::MotionRequest nominal_request;
+  std::string error;
+  ASSERT_TRUE(rt::build_replay_request(asset, 1.0, context, nominal_request, error)) << error;
+  rt::MotionRequest fast_request;
+  ASSERT_TRUE(rt::build_replay_request(asset, 2.0, context, fast_request, error)) << error;
+
+  const auto &nominal = nominal_request.commands.front();
+  const auto &fast = fast_request.commands.front();
+  ASSERT_FALSE(nominal.preplanned_trajectory.empty());
+  ASSERT_FALSE(fast.preplanned_trajectory.empty());
+
+  const double nominal_total =
+      nominal.preplanned_dt * static_cast<double>(nominal.preplanned_trajectory.size() - 1);
+  const double fast_total =
+      fast.preplanned_dt * static_cast<double>(fast.preplanned_trajectory.size() - 1);
+  EXPECT_NEAR(nominal_total, 0.5, 1e-9);
+  EXPECT_NEAR(fast_total, 0.25, 1e-9);
+  EXPECT_DOUBLE_EQ(nominal.preplanned_trajectory.back()[0], 0.2);
+  EXPECT_DOUBLE_EQ(fast.preplanned_trajectory.back()[0], 0.2);
+  EXPECT_GT(fast.preplanned_velocity_trajectory[1][0], nominal.preplanned_velocity_trajectory[1][0]);
 }
 
 TEST(RuntimeOperationStateAdapterTest, MapsStateAndFormatsLogEvent) {
@@ -85,6 +138,7 @@ TEST(RuntimeOperationStateAdapterTest, MapsStateAndFormatsLogEvent) {
   view.status.message = "tracking";
   view.status.revision = 7;
   view.status.execution_backend = rt::ExecutionBackend::jtc;
+  view.status.control_owner = rt::ControlOwner::trajectory;
 
   rt::OperationStateContext context;
   context.connected = true;
@@ -99,4 +153,40 @@ TEST(RuntimeOperationStateAdapterTest, MapsStateAndFormatsLogEvent) {
   EXPECT_NE(log_event.text.find("request=move_9"), std::string::npos);
   EXPECT_NE(log_event.text.find("state=executing"), std::string::npos);
   EXPECT_NE(log_event.text.find("backend=jtc"), std::string::npos);
+  EXPECT_NE(log_event.text.find("owner=trajectory"), std::string::npos);
+}
+
+TEST(RuntimeSdkShimModelTest, KdlBackedKinematicsExposeNonZeroVelocityAndAccelerationMappings) {
+  rokae::xMateModel<6> model;
+  const std::array<double, 6> q{{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926}};
+  const std::array<double, 6> qd{{0.1, -0.05, 0.02, 0.01, 0.03, -0.02}};
+  const std::array<double, 6> qdd{{0.2, 0.1, -0.04, 0.02, 0.03, 0.01}};
+
+  const auto jac = model.jacobian(q);
+  EXPECT_EQ(jac.size(), 36u);
+  double jac_norm = 0.0;
+  for (double value : jac) {
+    jac_norm += std::fabs(value);
+  }
+  EXPECT_GT(jac_norm, 0.0);
+
+  const auto cart_vel = model.getCartVel(q, qd);
+  const auto cart_acc = model.getCartAcc(q, qd, qdd);
+  const auto joint_acc = model.getJointAcc(cart_acc, q, qd);
+
+  double cart_vel_norm = 0.0;
+  double cart_acc_norm = 0.0;
+  double joint_acc_norm = 0.0;
+  for (double value : cart_vel) {
+    cart_vel_norm += std::fabs(value);
+  }
+  for (double value : cart_acc) {
+    cart_acc_norm += std::fabs(value);
+  }
+  for (double value : joint_acc) {
+    joint_acc_norm += std::fabs(value);
+  }
+  EXPECT_GT(cart_vel_norm, 0.0);
+  EXPECT_GT(cart_acc_norm, 0.0);
+  EXPECT_GT(joint_acc_norm, 0.0);
 }

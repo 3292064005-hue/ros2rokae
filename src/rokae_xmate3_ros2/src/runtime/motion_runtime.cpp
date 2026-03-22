@@ -20,7 +20,8 @@ bool statusEquivalent(const RuntimeStatus &lhs, const RuntimeStatus &rhs) {
          lhs.total_segments == rhs.total_segments && lhs.completed_segments == rhs.completed_segments &&
          lhs.current_segment_index == rhs.current_segment_index &&
          lhs.terminal_success == rhs.terminal_success &&
-         lhs.execution_backend == rhs.execution_backend;
+         lhs.execution_backend == rhs.execution_backend &&
+         lhs.control_owner == rhs.control_owner;
 }
 
 std::string summarize_plan_notes(const MotionPlan &plan) {
@@ -39,6 +40,8 @@ std::string summarize_plan_notes(const MotionPlan &plan) {
 
 struct FlattenedPlanPoint {
   std::vector<double> position;
+  std::vector<double> velocity;
+  std::vector<double> acceleration;
   double absolute_time = 0.0;
 };
 
@@ -51,12 +54,103 @@ std::vector<double> snapshot_to_vector(const std::array<double, 6> &values) {
   return std::vector<double>(values.begin(), values.end());
 }
 
+std::vector<double> fallback_vector(const std::vector<double> &candidate,
+                                    const std::array<double, 6> &fallback) {
+  if (!candidate.empty()) {
+    return candidate;
+  }
+  return snapshot_to_vector(fallback);
+}
+
+std::vector<double> zero_vector_like(const std::vector<double> &reference) {
+  return std::vector<double>(reference.size(), 0.0);
+}
+
+TrajectoryExecutionPoint build_start_override(const TrajectoryExecutionState &trajectory_state,
+                                              const RobotSnapshot &snapshot) {
+  TrajectoryExecutionPoint point;
+  point.position = fallback_vector(trajectory_state.actual_position, snapshot.joint_position);
+  point.velocity = fallback_vector(trajectory_state.actual_velocity, snapshot.joint_velocity);
+  if (!trajectory_state.actual_acceleration.empty()) {
+    point.acceleration = trajectory_state.actual_acceleration;
+  } else {
+    point.acceleration = zero_vector_like(point.position);
+  }
+  point.time_from_start = 0.0;
+  return point;
+}
+
 double max_joint_error(const std::array<double, 6> &actual, const std::vector<double> &target) {
   double error = 0.0;
   for (std::size_t i = 0; i < actual.size() && i < target.size(); ++i) {
     error = std::max(error, std::fabs(actual[i] - target[i]));
   }
   return error;
+}
+
+std::vector<double> estimate_velocity_at_index(const PlannedSegment &segment, std::size_t point_index) {
+  if (point_index < segment.joint_velocity_trajectory.size()) {
+    return segment.joint_velocity_trajectory[point_index];
+  }
+  if (segment.joint_trajectory.empty() || segment.trajectory_dt <= 1e-9) {
+    return {};
+  }
+
+  const auto width = segment.joint_trajectory.front().size();
+  std::vector<double> velocity(width, 0.0);
+  if (segment.joint_trajectory.size() == 1) {
+    return velocity;
+  }
+
+  const auto &trajectory = segment.joint_trajectory;
+  for (std::size_t axis = 0; axis < width; ++axis) {
+    if (point_index == 0) {
+      velocity[axis] = (trajectory[1][axis] - trajectory[0][axis]) / segment.trajectory_dt;
+    } else if (point_index + 1 >= trajectory.size()) {
+      velocity[axis] =
+          (trajectory[point_index][axis] - trajectory[point_index - 1][axis]) / segment.trajectory_dt;
+    } else {
+      velocity[axis] =
+          (trajectory[point_index + 1][axis] - trajectory[point_index - 1][axis]) /
+          (2.0 * segment.trajectory_dt);
+    }
+  }
+  return velocity;
+}
+
+std::vector<double> estimate_acceleration_at_index(const PlannedSegment &segment, std::size_t point_index) {
+  if (point_index < segment.joint_acceleration_trajectory.size()) {
+    return segment.joint_acceleration_trajectory[point_index];
+  }
+  if (segment.joint_trajectory.empty() || segment.trajectory_dt <= 1e-9) {
+    return {};
+  }
+
+  const auto width = segment.joint_trajectory.front().size();
+  std::vector<double> acceleration(width, 0.0);
+  if (segment.joint_trajectory.size() < 3) {
+    return acceleration;
+  }
+
+  const auto &trajectory = segment.joint_trajectory;
+  for (std::size_t axis = 0; axis < width; ++axis) {
+    if (point_index == 0) {
+      acceleration[axis] =
+          (trajectory[2][axis] - 2.0 * trajectory[1][axis] + trajectory[0][axis]) /
+          (segment.trajectory_dt * segment.trajectory_dt);
+    } else if (point_index + 1 >= trajectory.size()) {
+      const auto last = trajectory.size() - 1;
+      acceleration[axis] =
+          (trajectory[last][axis] - 2.0 * trajectory[last - 1][axis] + trajectory[last - 2][axis]) /
+          (segment.trajectory_dt * segment.trajectory_dt);
+    } else {
+      acceleration[axis] =
+          (trajectory[point_index + 1][axis] - 2.0 * trajectory[point_index][axis] +
+           trajectory[point_index - 1][axis]) /
+          (segment.trajectory_dt * segment.trajectory_dt);
+    }
+  }
+  return acceleration;
 }
 
 std::vector<FlattenedPlanPoint> flatten_plan(const MotionPlan &plan) {
@@ -73,6 +167,8 @@ std::vector<FlattenedPlanPoint> flatten_plan(const MotionPlan &plan) {
       }
       FlattenedPlanPoint point;
       point.position = segment.joint_trajectory[point_index];
+      point.velocity = estimate_velocity_at_index(segment, point_index);
+      point.acceleration = estimate_acceleration_at_index(segment, point_index);
       point.absolute_time = cumulative_time + static_cast<double>(point_index) * segment.trajectory_dt;
       flattened.push_back(std::move(point));
     }
@@ -83,7 +179,7 @@ std::vector<FlattenedPlanPoint> flatten_plan(const MotionPlan &plan) {
 
 TrajectoryExecutionGoal build_execution_goal(const MotionPlan &plan,
                                             double speed_scale,
-                                            const std::array<double, 6> *start_override,
+                                            const TrajectoryExecutionPoint *start_override,
                                             double original_time_offset) {
   TrajectoryExecutionGoal goal;
   goal.request_id = plan.request_id;
@@ -110,7 +206,9 @@ TrajectoryExecutionGoal build_execution_goal(const MotionPlan &plan,
   }
 
   if (start_override != nullptr) {
-    goal.points.push_back(TrajectoryExecutionPoint{snapshot_to_vector(*start_override), 0.0});
+    auto override_point = *start_override;
+    override_point.time_from_start = 0.0;
+    goal.points.push_back(std::move(override_point));
   }
 
   for (const auto &point : flattened) {
@@ -122,11 +220,27 @@ TrajectoryExecutionGoal build_execution_goal(const MotionPlan &plan,
         relative_time <= goal.points.back().time_from_start + kExecutionGoalRetimingEps) {
       relative_time = goal.points.back().time_from_start + kExecutionGoalMinDt;
     }
-    goal.points.push_back(TrajectoryExecutionPoint{point.position, relative_time});
+    TrajectoryExecutionPoint trajectory_point;
+    trajectory_point.position = point.position;
+    trajectory_point.velocity = point.velocity;
+    trajectory_point.acceleration = point.acceleration;
+    for (double &value : trajectory_point.velocity) {
+      value *= goal.original_time_scale;
+    }
+    for (double &value : trajectory_point.acceleration) {
+      value *= goal.original_time_scale * goal.original_time_scale;
+    }
+    trajectory_point.time_from_start = relative_time;
+    goal.points.push_back(std::move(trajectory_point));
   }
 
   if (goal.points.empty()) {
-    goal.points.push_back(TrajectoryExecutionPoint{flattened.back().position, 0.0});
+    TrajectoryExecutionPoint final_point;
+    final_point.position = flattened.back().position;
+    final_point.velocity.assign(final_point.position.size(), 0.0);
+    final_point.acceleration.assign(final_point.position.size(), 0.0);
+    final_point.time_from_start = 0.0;
+    goal.points.push_back(std::move(final_point));
   }
   if (goal.points.size() == 1) {
     auto hold_point = goal.points.back();
@@ -195,6 +309,11 @@ MotionRuntime::~MotionRuntime() {
 void MotionRuntime::attachBackend(BackendInterface *backend) {
   std::lock_guard<std::mutex> lock(mutex_);
   backend_ = backend;
+}
+
+void MotionRuntime::setExecutorConfig(const MotionExecutorConfig &config) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  executor_.setConfig(config);
 }
 
 void MotionRuntime::setActiveSpeedScale(double scale) {
@@ -318,6 +437,7 @@ bool MotionRuntime::submit(const MotionRequest &request, std::string &message) {
       false,
   };
   active_status_.execution_backend = ExecutionBackend::none;
+  active_status_.control_owner = ControlOwner::none;
   rememberStatus(active_status_);
   planner_cv_.notify_one();
   message.clear();
@@ -338,6 +458,7 @@ void MotionRuntime::stop(const std::string &message) {
   active_status_.state = ExecutionState::stopped;
   active_status_.message = message;
   active_status_.terminal_success = false;
+  active_status_.control_owner = ControlOwner::none;
   if (!using_backend_trajectory_ && executor_.hasActivePlan()) {
     active_status_.execution_backend = ExecutionBackend::effort;
   }
@@ -347,7 +468,7 @@ void MotionRuntime::stop(const std::string &message) {
   active_trajectory_plan_.reset();
   active_trajectory_goal_.reset();
   using_backend_trajectory_ = false;
-  executor_.stop(RobotSnapshot{});
+  executor_.reset();
 }
 
 void MotionRuntime::reset() {
@@ -455,6 +576,7 @@ void MotionRuntime::plannerLoop() {
     active_status_.completed_segments = 0;
     active_status_.current_segment_index = 0;
     active_status_.execution_backend = ExecutionBackend::none;
+    active_status_.control_owner = ControlOwner::none;
     rememberStatus(active_status_);
   }
 }
@@ -464,30 +586,32 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
 
   std::lock_guard<std::mutex> lock(mutex_);
   if (active_request_id_.empty()) {
-    const auto step = executor_.tick(snapshot, dt, 1.0);
-    if (step.command.has_effort) {
-      backend.applyControl(step.command);
-    } else {
-      backend.clearControl();
+    backend.setControlOwner(ControlOwner::none);
+    if (using_backend_trajectory_) {
+      backend.cancelTrajectoryExecution("cleared idle trajectory owner");
+      using_backend_trajectory_ = false;
+      active_trajectory_plan_.reset();
+      active_trajectory_goal_.reset();
     }
+    if (executor_.hasActivePlan()) {
+      executor_.stop(snapshot);
+    }
+    backend.clearControl();
     active_status_ = RuntimeStatus{};
     return active_status_;
   }
 
   if (active_status_.state == ExecutionState::failed || active_status_.state == ExecutionState::stopped) {
+    backend.setControlOwner(ControlOwner::none);
     if (using_backend_trajectory_) {
       backend.cancelTrajectoryExecution(active_status_.message.empty() ? "stopped" : active_status_.message);
       using_backend_trajectory_ = false;
       active_trajectory_plan_.reset();
       active_trajectory_goal_.reset();
     }
-    executor_.stop(snapshot);
-    const auto step = executor_.tick(snapshot, dt, 1.0);
-    if (step.command.has_effort) {
-      backend.applyControl(step.command);
-    } else {
-      backend.clearControl();
-    }
+    executor_.reset();
+    backend.clearControl();
+    active_status_.control_owner = ControlOwner::none;
     rememberStatus(active_status_);
     const auto terminal_status = active_status_;
     active_request_id_.clear();
@@ -509,6 +633,8 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
         active_status_.current_segment_index = active_trajectory_goal_->segment_index_offset;
         active_status_.completed_segments = active_trajectory_goal_->segment_index_offset;
         active_status_.execution_backend = ExecutionBackend::jtc;
+        active_status_.control_owner = ControlOwner::trajectory;
+        backend.setControlOwner(ControlOwner::trajectory);
         queued_plan_.reset();
         started_backend_trajectory = true;
       } else if (!trajectory_message.empty()) {
@@ -524,10 +650,13 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
       active_status_.current_segment_index = 0;
       active_status_.completed_segments = 0;
       active_status_.execution_backend = ExecutionBackend::effort;
+      active_status_.control_owner = ControlOwner::effort;
+      backend.setControlOwner(ControlOwner::effort);
     }
   }
 
   if (using_backend_trajectory_) {
+    backend.setControlOwner(ControlOwner::trajectory);
     auto trajectory_state = backend.readTrajectoryExecutionState();
     if (active_trajectory_plan_ && active_trajectory_goal_ && trajectory_state.active &&
         !trajectory_state.completed &&
@@ -535,8 +664,9 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
       const double current_original_time =
           active_trajectory_goal_->original_time_offset +
           std::max(trajectory_state.desired_time_from_start, 0.0) * active_trajectory_goal_->original_time_scale;
+      const auto start_override = build_start_override(trajectory_state, snapshot);
       auto retimed_goal =
-          build_execution_goal(*active_trajectory_plan_, active_speed_scale_, &snapshot.joint_position, current_original_time);
+          build_execution_goal(*active_trajectory_plan_, active_speed_scale_, &start_override, current_original_time);
       std::string retime_message;
       if (!retimed_goal.points.empty() && backend.startTrajectoryExecution(retimed_goal, retime_message)) {
         active_trajectory_goal_ = std::move(retimed_goal);
@@ -556,6 +686,7 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
       active_status_.current_segment_index = progress.current_segment_index;
     }
     active_status_.execution_backend = ExecutionBackend::jtc;
+    active_status_.control_owner = ControlOwner::trajectory;
 
     if (trajectory_state.completed) {
       using_backend_trajectory_ = false;
@@ -579,6 +710,8 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
           active_status_.message += "; final joint error exceeded tolerance";
         }
       }
+      active_status_.control_owner = ControlOwner::none;
+      backend.setControlOwner(ControlOwner::none);
       rememberStatus(active_status_);
       const auto terminal_status = active_status_;
       active_trajectory_plan_.reset();
@@ -589,6 +722,7 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
 
     active_status_.state = ExecutionState::executing;
     active_status_.execution_backend = ExecutionBackend::jtc;
+    active_status_.control_owner = ControlOwner::trajectory;
     if (!trajectory_state.message.empty() && trajectory_state.message != active_status_.message) {
       active_status_.message = trajectory_state.message;
     } else if (active_status_.message.empty()) {
@@ -600,9 +734,11 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
 
   const double trajectory_time_scale = active_speed_scale_;
   const auto step = executor_.tick(snapshot, dt, trajectory_time_scale);
+  backend.setControlOwner(ControlOwner::effort);
   if (step.command.has_effort) {
     backend.applyControl(step.command);
   } else {
+    backend.setControlOwner(ControlOwner::none);
     backend.clearControl();
   }
 
@@ -613,6 +749,7 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
   if (runtime_driving_execution && step.state != ExecutionState::idle) {
     active_status_.state = step.state;
     active_status_.execution_backend = ExecutionBackend::effort;
+    active_status_.control_owner = ControlOwner::effort;
   }
   active_status_.current_segment_index = step.current_segment_index;
   active_status_.completed_segments = step.completed_segments;
@@ -623,6 +760,11 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
     active_status_.message = step.message.empty() ? to_string(step.state) : step.message;
     active_status_.terminal_success = step.terminal_success;
     active_status_.execution_backend = ExecutionBackend::effort;
+    active_status_.control_owner = ControlOwner::none;
+    backend.setControlOwner(ControlOwner::none);
+  } else if (!runtime_driving_execution || step.state == ExecutionState::idle) {
+    active_status_.control_owner = ControlOwner::none;
+    backend.setControlOwner(ControlOwner::none);
   }
 
   rememberStatus(active_status_);

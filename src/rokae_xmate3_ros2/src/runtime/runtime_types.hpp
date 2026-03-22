@@ -46,6 +46,12 @@ enum class ExecutionBackend {
   jtc,
 };
 
+enum class ControlOwner {
+  none,
+  effort,
+  trajectory,
+};
+
 struct MotionCommandSpec {
   MotionKind kind = MotionKind::none;
   std::vector<double> target_joints;
@@ -60,6 +66,8 @@ struct MotionCommandSpec {
   bool direction = true;
   bool use_preplanned_trajectory = false;
   std::vector<std::vector<double>> preplanned_trajectory;
+  std::vector<std::vector<double>> preplanned_velocity_trajectory;
+  std::vector<std::vector<double>> preplanned_acceleration_trajectory;
   double preplanned_dt = 0.01;
 };
 
@@ -92,6 +100,8 @@ struct PlannedSegment {
   int zone = 0;
   bool blend_to_next = false;
   std::vector<std::vector<double>> joint_trajectory;
+  std::vector<std::vector<double>> joint_velocity_trajectory;
+  std::vector<std::vector<double>> joint_acceleration_trajectory;
   double trajectory_dt = 0.01;
   double trajectory_total_time = 0.0;
   PathFamily path_family = PathFamily::none;
@@ -130,6 +140,8 @@ struct ControlCommand {
 
 struct TrajectoryExecutionPoint {
   std::vector<double> position;
+  std::vector<double> velocity;
+  std::vector<double> acceleration;
   double time_from_start = 0.0;
 };
 
@@ -152,6 +164,9 @@ struct TrajectoryExecutionState {
   bool canceled = false;
   bool failed = false;
   double desired_time_from_start = 0.0;
+  std::vector<double> actual_position;
+  std::vector<double> actual_velocity;
+  std::vector<double> actual_acceleration;
   std::string message;
 };
 
@@ -165,6 +180,7 @@ struct RuntimeStatus {
   bool terminal_success = false;
   std::uint64_t revision = 0;
   ExecutionBackend execution_backend = ExecutionBackend::none;
+  ControlOwner control_owner = ControlOwner::none;
 
   [[nodiscard]] bool terminal() const noexcept {
     return state == ExecutionState::completed || state == ExecutionState::completed_relaxed ||
@@ -189,6 +205,8 @@ class BackendInterface {
   virtual ~BackendInterface() = default;
 
   [[nodiscard]] virtual RobotSnapshot readSnapshot() const = 0;
+  virtual void setControlOwner(ControlOwner owner) { (void)owner; }
+  [[nodiscard]] virtual ControlOwner controlOwner() const { return ControlOwner::none; }
   virtual void applyControl(const ControlCommand &command) = 0;
   virtual void clearControl() = 0;
   virtual void setBrakeLock(const RobotSnapshot &snapshot, bool locked) {
@@ -271,6 +289,17 @@ inline const char *to_string(ExecutionBackend backend) noexcept {
       return "effort";
     case ExecutionBackend::jtc:
       return "jtc";
+    default:
+      return "none";
+  }
+}
+
+inline const char *to_string(ControlOwner owner) noexcept {
+  switch (owner) {
+    case ControlOwner::effort:
+      return "effort";
+    case ControlOwner::trajectory:
+      return "trajectory";
     default:
       return "none";
   }

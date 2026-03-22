@@ -36,7 +36,7 @@ class MotionRequestCoordinator {
       const std::string &request_id);
 
   [[nodiscard]] SubmissionResult submitReplayPath(
-      const std::vector<std::vector<double>> &recorded_path,
+      const ReplayPathAsset &replay_asset,
       double rate,
       const std::array<double, 6> &joint_position,
       double trajectory_dt,

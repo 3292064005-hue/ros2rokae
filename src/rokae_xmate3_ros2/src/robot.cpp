@@ -1,4 +1,5 @@
 #include "rokae_xmate3_ros2/robot.hpp"
+#include "rokae_xmate3_ros2/model.hpp"
 #include "rokae_xmate3_ros2/utils.hpp"
 #include "runtime/pose_utils.hpp"
 #include <rclcpp_action/rclcpp_action.hpp>
@@ -2948,8 +2949,7 @@ unsigned xMateRobot::updateRobotState(std::chrono::steady_clock::duration timeou
 // 模型和实时控制器访问（占位实现）
 std::shared_ptr<void> xMateRobot::model() {
     if (!impl_->model_) {
-        // 返回一个占位shared_ptr
-        impl_->model_ = std::make_shared<int>(0);
+        impl_->model_ = std::make_shared<rokae::ros2::XMateModel>(*this);
     }
     return impl_->model_;
 }

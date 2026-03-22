@@ -3,6 +3,7 @@ import launch
 import launch_ros
 from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -84,10 +85,28 @@ def generate_launch_description():
         ),
         launch.actions.DeclareLaunchArgument(
             name='enable_ros2_control',
-            default_value='false',
+            default_value='true',
             description='是否启用 ros2_control / joint_trajectory_controller'
         ),
+        launch.actions.DeclareLaunchArgument(
+            name='enable_xcore_plugin',
+            default_value='true',
+            description='是否加载 xCore Gazebo plugin'
+        ),
+        launch.actions.DeclareLaunchArgument(
+            name='backend_mode',
+            default_value='hybrid',
+            description='后端装配模式: effort | jtc | hybrid'
+        ),
     ]
+
+    ros2_control_enabled = PythonExpression([
+        "'",
+        LaunchConfiguration('enable_ros2_control'),
+        "' == 'true' and '",
+        LaunchConfiguration('backend_mode'),
+        "' != 'effort'"
+    ])
 
     robot_description_content = launch.substitutions.Command(
         [
@@ -97,7 +116,11 @@ def generate_launch_description():
             ' package_share:=',
             pkg_share,
             ' enable_ros2_control:=',
-            launch.substitutions.LaunchConfiguration('enable_ros2_control'),
+            LaunchConfiguration('enable_ros2_control'),
+            ' enable_xcore_plugin:=',
+            LaunchConfiguration('enable_xcore_plugin'),
+            ' backend_mode:=',
+            LaunchConfiguration('backend_mode'),
         ]
     )
     robot_description = launch_ros.parameter_descriptions.ParameterValue(
@@ -187,8 +210,7 @@ def generate_launch_description():
         ],
         output='screen',
         parameters=[{'use_sim_time': launch.substitutions.LaunchConfiguration('use_sim_time')}],
-        condition=launch.conditions.IfCondition(
-            launch.substitutions.LaunchConfiguration('enable_ros2_control'))
+        condition=launch.conditions.IfCondition(ros2_control_enabled)
     )
 
     joint_trajectory_controller_spawner = Node(
@@ -201,8 +223,7 @@ def generate_launch_description():
         ],
         output='screen',
         parameters=[{'use_sim_time': launch.substitutions.LaunchConfiguration('use_sim_time')}],
-        condition=launch.conditions.IfCondition(
-            launch.substitutions.LaunchConfiguration('enable_ros2_control'))
+        condition=launch.conditions.IfCondition(ros2_control_enabled)
     )
 
     def log_info(msg):
@@ -219,14 +240,15 @@ def generate_launch_description():
                         joint_state_broadcaster_spawner,
                         joint_trajectory_controller_spawner,
                     ],
-                    condition=launch.conditions.IfCondition(
-                        launch.substitutions.LaunchConfiguration('enable_ros2_control'))
+                    condition=launch.conditions.IfCondition(ros2_control_enabled)
                 ),
                 log_info("=" * 60),
                 log_info("spawn_entity.py 已退出，请检查上方输出确认机器人是否成功生成。"),
                 log_info("若看到 'Successfully spawned entity [xmate]'，则说明机器人已正确加载。"),
-                log_info("使用 xcore_controller_gazebo_plugin 提供纯 xCore SDK 仿真。"),
-                log_info("默认使用 xCore Gazebo runtime；如需 joint_trajectory_controller，请传入 enable_ros2_control:=true。"),
+                log_info("使用 xcore_controller_gazebo_plugin 提供 xCore SDK 仿真。"),
+                log_info(["当前 backend_mode=", LaunchConfiguration('backend_mode'),
+                          " enable_xcore_plugin=", LaunchConfiguration('enable_xcore_plugin'),
+                          " enable_ros2_control=", LaunchConfiguration('enable_ros2_control')]),
                 log_info("可用服务和话题:"),
                 log_info("  - /xmate3/cobot/*  (SDK服务)"),
                 log_info("  - /xmate3/joint_states  (关节状态)"),

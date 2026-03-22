@@ -30,7 +30,9 @@ def generate_launch_description():
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("verbose", default_value="true"),
         DeclareLaunchArgument("use_sim_time", default_value="true"),
-        DeclareLaunchArgument("enable_ros2_control", default_value="false"),
+        DeclareLaunchArgument("enable_ros2_control", default_value="true"),
+        DeclareLaunchArgument("enable_xcore_plugin", default_value="true"),
+        DeclareLaunchArgument("backend_mode", default_value="hybrid"),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(simulation_launch),
             launch_arguments={
@@ -41,6 +43,8 @@ def generate_launch_description():
                 "verbose": LaunchConfiguration("verbose"),
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
                 "enable_ros2_control": LaunchConfiguration("enable_ros2_control"),
+                "enable_xcore_plugin": LaunchConfiguration("enable_xcore_plugin"),
+                "backend_mode": LaunchConfiguration("backend_mode"),
             }.items(),
         ),
     ])

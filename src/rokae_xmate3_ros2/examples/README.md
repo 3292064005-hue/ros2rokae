@@ -40,10 +40,17 @@ examples/
 
 ## 示例索引
 
+能力分级说明：
+- `已对齐`：示例调用路径和默认仿真语义已经收口
+- `近似实现`：示例可运行，但依赖仿真近似模型或近似时间律
+- `实验性`：主要用于验证链路与接口形状，不承诺真机级语义
+- `不支持`：当前示例或接口明确未提供
+
 ### 第 4.3 节
 - `01_basic_connect.cpp`: 连接机器人、获取信息、电源/模式切换
 - `02_joint_cartesian_read.cpp`: 读取关节位置、速度、力矩、笛卡尔位姿
 - `03_kinematics.cpp`: 正逆运动学、雅可比、模型计算
+  说明：`xMateModel` 当前是 KDL/URDF-backed 运动学 + approximate dynamics（近似实现）
 - `15_move_queue_and_events.cpp`: 运动队列、事件回调、控制器日志
 - `17_state_stream_cache.cpp`: 状态缓存、字段轮询、异步采样
 
@@ -60,6 +67,7 @@ examples/
 - `24_rt_follow_position.cpp`: RT 跟随位置
 - `25_rt_s_line.cpp`: RT S 线轨迹
 - `26_rt_torque_control.cpp`: RT 力矩控制 smoke 示例
+  说明：4.5 节所有示例均属于实验性仿真 RT 语义，不代表真机控制柜 1ms 契约
 
 ### 第 4.6 节
 - `06_io_control.cpp`: DI/DO/AI/AO 读写、仿真模式
@@ -71,6 +79,7 @@ examples/
 ### 第 4.8 节
 - `07_safety_collision.cpp`: 碰撞检测、软限位、拖动示教
 - `08_path_record_replay.cpp`: 路径录制、保存、回放
+  说明：回放速率通过时间轴重参数化近似原始速率，不是控制柜级保证
 - `09_advanced_sdk_compat.cpp`: 寄存器、RT、RL、动力学、奇异规避等高级能力
 - `18_toolset_and_calibration.cpp`: 工具、工件与坐标系标定
 - `19_diagnostics_and_wrench.cpp`: 末端力矩、奇异规避、诊断接口
@@ -79,6 +88,7 @@ examples/
 - `10_sdk_workflow_xmate3.cpp`
 - `12_state_stream_threaded.cpp`
 - `14_model_extended.cpp`
+  说明：展示 KDL-backed Jacobian / cartesian velocity / approximate acceleration 映射（近似实现）
 - `99_complete_demo.cpp`
 
 ## 使用方法
@@ -125,13 +135,16 @@ ros2 run rokae_xmate3_ros2 example_01_basic_connect
 6. `25_rt_s_line.cpp`
 7. `26_rt_torque_control.cpp`
 
-> 说明：20-26 在 Gazebo 中保留 RT API 的调用形状，但语义是 simulation-only / approximate，不代表真机 1kHz 契约。
+> 说明：20-26 在 Gazebo 中保留 RT API 的调用形状，但语义是 simulation-only / approximate，属于实验性能力。
+> 说明：`25_rt_s_line.cpp` 使用 joint-only shared quintic retimer，笛卡尔 `GenerateSTrajectory` 当前不支持。
 
 ## 注意事项
 1. 所有示例都需要先启动仿真。
 2. 示例包含完整的 `std::error_code` 处理。
 3. 本包聚焦 xMate3 六轴 Gazebo 仿真，不等价覆盖真机与其他机型能力。
 4. `26_rt_torque_control.cpp` 在 Gazebo 中主要用于验证接口与控制链路。
+5. `xMateModel` / `03_kinematics.cpp` / `14_model_extended.cpp` 的动力学结果属于可解释的仿真近似，不等价于完整刚体动力学求解。
+6. `simulation.launch.py` 默认使用 `backend_mode:=hybrid`；若只验证 JTC，可显式传 `backend_mode:=jtc enable_xcore_plugin:=false`。
 
 ## 更多资源
 - [快速入门指南](../docs/QUICKSTART.md)

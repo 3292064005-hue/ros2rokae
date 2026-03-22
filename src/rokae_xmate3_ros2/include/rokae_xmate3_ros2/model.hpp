@@ -48,8 +48,27 @@ public:
     }
 
     std::array<double, 6> getCartAcc(std::error_code& ec) {
-        (void)ec;
-        return {0, 0, 0, 0, 0, 0};
+        const auto q = robot_.jointPos(ec);
+        if (ec) {
+            return {};
+        }
+        const auto dq = robot_.jointVel(ec);
+        if (ec) {
+            return {};
+        }
+        std::vector<double> qv(q.begin(), q.end());
+        const auto J = kinematics_.computeJacobian(qv);
+        Eigen::Matrix<double, 6, 1> dq_vec = Eigen::Matrix<double, 6, 1>::Zero();
+        for (size_t i = 0; i < 6; ++i) {
+            dq_vec(i) = dq[i];
+        }
+        const Eigen::Matrix<double, 6, 1> ddq_vec = J.completeOrthogonalDecomposition().pseudoInverse() * (J * dq_vec);
+        const Eigen::Matrix<double, 6, 1> cart_acc = J * ddq_vec;
+        std::array<double, 6> out{};
+        for (size_t i = 0; i < 6; ++i) {
+            out[i] = cart_acc(i);
+        }
+        return out;
     }
 
     std::array<double, 6> getJointPos(std::error_code& ec) {
@@ -61,8 +80,26 @@ public:
     }
 
     std::array<double, 6> getJointAcc(std::error_code& ec) {
-        (void)ec;
-        return {0, 0, 0, 0, 0, 0};
+        const auto q = robot_.jointPos(ec);
+        if (ec) {
+            return {};
+        }
+        const auto cart_acc = getCartAcc(ec);
+        if (ec) {
+            return {};
+        }
+        std::vector<double> qv(q.begin(), q.end());
+        const auto J = kinematics_.computeJacobian(qv);
+        Eigen::Matrix<double, 6, 1> cart_acc_vec;
+        for (size_t i = 0; i < 6; ++i) {
+            cart_acc_vec(i) = cart_acc[i];
+        }
+        const Eigen::Matrix<double, 6, 1> joint_acc = J.completeOrthogonalDecomposition().pseudoInverse() * cart_acc_vec;
+        std::array<double, 6> out{};
+        for (size_t i = 0; i < 6; ++i) {
+            out[i] = joint_acc(i);
+        }
+        return out;
     }
 
     std::array<double, 6> getTorque(std::error_code& ec) {

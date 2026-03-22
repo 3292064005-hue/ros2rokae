@@ -7,6 +7,7 @@
 #define ROKAE_XMATE3_GAZEBO_TRAJECTORY_PLANNER_HPP
 
 #include <Eigen/Dense>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -16,10 +17,27 @@ using namespace Eigen;
 
 struct TrajectorySamples {
     std::vector<std::vector<double>> points;
+    std::vector<std::vector<double>> velocities;
+    std::vector<std::vector<double>> accelerations;
     double sample_dt = 0.001;
     double total_time = 0.0;
 
     [[nodiscard]] bool empty() const noexcept { return points.empty(); }
+};
+
+struct TrajectoryPlannerConfig {
+    double min_nrt_speed_mm_per_s = 5.0;
+    double max_nrt_speed_mm_per_s = 4000.0;
+    double reference_joint_full_speed_mm_per_s = 500.0;
+    double min_sample_dt = 0.001;
+    double max_sample_dt = 0.05;
+    double max_joint_step_rad = 0.025;
+    double max_cartesian_step_m = 0.002;
+    double max_orientation_step_rad = 0.03;
+    std::array<double, 6> joint_speed_limits_rad_per_sec{
+        M_PI, M_PI, M_PI, M_PI, M_PI, M_PI};
+    std::array<double, 6> joint_acc_limits_rad_per_sec2{
+        2.5 * M_PI, 2.5 * M_PI, 2.5 * M_PI, 2.5 * M_PI, 2.5 * M_PI, 2.5 * M_PI};
 };
 
 /**
@@ -27,6 +45,9 @@ struct TrajectorySamples {
  */
 class TrajectoryPlanner {
 public:
+    static void setConfig(const TrajectoryPlannerConfig& config);
+    [[nodiscard]] static TrajectoryPlannerConfig config();
+
     /**
      * @brief 关节空间直线插补 (MoveJ/MoveAbsJ)
      */

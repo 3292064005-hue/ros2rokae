@@ -39,6 +39,7 @@ RuntimeLogEvent build_runtime_log_event(const RuntimeStatus &status,
   stream << "[runtime] request=" << status.request_id
          << " state=" << state_text
          << " backend=" << to_string(status.execution_backend)
+         << " owner=" << to_string(status.control_owner)
          << " segment=" << status.current_segment_index << "/" << status.total_segments
          << " completed=" << status.completed_segments
          << " message=" << message_text;

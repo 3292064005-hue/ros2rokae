@@ -43,6 +43,16 @@ bool ControllerState::collisionDetectionEnabled() const {
   return session_state_->collisionDetectionEnabled();
 }
 
+void ControllerState::setCollisionDetectionConfig(const std::array<double, 6> &sensitivity,
+                                                  std::uint8_t behaviour,
+                                                  double fallback) {
+  session_state_->setCollisionDetectionConfig(sensitivity, behaviour, fallback);
+}
+
+CollisionDetectionSnapshot ControllerState::collisionDetection() const {
+  return session_state_->collisionDetection();
+}
+
 void ControllerState::setMotionMode(int mode) { session_state_->setMotionMode(mode); }
 int ControllerState::motionMode() const { return session_state_->motionMode(); }
 
@@ -90,6 +100,12 @@ void ControllerState::setToolset(const std::string &tool_name,
                                  const std::vector<double> &tool_pose,
                                  const std::vector<double> &wobj_pose) {
   tooling_state_->setToolset(tool_name, wobj_name, tool_pose, wobj_pose);
+}
+
+void ControllerState::setToolDynamics(const std::string &tool_name,
+                                      double mass,
+                                      const std::array<double, 3> &com) {
+  tooling_state_->setToolDynamics(tool_name, mass, com);
 }
 
 ToolsetSnapshot ControllerState::toolset() const { return tooling_state_->toolset(); }
@@ -172,9 +188,17 @@ void ControllerState::setAO(unsigned int board, unsigned int port, double value)
 }
 
 void ControllerState::startRecordingPath() { program_state_->startRecordingPath(); }
+void ControllerState::startRecordingPath(const ToolsetSnapshot &toolset, const std::string &source) {
+  program_state_->startRecordingPath(toolset, source);
+}
 void ControllerState::stopRecordingPath() { program_state_->stopRecordingPath(); }
 void ControllerState::cancelRecordingPath() { program_state_->cancelRecordingPath(); }
 bool ControllerState::isRecordingPath() const { return program_state_->isRecordingPath(); }
+void ControllerState::recordPathSample(double timestamp_sec,
+                                       const std::array<double, 6> &joint_position,
+                                       const std::array<double, 6> &joint_velocity) {
+  program_state_->recordPathSample(timestamp_sec, joint_position, joint_velocity);
+}
 void ControllerState::recordPathSample(const std::array<double, 6> &joint_position) {
   program_state_->recordPathSample(joint_position);
 }
@@ -182,6 +206,9 @@ void ControllerState::saveRecordedPath(const std::string &name) { program_state_
 bool ControllerState::getSavedPath(const std::string &name,
                                    std::vector<std::vector<double>> &path) const {
   return program_state_->getSavedPath(name, path);
+}
+bool ControllerState::getReplayAsset(const std::string &name, ReplayPathAsset &asset) const {
+  return program_state_->getReplayAsset(name, asset);
 }
 void ControllerState::removeSavedPath(const std::string &name, bool remove_all) {
   program_state_->removeSavedPath(name, remove_all);

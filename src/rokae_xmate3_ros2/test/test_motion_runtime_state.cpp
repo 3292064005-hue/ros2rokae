@@ -11,6 +11,14 @@
 
 namespace rt = rokae_xmate3_ros2::runtime;
 
+namespace {
+
+std::vector<double> arrayToVector(const std::array<double, 6> &values) {
+  return std::vector<double>(values.begin(), values.end());
+}
+
+}  // namespace
+
 class FakeBackend final : public rt::BackendInterface {
  public:
   explicit FakeBackend(const std::array<double, 6> &target) : target_(target) {
@@ -142,10 +150,13 @@ class StaticBackend final : public rt::BackendInterface {
   rt::RobotSnapshot readSnapshot() const override { return snapshot_; }
   void applyControl(const rt::ControlCommand &command) override { last_command_ = command; }
   void clearControl() override {}
+  void setControlOwner(rt::ControlOwner owner) override { control_owner_ = owner; }
+  [[nodiscard]] rt::ControlOwner controlOwner() const override { return control_owner_; }
 
  private:
   rt::RobotSnapshot snapshot_{};
   rt::ControlCommand last_command_{};
+  rt::ControlOwner control_owner_ = rt::ControlOwner::none;
 };
 
 TEST(MotionRuntimeStateTest, ActiveSpeedScaleChangesTrajectoryProgressRate) {
@@ -305,6 +316,8 @@ class TrajectoryBackend final : public rt::BackendInterface {
 
   void applyControl(const rt::ControlCommand &) override { ++apply_control_count_; }
   void clearControl() override { ++clear_control_count_; }
+  void setControlOwner(rt::ControlOwner owner) override { control_owner_ = owner; }
+  [[nodiscard]] rt::ControlOwner controlOwner() const override { return control_owner_; }
 
   [[nodiscard]] bool supportsTrajectoryExecution() const override { return true; }
 
@@ -322,6 +335,7 @@ class TrajectoryBackend final : public rt::BackendInterface {
         snapshot_.joint_position[i] = goal_.points.front().position[i];
       }
     }
+    last_goal_ = goal_;
     message.clear();
     return !goal.points.empty();
   }
@@ -338,6 +352,7 @@ class TrajectoryBackend final : public rt::BackendInterface {
   int startCount() const { return start_count_; }
   int applyControlCount() const { return apply_control_count_; }
   int clearControlCount() const { return clear_control_count_; }
+  const rt::TrajectoryExecutionGoal &lastGoal() const { return last_goal_; }
 
  private:
   void updateSnapshotFromGoal() const {
@@ -357,12 +372,21 @@ class TrajectoryBackend final : public rt::BackendInterface {
     const double dt = std::max(next->time_from_start - previous->time_from_start, 1e-9);
     const double alpha =
         std::clamp((elapsed_sec_ - previous->time_from_start) / dt, 0.0, 1.0);
+    std::array<double, 6> acceleration{};
     for (std::size_t i = 0; i < 6; ++i) {
       const double p0 = i < previous->position.size() ? previous->position[i] : 0.0;
       const double p1 = i < next->position.size() ? next->position[i] : p0;
       snapshot_.joint_position[i] = p0 + (p1 - p0) * alpha;
-      snapshot_.joint_velocity[i] = (p1 - p0) / dt;
+      const double v0 = i < previous->velocity.size() ? previous->velocity[i] : 0.0;
+      const double v1 = i < next->velocity.size() ? next->velocity[i] : v0;
+      const double a0 = i < previous->acceleration.size() ? previous->acceleration[i] : 0.0;
+      const double a1 = i < next->acceleration.size() ? next->acceleration[i] : a0;
+      snapshot_.joint_velocity[i] = v0 + (v1 - v0) * alpha;
+      acceleration[i] = a0 + (a1 - a0) * alpha;
     }
+    state_.actual_position = arrayToVector(snapshot_.joint_position);
+    state_.actual_velocity = arrayToVector(snapshot_.joint_velocity);
+    state_.actual_acceleration = arrayToVector(acceleration);
   }
 
   mutable rt::RobotSnapshot snapshot_{};
@@ -370,10 +394,24 @@ class TrajectoryBackend final : public rt::BackendInterface {
   mutable double elapsed_sec_ = 0.0;
   double tick_sec_ = 0.01;
   rt::TrajectoryExecutionGoal goal_{};
+  rt::TrajectoryExecutionGoal last_goal_{};
   int start_count_ = 0;
   int apply_control_count_ = 0;
   int clear_control_count_ = 0;
+  rt::ControlOwner control_owner_ = rt::ControlOwner::none;
 };
+
+TEST(MotionRuntimeStateTest, IdleTickClearsControlWithoutEffortOwnership) {
+  rt::MotionRuntime runtime;
+  TrajectoryBackend backend;
+
+  const auto status = runtime.tick(backend, 0.01);
+
+  EXPECT_EQ(status.state, rt::ExecutionState::idle);
+  EXPECT_EQ(backend.controlOwner(), rt::ControlOwner::none);
+  EXPECT_EQ(backend.applyControlCount(), 0);
+  EXPECT_GT(backend.clearControlCount(), 0);
+}
 
 TEST(MotionRuntimeStateTest, SettleTimeoutCompletesRelaxedWithoutTerminalSuccess) {
   rt::MotionRuntime runtime;
@@ -443,14 +481,22 @@ TEST(MotionRuntimeStateTest, UsesTrajectoryBackendWhenAvailable) {
       EXPECT_EQ(status.state, rt::ExecutionState::completed);
       EXPECT_TRUE(status.terminal_success);
       EXPECT_EQ(status.execution_backend, rt::ExecutionBackend::jtc);
+      EXPECT_EQ(status.control_owner, rt::ControlOwner::none);
       reached_terminal = true;
       break;
+    }
+    if (status.state == rt::ExecutionState::executing) {
+      EXPECT_EQ(status.control_owner, rt::ControlOwner::trajectory);
     }
   }
 
   EXPECT_TRUE(reached_terminal);
   EXPECT_GE(backend.startCount(), 1);
   EXPECT_GT(backend.clearControlCount(), 0);
+  ASSERT_FALSE(backend.lastGoal().points.empty());
+  EXPECT_EQ(backend.lastGoal().points.front().position.size(), 6u);
+  EXPECT_EQ(backend.lastGoal().points.front().velocity.size(), 6u);
+  EXPECT_EQ(backend.lastGoal().points.front().acceleration.size(), 6u);
 }
 
 TEST(MotionRuntimeStateTest, TrajectoryBackendRetimesOnSpeedScaleChange) {
@@ -487,9 +533,21 @@ TEST(MotionRuntimeStateTest, TrajectoryBackendRetimesOnSpeedScaleChange) {
     const auto status = runtime.tick(backend, 0.01);
     if (status.terminal()) {
       EXPECT_EQ(status.execution_backend, rt::ExecutionBackend::jtc);
+      EXPECT_EQ(status.control_owner, rt::ControlOwner::none);
       break;
+    }
+    if (status.state == rt::ExecutionState::executing) {
+      EXPECT_EQ(status.control_owner, rt::ControlOwner::trajectory);
     }
   }
 
   EXPECT_GE(backend.startCount(), 2);
+  ASSERT_FALSE(backend.lastGoal().points.empty());
+  EXPECT_EQ(backend.lastGoal().points.front().velocity.size(), 6u);
+  EXPECT_EQ(backend.lastGoal().points.front().acceleration.size(), 6u);
+  double velocity_norm = 0.0;
+  for (double value : backend.lastGoal().points.front().velocity) {
+    velocity_norm += std::fabs(value);
+  }
+  EXPECT_GT(velocity_norm, 1e-6);
 }

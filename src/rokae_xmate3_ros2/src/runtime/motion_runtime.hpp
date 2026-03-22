@@ -23,6 +23,7 @@ class MotionRuntime {
   ~MotionRuntime();
 
   void attachBackend(BackendInterface *backend);
+  void setExecutorConfig(const MotionExecutorConfig &config);
   [[nodiscard]] bool canAcceptRequest() const;
   [[nodiscard]] bool submit(const MotionRequest &request, std::string &message);
 

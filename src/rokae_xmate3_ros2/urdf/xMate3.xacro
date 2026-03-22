@@ -8,9 +8,14 @@
   <xacro:arg name="mesh_root" default="package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/"/>
   <xacro:arg name="package_share" default="."/>
   <xacro:arg name="enable_ros2_control" default="false"/>
+  <xacro:arg name="enable_xcore_plugin" default="true"/>
+  <xacro:arg name="backend_mode" default="hybrid"/>
   <xacro:property name="mesh_prefix_root" value="$(arg mesh_root)"/>
   <xacro:property name="mesh_prefix_vis" value="${mesh_prefix_root}visual/"/>
   <xacro:property name="mesh_prefix_col" value="${mesh_prefix_root}collision/"/>
+  <xacro:property name="ros2_control_enabled" value="$(arg enable_ros2_control)"/>
+  <xacro:property name="xcore_plugin_enabled" value="$(arg enable_xcore_plugin)"/>
+  <xacro:property name="backend_mode_value" value="$(arg backend_mode)"/>
 
   <!-- ==================== 材料定义 ==================== -->
   <xacro:macro name="material_color" params="name r g b">
@@ -234,13 +239,17 @@
     <static>true</static>
   </gazebo>
 
-  <xacro:if value="$(arg enable_ros2_control)">
+  <xacro:if value="${str(ros2_control_enabled).lower() == 'true' and str(backend_mode_value) != 'effort'}">
     <xacro:xMate3_ros2_control/>
   </xacro:if>
 
   <!-- xCore SDK 服务插件 - 直接控制关节，提供完整SDK功能 -->
-  <gazebo>
-    <plugin name="xcore_controller_gazebo_plugin" filename="libxcore_controller_gazebo_plugin.so"/>
-  </gazebo>
+  <xacro:if value="${str(xcore_plugin_enabled).lower() == 'true' and str(backend_mode_value) != 'jtc'}">
+    <gazebo>
+      <plugin name="xcore_controller_gazebo_plugin" filename="libxcore_controller_gazebo_plugin.so">
+        <backend_mode>${backend_mode_value}</backend_mode>
+      </plugin>
+    </gazebo>
+  </xacro:if>
 
 </robot>

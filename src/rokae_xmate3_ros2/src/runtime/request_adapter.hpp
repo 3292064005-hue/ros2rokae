@@ -10,6 +10,8 @@
 
 namespace rokae_xmate3_ros2::runtime {
 
+struct ReplayPathAsset;
+
 struct MotionRequestContext {
   std::string request_id;
   std::vector<double> start_joints;
@@ -39,7 +41,7 @@ struct MotionRequestContext {
     std::string &error_message);
 
 [[nodiscard]] bool build_replay_request(
-    const std::vector<std::vector<double>> &recorded_path,
+    const ReplayPathAsset &replay_asset,
     double rate,
     const MotionRequestContext &context,
     MotionRequest &request,

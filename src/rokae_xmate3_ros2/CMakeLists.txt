@@ -11,6 +11,8 @@ endif()
 
 # 查找依赖
 find_package(ament_cmake REQUIRED)
+find_package(PkgConfig REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -19,6 +21,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(kdl_parser REQUIRED)
 find_package(gazebo REQUIRED)
 find_package(gazebo_ros REQUIRED)
 find_package(Eigen3 REQUIRED NO_MODULE)
@@ -26,6 +29,7 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(rosidl_runtime_cpp REQUIRED)
 find_package(unique_identifier_msgs REQUIRED)
 find_package(action_msgs REQUIRED)
+pkg_check_modules(OROCOS_KDL REQUIRED orocos-kdl)
 
 # 生成msg/srv/action接口
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -143,8 +147,10 @@ rosidl_get_typesupport_target(cpp_typesupport_target
 
 # 1. 内部 runtime 私有分层（不导出私有头）
 add_library(${PROJECT_NAME}_runtime_motion_core OBJECT
+  src/gazebo/kinematics_backend.cpp
   src/gazebo/kinematics.cpp
   src/gazebo/trajectory_planner.cpp
+  src/runtime/joint_retimer.cpp
   src/runtime/planner_core.cpp
   src/runtime/planning_utils.cpp
   src/runtime/request_adapter.cpp
@@ -189,8 +195,10 @@ foreach(runtime_target IN LISTS RUNTIME_PRIVATE_TARGETS)
       ${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp
       ${CMAKE_CURRENT_SOURCE_DIR}/src
       ${EIGEN3_INCLUDE_DIRS}
+      ${OROCOS_KDL_INCLUDE_DIRS}
   )
   ament_target_dependencies(${runtime_target}
+    ament_index_cpp
     rclcpp
     rclcpp_action
     std_msgs
@@ -202,6 +210,7 @@ foreach(runtime_target IN LISTS RUNTIME_PRIVATE_TARGETS)
     unique_identifier_msgs
     action_msgs
     gazebo_ros
+    kdl_parser
   )
   target_compile_features(${runtime_target} PUBLIC cxx_std_17)
   set_target_properties(${runtime_target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -224,6 +233,7 @@ target_include_directories(${PROJECT_NAME}_runtime_core
     ${EIGEN3_INCLUDE_DIRS}
 )
 ament_target_dependencies(${PROJECT_NAME}_runtime_core
+  ament_index_cpp
   rclcpp
   rclcpp_action
   control_msgs
@@ -231,9 +241,11 @@ ament_target_dependencies(${PROJECT_NAME}_runtime_core
   rosidl_runtime_cpp
   unique_identifier_msgs
   action_msgs
+  kdl_parser
 )
 target_link_libraries(${PROJECT_NAME}_runtime_core
   ${EIGEN3_LIBRARIES}
+  ${OROCOS_KDL_LIBRARIES}
   "${cpp_typesupport_target}"
 )
 target_compile_features(${PROJECT_NAME}_runtime_core PUBLIC cxx_std_17)
@@ -243,7 +255,7 @@ add_library(${PROJECT_NAME}_sdk SHARED
   src/robot.cpp
 )
 ament_target_dependencies(${PROJECT_NAME}_sdk
-  rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs gazebo_ros
+  ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs gazebo_ros kdl_parser
 )
 target_include_directories(${PROJECT_NAME}_sdk
   PUBLIC
@@ -255,6 +267,7 @@ target_link_libraries(${PROJECT_NAME}_sdk
   ${PROJECT_NAME}_runtime_core
   "${cpp_typesupport_target}"
   ${EIGEN3_LIBRARIES}
+  ${OROCOS_KDL_LIBRARIES}
   ${GAZEBO_LIBRARIES}
 )
 target_compile_features(${PROJECT_NAME}_sdk PUBLIC cxx_std_17)
@@ -264,7 +277,7 @@ add_library(xcore_controller_gazebo_plugin SHARED
   src/gazebo/xcore_controller_gazebo_plugin.cpp
 )
 ament_target_dependencies(xcore_controller_gazebo_plugin
-  rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs tf2_ros gazebo_ros
+  ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs tf2_ros gazebo_ros kdl_parser
 )
 target_include_directories(xcore_controller_gazebo_plugin
   PRIVATE
@@ -273,6 +286,7 @@ target_include_directories(xcore_controller_gazebo_plugin
 target_link_libraries(xcore_controller_gazebo_plugin
   ${GAZEBO_LIBRARIES}
   ${EIGEN3_LIBRARIES}
+  ${OROCOS_KDL_LIBRARIES}
   ${PROJECT_NAME}_runtime_core
   ${PROJECT_NAME}_sdk
   "${cpp_typesupport_target}"
@@ -582,7 +596,7 @@ def generate_test_description():
             "gui": "false",
             "rviz": "false",
             "verbose": "false",
-            "enable_ros2_control": "false",
+            "enable_ros2_control": "true",
         }.items(),
     )
     runner = ExecuteProcess(
@@ -731,7 +745,7 @@ def generate_test_description():
             "gui": "false",
             "rviz": "false",
             "verbose": "false",
-            "enable_ros2_control": "false",
+            "enable_ros2_control": "true",
         }.items(),
     )
     runner = ExecuteProcess(
@@ -803,7 +817,7 @@ def generate_test_description():
             "gui": "false",
             "rviz": "false",
             "verbose": "false",
-            "enable_ros2_control": "false",
+            "enable_ros2_control": "true",
         }.items(),
     )
     runner = ExecuteProcess(

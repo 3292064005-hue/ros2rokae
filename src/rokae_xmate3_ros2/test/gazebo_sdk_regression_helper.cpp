@@ -78,6 +78,7 @@ struct JointSample {
 struct CaseMetrics {
   std::string name;
   std::string execution_backend = "none";
+  std::string control_owner = "none";
   double planned_duration_sec = 0.0;
   double actual_duration_sec = 0.0;
   double motion_start_offset_sec = 0.0;
@@ -114,6 +115,7 @@ struct RuntimeLogEntry {
   std::string request_id;
   std::string state;
   std::string backend;
+  std::string owner;
   std::string message;
 };
 
@@ -406,6 +408,18 @@ class JointStateRecorder {
     return {};
   }
 
+  std::string latestRuntimeOwnerForRequest(const std::string &request_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = runtime_logs_.rbegin(); it != runtime_logs_.rend(); ++it) {
+      if (it->entry.request_id == request_id &&
+          !it->entry.owner.empty() &&
+          it->entry.owner != "none") {
+        return it->entry.owner;
+      }
+    }
+    return {};
+  }
+
  private:
   void handleJointState(const sensor_msgs::msg::JointState &msg) {
     const auto now = Clock::now();
@@ -486,6 +500,7 @@ class JointStateRecorder {
     const auto request_id = extract("request=");
     const auto state = extract("state=");
     const auto backend = extract("backend=");
+    const auto owner = extract("owner=");
     const auto message = extract("message=");
     if (!request_id.has_value() || !state.has_value()) {
       return std::nullopt;
@@ -495,6 +510,7 @@ class JointStateRecorder {
     entry.request_id = *request_id;
     entry.state = *state;
     entry.backend = backend.value_or(std::string{});
+    entry.owner = owner.value_or(std::string{});
     entry.message = message.value_or(std::string{});
     return entry;
   }
@@ -532,20 +548,8 @@ class JointStateRecorder {
   std::vector<RuntimeLogObservation> runtime_logs_;
 };
 
-std::array<double, 6> toArray(const std::vector<double> &values) {
-  std::array<double, 6> out{};
-  for (size_t i = 0; i < 6 && i < values.size(); ++i) {
-    out[i] = values[i];
-  }
-  return out;
-}
-
 std::vector<double> toVector(const std::array<double, 6> &values) {
   return std::vector<double>(values.begin(), values.end());
-}
-
-std::vector<double> poseToVector(const rokae::CartesianPosition &pose) {
-  return {pose.x, pose.y, pose.z, pose.rx, pose.ry, pose.rz};
 }
 
 rokae::CartesianPosition toCartesian(const std::vector<double> &pose) {
@@ -746,109 +750,6 @@ void addFailure(CaseMetrics &metrics, const std::string &message) {
   metrics.errors.push_back(message);
 }
 
-std::optional<std::string> extractRuntimeField(const std::string &text, const std::string &key) {
-  const auto key_pos = text.find(key);
-  if (key_pos == std::string::npos) {
-    return std::nullopt;
-  }
-  const auto value_start = key_pos + key.size();
-  auto value_end = text.find(' ', value_start);
-  if (value_end == std::string::npos) {
-    value_end = text.size();
-  }
-  return text.substr(value_start, value_end - value_start);
-}
-
-std::optional<RuntimeLogEntry> parseRuntimeLogEntry(const rokae::LogInfo &log) {
-  if (log.content.find("[runtime]") == std::string::npos) {
-    return std::nullopt;
-  }
-
-  const auto request_id = extractRuntimeField(log.content, "request=");
-  const auto state = extractRuntimeField(log.content, "state=");
-  const auto backend = extractRuntimeField(log.content, "backend=");
-  const auto message = extractRuntimeField(log.content, "message=");
-  if (!request_id.has_value() || !state.has_value()) {
-    return std::nullopt;
-  }
-
-  RuntimeLogEntry entry;
-  entry.request_id = *request_id;
-  entry.state = *state;
-  entry.backend = backend.value_or(std::string{});
-  entry.message = message.value_or(std::string{});
-  return entry;
-}
-
-std::string latestRuntimeRequestId(rokae::xMateRobot &robot) {
-  std::error_code ec;
-  const auto logs = robot.queryControllerLog(10, {}, ec);
-  if (ec) {
-    return {};
-  }
-  for (auto it = logs.rbegin(); it != logs.rend(); ++it) {
-    const auto parsed = parseRuntimeLogEntry(*it);
-    if (parsed.has_value()) {
-      return parsed->request_id;
-    }
-  }
-  return {};
-}
-
-bool waitForNewRuntimeRequest(rokae::xMateRobot &robot,
-                              const std::string &previous_request_id,
-                              std::string &request_id,
-                              std::chrono::steady_clock::duration timeout) {
-  const auto deadline = Clock::now() + timeout;
-  while (Clock::now() < deadline) {
-    std::error_code ec;
-    const auto logs = robot.queryControllerLog(10, {}, ec);
-    if (!ec) {
-      for (auto it = logs.rbegin(); it != logs.rend(); ++it) {
-        const auto parsed = parseRuntimeLogEntry(*it);
-        if (!parsed.has_value()) {
-          continue;
-        }
-        if (parsed->request_id != previous_request_id) {
-          request_id = parsed->request_id;
-          return true;
-        }
-      }
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-  }
-  return false;
-}
-
-bool waitForRuntimeRequestState(rokae::xMateRobot &robot,
-                                const std::string &request_id,
-                                const std::set<std::string> &target_states,
-                                Clock::time_point &observed_time,
-                                std::string &matched_state,
-                                std::chrono::steady_clock::duration timeout) {
-  const auto deadline = Clock::now() + timeout;
-  while (Clock::now() < deadline) {
-    std::error_code ec;
-    const auto logs = robot.queryControllerLog(10, {}, ec);
-    if (!ec) {
-      for (auto it = logs.rbegin(); it != logs.rend(); ++it) {
-        const auto parsed = parseRuntimeLogEntry(*it);
-        if (!parsed.has_value() || parsed->request_id != request_id) {
-          continue;
-        }
-        if (target_states.count(parsed->state) > 0) {
-          observed_time = Clock::now();
-          matched_state = parsed->state;
-          return true;
-        }
-        break;
-      }
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-  }
-  return false;
-}
-
 template <typename Command>
 bool startCommands(rokae::xMateRobot &robot, const std::vector<Command> &cmds, std::error_code &ec) {
   std::string cmd_id;
@@ -1037,6 +938,7 @@ void writeJson(const std::filesystem::path &path, const CaseMetrics &metrics) {
   out << "  \"name\": " << quoteJson(metrics.name) << ",\n";
   out << "  \"success\": " << (metrics.success ? "true" : "false") << ",\n";
   out << "  \"execution_backend\": " << quoteJson(metrics.execution_backend) << ",\n";
+  out << "  \"control_owner\": " << quoteJson(metrics.control_owner) << ",\n";
   out << "  \"planned_duration_sec\": " << metrics.planned_duration_sec << ",\n";
   out << "  \"actual_duration_sec\": " << metrics.actual_duration_sec << ",\n";
   out << "  \"motion_start_offset_sec\": " << metrics.motion_start_offset_sec << ",\n";
@@ -1080,6 +982,7 @@ void writeSummaryJson(const std::filesystem::path &path, const std::vector<CaseM
     out << "      \"name\": " << quoteJson(metrics.name) << ",\n";
     out << "      \"success\": " << (metrics.success ? "true" : "false") << ",\n";
     out << "      \"execution_backend\": " << quoteJson(metrics.execution_backend) << ",\n";
+    out << "      \"control_owner\": " << quoteJson(metrics.control_owner) << ",\n";
     out << "      \"planned_duration_sec\": " << metrics.planned_duration_sec << ",\n";
     out << "      \"actual_duration_sec\": " << metrics.actual_duration_sec << ",\n";
     out << "      \"remaining_after_adjust_sec\": " << metrics.remaining_after_adjust_sec << ",\n";
@@ -1230,6 +1133,10 @@ CaseMetrics runScenario(const Scenario &scenario,
   if (metrics.execution_backend.empty()) {
     metrics.execution_backend = "none";
   }
+  metrics.control_owner = recorder.latestRuntimeOwnerForRequest(request_id);
+  if (metrics.control_owner.empty()) {
+    metrics.control_owner = "none";
+  }
 
   Clock::time_point settled_time{};
   if (recorder.waitForIdleAndStill(std::chrono::seconds(2), settled_time)) {
@@ -1307,6 +1214,12 @@ CaseMetrics runScenario(const Scenario &scenario,
   }
 
   if (mode == RegressionMode::strict) {
+    if (metrics.execution_backend != "jtc") {
+      addFailure(metrics, "strict NRT regression expected JTC backend, observed " + metrics.execution_backend);
+    }
+    if (metrics.control_owner != "trajectory") {
+      addFailure(metrics, "strict NRT regression expected trajectory owner, observed " + metrics.control_owner);
+    }
     if (metrics.final_position_error_mm > kPositionToleranceMm) {
       std::ostringstream oss;
       oss << "final TCP position error too large: " << metrics.final_position_error_mm << " mm";
@@ -1339,6 +1252,16 @@ CaseMetrics runScenario(const Scenario &scenario,
       oss << "zone path deviation too large: " << metrics.max_zone_path_deviation_mm << " mm";
       addFailure(metrics, oss.str());
     }
+    if (scenario.name == "move_sp_single") {
+      const bool has_spiral_segment =
+          plan.has_value() &&
+          std::any_of(plan->segments.begin(), plan->segments.end(), [](const rt::PlannedSegment &segment) {
+            return segment.path_family == rt::PathFamily::cartesian_spiral && segment.path_length_m > 0.0;
+          });
+      if (!has_spiral_segment) {
+        addFailure(metrics, "MoveSP strict reference plan did not retain cartesian_spiral path metadata");
+      }
+    }
   }
 
   return metrics;
@@ -1352,6 +1275,7 @@ void exportMetrics(const std::filesystem::path &results_dir, const CaseMetrics &
 
 void reportCase(const CaseMetrics &metrics) {
   std::cout << metrics.name << ": backend=" << metrics.execution_backend
+            << " owner=" << metrics.control_owner
             << " planned=" << metrics.planned_duration_sec
             << "s actual=" << metrics.actual_duration_sec
             << "s path=" << metrics.planned_path_length_m
@@ -1449,6 +1373,11 @@ int main(int argc, char **argv) {
   const auto blend_target_b = make_line_pose(-0.14, -0.05, -0.01);
   const auto blend_target_c = make_line_pose(-0.08, 0.00, -0.04);
   const auto speed_target = make_line_pose(-0.24, 0.14, -0.03);
+  auto spiral_target = start_pose;
+  spiral_target[2] += 0.035;
+  spiral_target[3] -= 0.03;
+  spiral_target[4] += 0.02;
+  spiral_target[5] -= 0.03;
   const std::array<double, 6> move_absj_short_target = {0.10, 0.36, 0.12, 0.02, 0.66, -0.04};
   const auto smoke_line_target = make_line_pose(-0.015, 0.005, -0.005);
 
@@ -1466,6 +1395,8 @@ int main(int argc, char **argv) {
       rokae::MoveLCommand(toCartesian(blend_target_c), 180, 0)};
   const std::vector<rokae::MoveLCommand> speed_scale_commands{
       rokae::MoveLCommand(toCartesian(speed_target), 200, 0)};
+  const std::vector<rokae::MoveSPCommand> spiral_commands{
+      rokae::MoveSPCommand(toCartesian(spiral_target), 0.004, 0.0001, M_PI, true, 60, 0)};
   const std::vector<rokae::MoveAbsJCommand> move_absj_short_commands{
       rokae::MoveAbsJCommand(toVector(move_absj_short_target), 180, 0)};
   const std::vector<rokae::MoveLCommand> smoke_line_commands{
@@ -1502,6 +1433,25 @@ int main(int argc, char **argv) {
     return spec;
   };
 
+  auto move_sp_spec = [](const std::vector<double> &target,
+                         double radius,
+                         double radius_step,
+                         double angle,
+                         bool direction,
+                         double speed,
+                         int zone) {
+    rt::MotionCommandSpec spec;
+    spec.kind = rt::MotionKind::move_sp;
+    spec.target_cartesian = target;
+    spec.radius = radius;
+    spec.radius_step = radius_step;
+    spec.angle = angle;
+    spec.direction = direction;
+    spec.speed = speed;
+    spec.zone = zone;
+    return spec;
+  };
+
   const std::vector<Scenario> scenarios =
       mode == RegressionMode::strict
           ? std::vector<Scenario>{
@@ -1513,6 +1463,9 @@ int main(int argc, char **argv) {
                     [long_line_commands](rokae::xMateRobot &robot_ref, std::error_code &ec) {
                       startCommands(robot_ref, long_line_commands, ec);
                     },
+                    std::nullopt,
+                    kAdjustAfterStartSec,
+                    true,
                 },
                 Scenario{
                     "move_c_single",
@@ -1522,6 +1475,9 @@ int main(int argc, char **argv) {
                     [circle_commands](rokae::xMateRobot &robot_ref, std::error_code &ec) {
                       startCommands(robot_ref, circle_commands, ec);
                     },
+                    std::nullopt,
+                    kAdjustAfterStartSec,
+                    true,
                 },
                 Scenario{
                     "move_l_zone_blend",
@@ -1535,6 +1491,9 @@ int main(int argc, char **argv) {
                     [zone_blend_commands](rokae::xMateRobot &robot_ref, std::error_code &ec) {
                       startCommands(robot_ref, zone_blend_commands, ec);
                     },
+                    std::nullopt,
+                    kAdjustAfterStartSec,
+                    true,
                 },
                 Scenario{
                     "move_l_zone_stop",
@@ -1548,6 +1507,21 @@ int main(int argc, char **argv) {
                     [zone_stop_commands](rokae::xMateRobot &robot_ref, std::error_code &ec) {
                       startCommands(robot_ref, zone_stop_commands, ec);
                     },
+                    std::nullopt,
+                    kAdjustAfterStartSec,
+                    true,
+                },
+                Scenario{
+                    "move_sp_single",
+                    60.0,
+                    0,
+                    {move_sp_spec(spiral_target, 0.004, 0.0001, M_PI, true, 60.0, 0)},
+                    [spiral_commands](rokae::xMateRobot &robot_ref, std::error_code &ec) {
+                      startCommands(robot_ref, spiral_commands, ec);
+                    },
+                    std::nullopt,
+                    kAdjustAfterStartSec,
+                    true,
                 },
                 Scenario{
                     "move_l_speed_fast",

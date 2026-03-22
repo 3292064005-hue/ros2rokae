@@ -914,16 +914,12 @@ public:
   }
 
   std::array<double, 16> getCartPose(const std::array<double, DoF> &jntPos, SegmentFrame nr = SegmentFrame::flange) {
-    (void)nr;
     std::vector<double> joints(jntPos.begin(), jntPos.end());
-    const auto matrix = kinematics_.forwardKinematics(joints);
-    std::array<double, 16> result{};
-    for (int row = 0; row < 4; ++row) {
-      for (int col = 0; col < 4; ++col) {
-        result[row * 4 + col] = matrix(row, col);
-      }
+    Eigen::Matrix4d matrix = kinematics_.forwardKinematics(joints);
+    if (nr == SegmentFrame::endEffector) {
+      matrix = matrix * arrayToMatrix(f_t_ee_) * arrayToMatrix(ee_t_k_);
     }
-    return result;
+    return matrixToArray(matrix);
   }
 
   std::array<double, 6> getCartVel(const std::array<double, DoF> &jntPos,
@@ -949,10 +945,17 @@ public:
                                    const std::array<double, DoF> &jntAcc,
                                    SegmentFrame nr = SegmentFrame::flange) {
     (void)nr;
-    const auto vel = getCartVel(jntPos, jntVel);
+    (void)jntVel;
+    std::vector<double> joints(jntPos.begin(), jntPos.end());
+    const auto jacobian = kinematics_.computeJacobian(joints);
+    Eigen::Matrix<double, 6, 1> acceleration = Eigen::Matrix<double, 6, 1>::Zero();
+    for (size_t i = 0; i < DoF; ++i) {
+      acceleration(i) = jntAcc[i];
+    }
+    const auto cart = jacobian * acceleration;
     std::array<double, 6> result{};
     for (size_t i = 0; i < 6; ++i) {
-      result[i] = vel[i] + (i < DoF ? jntAcc[i] * 0.001 : 0.0);
+      result[i] = cart(i);
     }
     return result;
   }
@@ -962,11 +965,18 @@ public:
                   const std::array<double, DoF> &jntInit,
                   std::array<double, DoF> &jntPos) {
     (void)elbow;
+    Eigen::Matrix4d target_matrix = arrayToMatrix(cartPos);
+    const Eigen::Matrix4d tcp_matrix = arrayToMatrix(f_t_ee_) * arrayToMatrix(ee_t_k_);
+    if (!tcp_matrix.isApprox(Eigen::Matrix4d::Identity(), 1e-12)) {
+      target_matrix = target_matrix * tcp_matrix.inverse();
+    }
     std::vector<double> target = {
-      cartPos[3], cartPos[7], cartPos[11],
-      std::atan2(cartPos[9], cartPos[10]),
-      std::atan2(-cartPos[8], std::sqrt(cartPos[0] * cartPos[0] + cartPos[4] * cartPos[4])),
-      std::atan2(cartPos[4], cartPos[0])};
+      target_matrix(0, 3), target_matrix(1, 3), target_matrix(2, 3),
+      std::atan2(target_matrix(2, 1), target_matrix(2, 2)),
+      std::atan2(-target_matrix(2, 0),
+                 std::sqrt(target_matrix(0, 0) * target_matrix(0, 0) +
+                           target_matrix(1, 0) * target_matrix(1, 0))),
+      std::atan2(target_matrix(1, 0), target_matrix(0, 0))};
     std::vector<double> init(jntInit.begin(), jntInit.end());
     const auto solution = kinematics_.inverseKinematics(target, init);
     if (solution.size() != DoF) {
@@ -998,7 +1008,19 @@ public:
                                       const std::array<double, DoF> &jntPos,
                                       const std::array<double, DoF> &jntVel) {
     (void)jntVel;
-    return getJointVel(cartAcc, jntPos);
+    std::vector<double> joints(jntPos.begin(), jntPos.end());
+    const auto jacobian = kinematics_.computeJacobian(joints);
+    const auto pseudo_inv = jacobian.completeOrthogonalDecomposition().pseudoInverse();
+    Eigen::Matrix<double, 6, 1> cart;
+    for (size_t i = 0; i < 6; ++i) {
+      cart(i) = cartAcc[i];
+    }
+    const auto joint = pseudo_inv * cart;
+    std::array<double, DoF> result{};
+    for (size_t i = 0; i < DoF; ++i) {
+      result[i] = joint(i);
+    }
+    return result;
   }
 
   std::array<double, DoF * 6> jacobian(const std::array<double, DoF> &jntPos, SegmentFrame nr = SegmentFrame::flange) {
@@ -1018,8 +1040,8 @@ public:
                                        const std::array<double, 16> &f_t_ee,
                                        const std::array<double, 16> &ee_t_k,
                                        SegmentFrame nr = SegmentFrame::flange) {
-    (void)f_t_ee;
-    (void)ee_t_k;
+    f_t_ee_ = f_t_ee;
+    ee_t_k_ = ee_t_k;
     return jacobian(jntPos, nr);
   }
 
@@ -1096,6 +1118,26 @@ public:
   }
 
 private:
+  static Eigen::Matrix4d arrayToMatrix(const std::array<double, 16> &values) {
+    Eigen::Matrix4d matrix = Eigen::Matrix4d::Identity();
+    for (int row = 0; row < 4; ++row) {
+      for (int col = 0; col < 4; ++col) {
+        matrix(row, col) = values[row * 4 + col];
+      }
+    }
+    return matrix;
+  }
+
+  static std::array<double, 16> matrixToArray(const Eigen::Matrix4d &matrix) {
+    std::array<double, 16> result{};
+    for (int row = 0; row < 4; ++row) {
+      for (int col = 0; col < 4; ++col) {
+        result[row * 4 + col] = matrix(row, col);
+      }
+    }
+    return result;
+  }
+
   static std::array<double, 6> to_six(const std::array<double, DoF> &values) {
     std::array<double, 6> out{};
     for (size_t i = 0; i < DoF && i < 6; ++i) {

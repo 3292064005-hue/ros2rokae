@@ -19,10 +19,6 @@ using ::gazebo::TrajectoryPlanner;
 
 constexpr double kMinNrtSpeedMmPerSec = 5.0;
 constexpr double kMaxNrtSpeedMmPerSec = 4000.0;
-constexpr double kMinTrajectorySampleDt = 0.001;
-constexpr double kMaxTrajectorySampleDt = 0.05;
-constexpr double kMaxCartesianStepMeters = 0.002;
-constexpr double kMaxOrientationStepRad = 0.03;
 constexpr double kMinBlendTrimMeters = 0.0005;
 constexpr double kMinBlendAngleRad = 3.0 * M_PI / 180.0;
 constexpr double kMaxBlendAngleRad = 170.0 * M_PI / 180.0;
@@ -50,6 +46,7 @@ BlendFamily blend_family(MotionKind kind) {
     case MotionKind::move_l:
     case MotionKind::move_c:
     case MotionKind::move_cf:
+    case MotionKind::move_sp:
       return BlendFamily::cartesian_lookahead;
     default:
       return BlendFamily::none;
@@ -75,7 +72,8 @@ PathFamily path_family(MotionKind kind) {
 }
 
 bool is_cartesian_lookahead_kind(MotionKind kind) {
-  return kind == MotionKind::move_l || kind == MotionKind::move_c || kind == MotionKind::move_cf;
+  return kind == MotionKind::move_l || kind == MotionKind::move_c ||
+         kind == MotionKind::move_cf || kind == MotionKind::move_sp;
 }
 
 std::string mixed_mode_fallback_note(std::size_t current_index, std::size_t next_index) {
@@ -103,20 +101,21 @@ int determine_interval_count(double total_time,
                              double path_metric,
                              double max_path_step,
                              double orientation_metric) {
+  const auto config = TrajectoryPlanner::config();
   if (total_time <= 1e-9) {
     return 1;
   }
 
-  const double clamped_max_dt = std::clamp(requested_dt, kMinTrajectorySampleDt, kMaxTrajectorySampleDt);
+  const double clamped_max_dt = std::clamp(requested_dt, config.min_sample_dt, config.max_sample_dt);
   const int time_intervals = std::max(1, static_cast<int>(std::ceil(total_time / clamped_max_dt)));
   const int path_intervals =
       max_path_step > 1e-9 ? std::max(1, static_cast<int>(std::ceil(path_metric / max_path_step))) : 1;
   const int orientation_intervals =
-      kMaxOrientationStepRad > 1e-9
-          ? std::max(1, static_cast<int>(std::ceil(orientation_metric / kMaxOrientationStepRad)))
+      config.max_orientation_step_rad > 1e-9
+          ? std::max(1, static_cast<int>(std::ceil(orientation_metric / config.max_orientation_step_rad)))
           : 1;
   const int min_dt_intervals =
-      std::max(1, static_cast<int>(std::ceil(total_time / kMinTrajectorySampleDt)));
+      std::max(1, static_cast<int>(std::ceil(total_time / config.min_sample_dt)));
   return std::clamp(std::max({time_intervals, path_intervals, orientation_intervals}), 1, min_dt_intervals);
 }
 
@@ -184,6 +183,13 @@ struct CartesianPrimitive {
   Eigen::Vector3d center = Eigen::Vector3d::Zero();
   Eigen::Vector3d axis = Eigen::Vector3d::UnitZ();
   Eigen::Vector3d start_radius_vector = Eigen::Vector3d::Zero();
+  Eigen::Vector3d local_x = Eigen::Vector3d::UnitX();
+  Eigen::Vector3d local_y = Eigen::Vector3d::UnitY();
+  Eigen::Vector3d spiral_axis_vector = Eigen::Vector3d::Zero();
+  double spiral_axis_length = 0.0;
+  double spiral_radius = 0.0;
+  double spiral_radius_step = 0.0;
+  double spiral_radius_angle = 0.0;
   double total_angle = 0.0;
   double length_m = 0.0;
 
@@ -194,6 +200,13 @@ struct CartesianPrimitive {
     PoseSample sample;
     if (kind == MotionKind::move_l) {
       sample.position = start_pose.position + alpha * (end_pose.position - start_pose.position);
+    } else if (kind == MotionKind::move_sp) {
+      const double current_angle = alpha * total_angle;
+      const double current_radius = spiral_radius + spiral_radius_step * alpha * spiral_radius_angle;
+      const Eigen::Vector3d axis_position = start_pose.position + alpha * spiral_axis_vector;
+      sample.position =
+          axis_position +
+          current_radius * (std::cos(current_angle) * local_x + std::sin(current_angle) * local_y);
     } else {
       const double current_angle = alpha * total_angle;
       sample.position = center + Eigen::AngleAxisd(current_angle, axis) * start_radius_vector;
@@ -206,6 +219,20 @@ struct CartesianPrimitive {
     if (kind == MotionKind::move_l) {
       const Eigen::Vector3d delta = end_pose.position - start_pose.position;
       return delta.norm() > kPoseEpsilon ? delta.normalized() : Eigen::Vector3d::UnitX();
+    }
+    if (kind == MotionKind::move_sp) {
+      const double clamped_arc = std::clamp(arc_length, 0.0, length_m);
+      const double alpha = length_m > kPoseEpsilon ? clamped_arc / length_m : 0.0;
+      const double current_angle = alpha * total_angle;
+      const double current_radius = spiral_radius + spiral_radius_step * alpha * spiral_radius_angle;
+      const double radius_rate = spiral_radius_step * spiral_radius_angle;
+      const Eigen::Vector3d radial =
+          std::cos(current_angle) * local_x + std::sin(current_angle) * local_y;
+      const Eigen::Vector3d tangential =
+          -std::sin(current_angle) * local_x + std::cos(current_angle) * local_y;
+      Eigen::Vector3d tangent =
+          spiral_axis_vector + radius_rate * radial + current_radius * total_angle * tangential;
+      return tangent.norm() > kPoseEpsilon ? tangent.normalized() : Eigen::Vector3d::UnitX();
     }
 
     const double clamped_arc = std::clamp(arc_length, 0.0, length_m);
@@ -234,6 +261,56 @@ bool build_line_primitive(const PoseSample &start_pose,
     error_message = "MoveL target is identical to the current pose";
     return false;
   }
+  return true;
+}
+
+bool build_spiral_primitive(const PoseSample &start_pose,
+                            const std::vector<double> &target_pose,
+                            double radius,
+                            double radius_step,
+                            double angle,
+                            bool direction,
+                            CartesianPrimitive &primitive,
+                            std::string &error_message) {
+  if (std::abs(angle) < 1e-6 || radius < 0.0) {
+    error_message = "MoveSP parameters are invalid";
+    return false;
+  }
+
+  primitive.kind = MotionKind::move_sp;
+  primitive.family = PathFamily::cartesian_spiral;
+  primitive.start_pose = start_pose;
+  primitive.end_pose = pose_from_vector(target_pose);
+
+  const Eigen::Vector3d axis_end(target_pose[0], target_pose[1], target_pose[2]);
+  primitive.spiral_axis_vector = axis_end - primitive.start_pose.position;
+  primitive.spiral_axis_length = primitive.spiral_axis_vector.norm();
+  if (primitive.spiral_axis_length < kPoseEpsilon) {
+    error_message = "MoveSP spiral axis is too short";
+    return false;
+  }
+
+  primitive.axis = primitive.spiral_axis_vector.normalized();
+  if (std::abs(primitive.axis.dot(Eigen::Vector3d::UnitZ())) < 0.999) {
+    primitive.local_x = primitive.axis.cross(Eigen::Vector3d::UnitZ()).normalized();
+  } else {
+    primitive.local_x = primitive.axis.cross(Eigen::Vector3d::UnitX()).normalized();
+  }
+  primitive.local_y = primitive.axis.cross(primitive.local_x).normalized();
+  primitive.spiral_radius = radius;
+  primitive.spiral_radius_step = radius_step;
+  primitive.spiral_radius_angle = angle;
+  primitive.total_angle = direction ? angle : -angle;
+
+  const double average_radius = radius + radius_step * angle * 0.5;
+  primitive.length_m = primitive.spiral_axis_length + std::abs(average_radius * angle);
+  if (primitive.length_m < kPoseEpsilon) {
+    error_message = "MoveSP spiral length is too short";
+    return false;
+  }
+
+  primitive.end_pose = primitive.sampleAtArcLength(primitive.length_m);
+  primitive.end_pose.orientation = pose_from_vector(target_pose).orientation;
   return true;
 }
 
@@ -438,17 +515,20 @@ bool sample_cartesian_segment(CartesianRunSegment &segment,
           ? blend_length / blend_speed
           : 0.0;
   const double total_time = core_time + blend_time;
+  const auto planner_config = TrajectoryPlanner::config();
 
   const PoseSample start_pose = segment.primitive.sampleAtArcLength(segment.segment.path_entry_trim_m);
   const PoseSample final_pose = segment_final_pose(segment);
   const double orientation_metric = orientation_distance(start_pose, final_pose);
   const int interval_count =
-      determine_interval_count(total_time, requested_dt, total_path_length, kMaxCartesianStepMeters, orientation_metric);
+      determine_interval_count(
+          total_time, requested_dt, total_path_length, planner_config.max_cartesian_step_m, orientation_metric);
 
   if (total_path_length <= kPoseEpsilon || total_time <= kPoseEpsilon || interval_count <= 0) {
     cartesian_points.push_back(vector_from_pose(final_pose));
     segment.segment.trajectory_total_time = 0.0;
-    segment.segment.trajectory_dt = std::clamp(requested_dt, kMinTrajectorySampleDt, kMaxTrajectorySampleDt);
+    segment.segment.trajectory_dt =
+        std::clamp(requested_dt, planner_config.min_sample_dt, planner_config.max_sample_dt);
     return true;
   }
 
@@ -525,6 +605,16 @@ bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
                                            run_segment.primitive,
                                            error_message);
         break;
+      case MotionKind::move_sp:
+        primitive_ok = build_spiral_primitive(current_pose,
+                                              cmd.target_cartesian,
+                                              cmd.radius,
+                                              cmd.radius_step,
+                                              cmd.angle,
+                                              cmd.direction,
+                                              run_segment.primitive,
+                                              error_message);
+        break;
       default:
         error_message = "unsupported Cartesian lookahead motion kind";
         return false;
@@ -584,6 +674,72 @@ bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
   }
 
   return true;
+}
+
+void populate_joint_derivatives(PlannedSegment &segment) {
+  if (segment.joint_trajectory.empty()) {
+    segment.joint_velocity_trajectory.clear();
+    segment.joint_acceleration_trajectory.clear();
+    return;
+  }
+
+  if (segment.joint_velocity_trajectory.size() == segment.joint_trajectory.size() &&
+      segment.joint_acceleration_trajectory.size() == segment.joint_trajectory.size()) {
+    return;
+  }
+
+  segment.joint_velocity_trajectory.clear();
+  segment.joint_acceleration_trajectory.clear();
+
+  const auto point_count = segment.joint_trajectory.size();
+  const auto axis_count = segment.joint_trajectory.front().size();
+  segment.joint_velocity_trajectory.assign(point_count, std::vector<double>(axis_count, 0.0));
+  segment.joint_acceleration_trajectory.assign(point_count, std::vector<double>(axis_count, 0.0));
+
+  if (point_count < 2 || segment.trajectory_dt <= 1e-9) {
+    return;
+  }
+
+  for (std::size_t point_index = 0; point_index < point_count; ++point_index) {
+    for (std::size_t axis = 0; axis < axis_count; ++axis) {
+      if (point_index == 0) {
+        segment.joint_velocity_trajectory[point_index][axis] =
+            (segment.joint_trajectory[1][axis] - segment.joint_trajectory[0][axis]) / segment.trajectory_dt;
+      } else if (point_index + 1 >= point_count) {
+        segment.joint_velocity_trajectory[point_index][axis] =
+            (segment.joint_trajectory[point_index][axis] - segment.joint_trajectory[point_index - 1][axis]) /
+            segment.trajectory_dt;
+      } else {
+        segment.joint_velocity_trajectory[point_index][axis] =
+            (segment.joint_trajectory[point_index + 1][axis] - segment.joint_trajectory[point_index - 1][axis]) /
+            (2.0 * segment.trajectory_dt);
+      }
+    }
+  }
+
+  if (point_count < 3) {
+    return;
+  }
+  for (std::size_t point_index = 0; point_index < point_count; ++point_index) {
+    for (std::size_t axis = 0; axis < axis_count; ++axis) {
+      if (point_index == 0) {
+        segment.joint_acceleration_trajectory[point_index][axis] =
+            (segment.joint_trajectory[2][axis] - 2.0 * segment.joint_trajectory[1][axis] +
+             segment.joint_trajectory[0][axis]) /
+            (segment.trajectory_dt * segment.trajectory_dt);
+      } else if (point_index + 1 >= point_count) {
+        segment.joint_acceleration_trajectory[point_index][axis] =
+            (segment.joint_trajectory[point_count - 1][axis] - 2.0 * segment.joint_trajectory[point_count - 2][axis] +
+             segment.joint_trajectory[point_count - 3][axis]) /
+            (segment.trajectory_dt * segment.trajectory_dt);
+      } else {
+        segment.joint_acceleration_trajectory[point_index][axis] =
+            (segment.joint_trajectory[point_index + 1][axis] - 2.0 * segment.joint_trajectory[point_index][axis] +
+             segment.joint_trajectory[point_index - 1][axis]) /
+            (segment.trajectory_dt * segment.trajectory_dt);
+      }
+    }
+  }
 }
 
 std::vector<double> hermite_joint_blend(const std::vector<double> &p0,
@@ -783,9 +939,12 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
         return plan;
       }
       segment.joint_trajectory = cmd.preplanned_trajectory;
+      segment.joint_velocity_trajectory = cmd.preplanned_velocity_trajectory;
+      segment.joint_acceleration_trajectory = cmd.preplanned_acceleration_trajectory;
       segment.trajectory_dt = cmd.preplanned_dt > 1e-9 ? cmd.preplanned_dt : request.trajectory_dt;
       segment.trajectory_total_time =
           segment.joint_trajectory.size() > 1 ? (segment.joint_trajectory.size() - 1) * segment.trajectory_dt : 0.0;
+      populate_joint_derivatives(segment);
       segment.target_joints = cmd.target_joints.empty() ? cmd.preplanned_trajectory.back() : cmd.target_joints;
       current_joints = segment.target_joints;
       plan.segments.push_back(std::move(segment));
@@ -804,6 +963,8 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
         const auto trajectory = TrajectoryPlanner::planJointMove(
             current_joints, segment.target_joints, segment.speed, request.trajectory_dt);
         segment.joint_trajectory = trajectory.points;
+        segment.joint_velocity_trajectory = trajectory.velocities;
+        segment.joint_acceleration_trajectory = trajectory.accelerations;
         segment.trajectory_dt = trajectory.sample_dt;
         segment.trajectory_total_time = trajectory.total_time;
         break;
@@ -828,6 +989,8 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
         const auto trajectory = TrajectoryPlanner::planJointMove(
             current_joints, segment.target_joints, segment.speed, request.trajectory_dt);
         segment.joint_trajectory = trajectory.points;
+        segment.joint_velocity_trajectory = trajectory.velocities;
+        segment.joint_acceleration_trajectory = trajectory.accelerations;
         segment.trajectory_dt = trajectory.sample_dt;
         segment.trajectory_total_time = trajectory.total_time;
         break;
@@ -883,6 +1046,9 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
   }
 
   apply_joint_zone_blending(plan.segments, plan.notes);
+  for (auto &segment : plan.segments) {
+    populate_joint_derivatives(segment);
+  }
   return plan;
 }
 

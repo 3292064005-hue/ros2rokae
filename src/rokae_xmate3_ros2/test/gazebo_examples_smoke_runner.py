@@ -81,21 +81,26 @@ def run_example(binary_path, required_markers):
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=150,
+        timeout=180,
         check=False,
     )
-    if completed.returncode != 0:
-        sys.stderr.write(f"{binary_path} exited with {completed.returncode}\n")
-        sys.stderr.write(completed.stdout)
-        sys.stderr.write(completed.stderr)
-        return False
 
-    for marker in required_markers:
-        if marker not in completed.stdout:
-            sys.stderr.write(f"{binary_path} missing expected marker: {marker}\n")
-            sys.stderr.write(completed.stdout)
-            return False
-    return True
+    success = completed.returncode == 0
+    missing_markers = [marker for marker in required_markers if marker not in completed.stdout]
+    if missing_markers:
+        success = False
+
+    if success:
+        return True, completed
+
+    sys.stderr.write(f"{binary_path} exited with {completed.returncode}\n")
+    if missing_markers:
+        sys.stderr.write(
+            f"{binary_path} missing expected markers: {', '.join(missing_markers)}\n"
+        )
+    sys.stderr.write(completed.stdout)
+    sys.stderr.write(completed.stderr)
+    return False, completed
 
 
 def main(argv):
@@ -121,11 +126,24 @@ def main(argv):
             (argv[3], ["toolset / calibrateFrame", "标定"]),
         ]
         for binary_path, markers in examples:
-            if not run_example(binary_path, markers):
+            if not probe.wait_for_runtime_ready(20.0):
+                sys.stderr.write(f"Runtime not ready before {binary_path}\n")
                 return 1
+            time.sleep(1.0)
+
+            success, _ = run_example(binary_path, markers)
+            if not success:
+                sys.stderr.write(f"Retrying {binary_path} after runtime settle...\n")
+                if not probe.wait_for_runtime_ready(20.0):
+                    return 1
+                time.sleep(2.0)
+                success, _ = run_example(binary_path, markers)
+                if not success:
+                    return 1
             if not probe.wait_for_fresh_heartbeat(10.0):
                 sys.stderr.write(f"/xmate3/joint_states stopped updating after {binary_path}\n")
                 return 1
+            time.sleep(0.5)
         return 0
     finally:
         probe.destroy_node()

@@ -20,17 +20,23 @@
 
 ### xCore SDK C++ API 兼容支持
 
+状态标记说明：
+- `已对齐`：接口形状与 Gazebo 仿真语义都已经收口到默认实现
+- `近似实现`：接口可用，但内部是仿真近似，不等价于真机控制器
+- `实验性`：接口或语义仍在收口，适合验证链路，不适合当精度保证
+- `不支持`：当前版本明确不提供
+
 | 章节 | 功能 | 状态 |
 |------|------|------|
-| **4.3** | 机器人基本操作及信息查询 | ✅ 支持 |
-| **4.4** | 非实时运动控制接口 | ✅ 支持 |
-| **4.5** | 实时控制接口 | ✅ 仿真支持 |
-| **4.6** | IO 与通信接口 | ✅ 支持 |
-| **4.7** | RL 工程接口 | ✅ 仿真支持 |
-| **4.8** | 协作机器人专属接口 | ✅ 支持 |
-| **8.3.7** | 路径规划类 | ✅ 兼容头封装 |
-| **8.3.8** | 模型库 | ✅ 兼容头封装 |
-| **8.3.9** | 工具函数 | ✅ 支持 |
+| **4.3** | 机器人基本操作及信息查询 | 已对齐 |
+| **4.4** | 非实时运动控制接口 | 已对齐 |
+| **4.5** | 实时控制接口 | 实验性 |
+| **4.6** | IO 与通信接口 | 已对齐 |
+| **4.7** | RL 工程接口 | 近似实现 |
+| **4.8** | 协作机器人专属接口 | 近似实现 |
+| **8.3.7** | 路径规划类 | 近似实现 |
+| **8.3.8** | 模型库 | 近似实现 |
+| **8.3.9** | 工具函数 | 已对齐 |
 
 完整示例覆盖范围见 [examples/README.md](examples/README.md)。
 
@@ -42,14 +48,14 @@
 - `MoveCF`
 - `MoveSP`
 - Jog / 路径录制 / 路径回放
-- RT 位置 / 阻抗 / 跟随 / S 线 / 力矩 smoke 示例（Gazebo simulated RT facade）
+- RT 位置 / 阻抗 / 跟随 / S 线 / 力矩示例（实验性，Gazebo simulated RT facade）
 
 ### 运动学与模型
 - 正运动学 (FK)
 - 逆运动学 (IK)
-- 雅可比矩阵
-- 关节/笛卡尔速度与加速度
-- 力矩估计与无摩擦力矩
+- 雅可比矩阵（近似实现，默认优先 KDL/URDF 后端）
+- 关节/笛卡尔速度与加速度（近似实现）
+- 力矩估计与无摩擦力矩（近似实现）
 
 ### 兼容扩展
 - `rokae/robot.h`、`rokae/data_types.h`、`rokae/model.h`、`rokae/planner.h`、`rokae/motion_control_rt.h`
@@ -132,6 +138,8 @@ ros2 launch rokae_xmate3_ros2 simulation.launch.py
 
 # 可选
 ros2 launch rokae_xmate3_ros2 simulation.launch.py gui:=false rviz:=false
+ros2 launch rokae_xmate3_ros2 simulation.launch.py backend_mode:=effort
+ros2 launch rokae_xmate3_ros2 simulation.launch.py backend_mode:=jtc enable_xcore_plugin:=false
 ros2 launch rokae_xmate3_ros2 xmate3_simulation.launch.py
 ros2 launch rokae_xmate3_ros2 xmate3_gazebo.launch.py
 ros2 launch rokae_xmate3_ros2 rviz_only.launch.py
@@ -194,6 +202,13 @@ auto joints = robot.getJointPos(ec);
 
 `setDefaultSpeed()` 使用 `mm/s`，`setDefaultZone()` 使用 `mm`，`adjustSpeedOnline(scale)` 会对当前与后续 NRT 轨迹做仿真重定时。
 
+接口能力分级：
+- `GenerateSTrajectory(joint)`：近似实现，shared quintic retimer
+- `GenerateSTrajectory(cartesian)`：不支持
+- 碰撞检测：近似实现，residual-based 仿真监督，不等价于真机安全功能
+- 实时控制：实验性，simulated RT facade，不承诺真机 1kHz/硬实时语义
+- 模型库 / 力矩 / 无摩擦力矩：近似实现，基于统一仿真代理项，不是完整刚体动力学库
+
 ```cpp
 robot.setMotionControlMode(rokae::MotionControlMode::NrtCommand, ec);
 robot.setDefaultSpeed(500, ec);  // mm/s
@@ -209,6 +224,15 @@ auto model = robot.model();
 auto pose = model.calcFk(rokae::JointPosition(6, 0.0));
 auto ik = model.calcIk(pose);
 ```
+
+`xMateModel` 当前使用 KDL/URDF 运动学后端提供 FK / Jacobian / 速度映射，动力学相关接口仍是统一近似模型而非完整刚体动力学库。
+
+### 启动装配模式
+
+- `backend_mode:=hybrid`：默认模式，同时启用 xCore plugin 与 JTC，由 owner 状态机仲裁执行权
+- `backend_mode:=effort`：只启用 xCore plugin / effort runtime
+- `backend_mode:=jtc`：只启用 ros2_control / JTC；需同时设 `enable_xcore_plugin:=false`
+- `enable_xcore_plugin:=false`：显式关闭 xCore Gazebo plugin 装配
 
 ## 架构说明
 

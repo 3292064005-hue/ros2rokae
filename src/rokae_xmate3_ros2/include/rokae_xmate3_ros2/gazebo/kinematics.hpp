@@ -7,10 +7,15 @@
 #define ROKAE_XMATE3_GAZEBO_KINEMATICS_HPP
 
 #include <Eigen/Dense>
-#include <vector>
 #include <cmath>
+#include <memory>
+#include <vector>
 
 namespace gazebo {
+
+namespace detail {
+class KinematicsBackend;
+}
 
 using namespace Eigen;
 
@@ -84,6 +89,7 @@ public:
 
     void resetDebugCounters();
     [[nodiscard]] DebugCounters debugCounters() const;
+    [[nodiscard]] const char *backendName() const noexcept;
 
 private:
     struct SingularityAnalysis;
@@ -91,6 +97,7 @@ private:
     std::vector<double> dh_a_, dh_alpha_, dh_d_;
     std::vector<double> joint_limits_min_, joint_limits_max_;
     mutable DebugCounters debug_counters_{};
+    std::shared_ptr<detail::KinematicsBackend> backend_;
     std::vector<Matrix4d> computeAllTransforms(const std::vector<double>& joints);
     Matrix4d dhTransform(int i, double theta);
     Matrix4d rpyToTransform(const std::vector<double>& pose);

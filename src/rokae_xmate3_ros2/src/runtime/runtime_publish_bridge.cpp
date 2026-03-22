@@ -77,7 +77,7 @@ PublisherTickOutput RuntimePublishBridge::buildPublisherTick(const PublisherTick
   }
 
   if (view.program.recording_path) {
-    runtime_context_.programState().recordPathSample(input.position);
+    runtime_context_.programState().recordPathSample(input.stamp.seconds(), input.position, input.velocity);
     output.recorded_path_sample = true;
   }
 

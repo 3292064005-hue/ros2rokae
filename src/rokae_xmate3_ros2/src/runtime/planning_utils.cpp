@@ -4,6 +4,8 @@
 #include <cmath>
 #include <limits>
 
+#include "runtime/pose_utils.hpp"
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -85,13 +87,15 @@ ConfScore score_requested_conf(const std::vector<double> &candidate,
 
 double cartesian_error_score(const std::vector<double> &expected,
                              const std::vector<double> &actual) {
-  const double pos_error = std::sqrt(
-      std::pow(actual[0] - expected[0], 2) +
-      std::pow(actual[1] - expected[1], 2) +
-      std::pow(actual[2] - expected[2], 2));
-  const double ori_error = std::fabs(normalize_angle(actual[3] - expected[3])) +
-                           std::fabs(normalize_angle(actual[4] - expected[4])) +
-                           std::fabs(normalize_angle(actual[5] - expected[5]));
+  if (expected.size() < 6 || actual.size() < 6) {
+    return std::numeric_limits<double>::infinity();
+  }
+  const auto expected_tf = pose_utils::poseToIsometry(expected);
+  const auto actual_tf = pose_utils::poseToIsometry(actual);
+  const double pos_error = (actual_tf.translation() - expected_tf.translation()).norm();
+  const Eigen::Quaterniond q_expected(expected_tf.linear());
+  const Eigen::Quaterniond q_actual(actual_tf.linear());
+  const double ori_error = q_expected.angularDistance(q_actual);
   return pos_error * 1000.0 + ori_error * 100.0;
 }
 
@@ -117,6 +121,8 @@ bool is_fast_solution_acceptable(::gazebo::xMate3Kinematics &kinematics,
 }
 
 }  // namespace
+
+double joint_branch_jump_threshold() noexcept { return kJointBranchJumpThreshold; }
 
 double max_joint_step(const std::vector<double> &lhs, const std::vector<double> &rhs) {
   double max_step = 0.0;

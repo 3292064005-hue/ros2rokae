@@ -36,6 +36,10 @@ class ControllerState {
 
   void setCollisionDetectionEnabled(bool enabled);
   [[nodiscard]] bool collisionDetectionEnabled() const;
+  void setCollisionDetectionConfig(const std::array<double, 6> &sensitivity,
+                                   std::uint8_t behaviour,
+                                   double fallback);
+  [[nodiscard]] CollisionDetectionSnapshot collisionDetection() const;
 
   void setMotionMode(int mode);
   [[nodiscard]] int motionMode() const;
@@ -68,6 +72,7 @@ class ControllerState {
                   const std::string &wobj_name,
                   const std::vector<double> &tool_pose,
                   const std::vector<double> &wobj_pose);
+  void setToolDynamics(const std::string &tool_name, double mass, const std::array<double, 3> &com);
   [[nodiscard]] ToolsetSnapshot toolset() const;
 
   void appendLog(const rokae_xmate3_ros2::msg::LogInfo &log);
@@ -98,13 +103,18 @@ class ControllerState {
   void setAO(unsigned int board, unsigned int port, double value);
 
   void startRecordingPath();
+  void startRecordingPath(const ToolsetSnapshot &toolset, const std::string &source = "sdk_record");
   void stopRecordingPath();
   void cancelRecordingPath();
   [[nodiscard]] bool isRecordingPath() const;
+  void recordPathSample(double timestamp_sec,
+                        const std::array<double, 6> &joint_position,
+                        const std::array<double, 6> &joint_velocity);
   void recordPathSample(const std::array<double, 6> &joint_position);
   void saveRecordedPath(const std::string &name);
   [[nodiscard]] bool getSavedPath(const std::string &name,
                                   std::vector<std::vector<double>> &path) const;
+  [[nodiscard]] bool getReplayAsset(const std::string &name, ReplayPathAsset &asset) const;
   void removeSavedPath(const std::string &name, bool remove_all);
   [[nodiscard]] std::vector<std::string> querySavedPaths() const;
 

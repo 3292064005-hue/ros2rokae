@@ -46,7 +46,53 @@ namespace gazebo {
 
 namespace {
 
-constexpr double kTrajectorySampleDt = 0.01;
+constexpr double kDefaultTrajectorySampleDt = 0.01;
+constexpr double kMinTrajectorySampleDt = 0.001;
+constexpr double kMaxTrajectorySampleDt = 0.05;
+
+enum class BackendMode {
+  effort,
+  jtc,
+  hybrid,
+};
+
+std::array<double, 6> vectorToArray(const std::vector<double> &values,
+                                    const std::array<double, 6> &fallback,
+                                    double min_value) {
+  std::array<double, 6> resolved = fallback;
+  if (values.size() < resolved.size()) {
+    return resolved;
+  }
+  for (std::size_t i = 0; i < resolved.size(); ++i) {
+    if (!std::isfinite(values[i]) || values[i] <= min_value) {
+      return fallback;
+    }
+    resolved[i] = values[i];
+  }
+  return resolved;
+}
+
+BackendMode parseBackendMode(const std::string &value) {
+  if (value == "effort") {
+    return BackendMode::effort;
+  }
+  if (value == "jtc") {
+    return BackendMode::jtc;
+  }
+  return BackendMode::hybrid;
+}
+
+const char *toString(BackendMode mode) {
+  switch (mode) {
+    case BackendMode::effort:
+      return "effort";
+    case BackendMode::jtc:
+      return "jtc";
+    case BackendMode::hybrid:
+    default:
+      return "hybrid";
+  }
+}
 
 }  // namespace
 
@@ -81,8 +127,14 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
     return snapshot;
   }
 
+  void setControlOwner(runtime::ControlOwner owner) override { control_owner_.store(owner); }
+
+  [[nodiscard]] runtime::ControlOwner controlOwner() const override {
+    return control_owner_.load();
+  }
+
   void applyControl(const runtime::ControlCommand &command) override {
-    if (!joints_ || !command.has_effort) {
+    if (!joints_ || !command.has_effort || control_owner_.load() != runtime::ControlOwner::effort) {
       clearControl();
       return;
     }
@@ -147,6 +199,8 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
     for (const auto &point : goal.points) {
       trajectory_msgs::msg::JointTrajectoryPoint ros_point;
       ros_point.positions = point.position;
+      ros_point.velocities = point.velocity;
+      ros_point.accelerations = point.acceleration;
       const auto sec = static_cast<int32_t>(std::floor(point.time_from_start));
       const auto fractional = point.time_from_start - static_cast<double>(sec);
       ros_point.time_from_start.sec = sec;
@@ -192,6 +246,9 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
           trajectory_state_.accepted = true;
           trajectory_state_.active = true;
           trajectory_state_.desired_time_from_start = durationToSec(feedback->desired.time_from_start);
+          trajectory_state_.actual_position = feedback->actual.positions;
+          trajectory_state_.actual_velocity = feedback->actual.velocities;
+          trajectory_state_.actual_acceleration = feedback->actual.accelerations;
           trajectory_state_.message = "executing";
         };
     options.result_callback =
@@ -272,6 +329,7 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
       trajectory_state_.canceled = true;
       trajectory_state_.message = reason.empty() ? "trajectory canceled" : reason;
       goal_handle = goal_handle_;
+      goal_handle_.reset();
     }
     if (trajectory_client_ != nullptr && goal_handle != nullptr) {
       (void)trajectory_client_->async_cancel_goal(goal_handle);
@@ -302,6 +360,7 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
   runtime::TrajectoryExecutionState trajectory_state_;
   std::vector<double> trajectory_segment_end_times_;
   std::uint64_t trajectory_generation_ = 0;
+  std::atomic<runtime::ControlOwner> control_owner_{runtime::ControlOwner::none};
 };
 
 class XCoreControllerPlugin : public ModelPlugin {
@@ -344,7 +403,7 @@ private:
     std::array<std::pair<double, double>, 6> original_joint_limits_;
     const std::vector<double> default_initial_pose_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
-    double current_update_dt_ = kTrajectorySampleDt;
+    double current_update_dt_ = kDefaultTrajectorySampleDt;
     double last_sim_time_ = -1.0;
     std::mutex joint_state_cache_mutex_;
     std::array<double, 6> cached_joint_position_{};
@@ -352,6 +411,8 @@ private:
     std::array<double, 6> cached_joint_torque_{};
     std::unique_ptr<GazeboRuntimeBackend> motion_backend_;
     std::atomic<uint64_t> next_request_id_{1};
+    double trajectory_sample_dt_ = kDefaultTrajectorySampleDt;
+    BackendMode backend_mode_ = BackendMode::hybrid;
 
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
     rclcpp::Publisher<rokae_xmate3_ros2::msg::OperationState>::SharedPtr operation_state_pub_;
@@ -362,6 +423,13 @@ void XCoreControllerPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 
     model_ = _model;
     sdf_ = _sdf;
+    std::string backend_mode_value = "hybrid";
+    if (sdf_ && sdf_->HasElement("backend_mode")) {
+        backend_mode_value = sdf_->Get<std::string>("backend_mode");
+    }
+    backend_mode_ = parseBackendMode(backend_mode_value);
+    gzmsg << "[xCore Controller] backend_mode=" << toString(backend_mode_) << std::endl;
+
     // 获取关节 - 直接用于控制
     joint_names_ = {"xmate_joint_1", "xmate_joint_2", "xmate_joint_3",
                     "xmate_joint_4", "xmate_joint_5", "xmate_joint_6"};
@@ -395,6 +463,12 @@ void XCoreControllerPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 
     InitROS2();
 
+    if (backend_mode_ == BackendMode::jtc) {
+        gzerr << "[xCore Controller] plugin loaded while backend_mode=jtc; "
+              << "effort commands will remain disabled and JTC ownership is expected to stay external."
+              << std::endl;
+    }
+
     update_conn_ = event::Events::ConnectWorldUpdateBegin(
         std::bind(&XCoreControllerPlugin::OnUpdate, this));
 
@@ -423,10 +497,177 @@ void XCoreControllerPlugin::InitROS2() {
     }
 
     node_ = std::make_shared<rclcpp::Node>("xcore_gazebo_controller");
+    trajectory_sample_dt_ = std::clamp(
+        node_->declare_parameter("trajectory_sample_dt", kDefaultTrajectorySampleDt),
+        kMinTrajectorySampleDt,
+        kMaxTrajectorySampleDt);
+
+    auto planner_config = gazebo::TrajectoryPlanner::config();
+    planner_config.max_joint_step_rad = std::clamp(
+        node_->declare_parameter("planner.max_joint_step_rad", planner_config.max_joint_step_rad),
+        1e-3,
+        0.2);
+    planner_config.max_cartesian_step_m = std::clamp(
+        node_->declare_parameter("planner.max_cartesian_step_m", planner_config.max_cartesian_step_m),
+        1e-4,
+        0.05);
+    planner_config.max_orientation_step_rad = std::clamp(
+        node_->declare_parameter("planner.max_orientation_step_rad", planner_config.max_orientation_step_rad),
+        1e-3,
+        0.5);
+    planner_config.joint_speed_limits_rad_per_sec = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "planner.joint_speed_limits",
+            std::vector<double>(planner_config.joint_speed_limits_rad_per_sec.begin(),
+                                planner_config.joint_speed_limits_rad_per_sec.end())),
+        planner_config.joint_speed_limits_rad_per_sec,
+        1e-6);
+    planner_config.joint_acc_limits_rad_per_sec2 = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "planner.joint_acc_limits",
+            std::vector<double>(planner_config.joint_acc_limits_rad_per_sec2.begin(),
+                                planner_config.joint_acc_limits_rad_per_sec2.end())),
+        planner_config.joint_acc_limits_rad_per_sec2,
+        1e-6);
+    gazebo::TrajectoryPlanner::setConfig(planner_config);
+
+    runtime::MotionExecutorConfig executor_config;
+    executor_config.active_track_kp = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.active_track_kp",
+            std::vector<double>(executor_config.active_track_kp.begin(), executor_config.active_track_kp.end())),
+        executor_config.active_track_kp,
+        0.0);
+    executor_config.active_track_kd = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.active_track_kd",
+            std::vector<double>(executor_config.active_track_kd.begin(), executor_config.active_track_kd.end())),
+        executor_config.active_track_kd,
+        0.0);
+    executor_config.active_track_ki = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.active_track_ki",
+            std::vector<double>(executor_config.active_track_ki.begin(), executor_config.active_track_ki.end())),
+        executor_config.active_track_ki,
+        0.0);
+    executor_config.hold_track_kp = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.hold_track_kp",
+            std::vector<double>(executor_config.hold_track_kp.begin(), executor_config.hold_track_kp.end())),
+        executor_config.hold_track_kp,
+        0.0);
+    executor_config.hold_track_kd = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.hold_track_kd",
+            std::vector<double>(executor_config.hold_track_kd.begin(), executor_config.hold_track_kd.end())),
+        executor_config.hold_track_kd,
+        0.0);
+    executor_config.hold_track_ki = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.hold_track_ki",
+            std::vector<double>(executor_config.hold_track_ki.begin(), executor_config.hold_track_ki.end())),
+        executor_config.hold_track_ki,
+        0.0);
+    executor_config.strong_hold_track_kp = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.strong_hold_track_kp",
+            std::vector<double>(executor_config.strong_hold_track_kp.begin(),
+                                executor_config.strong_hold_track_kp.end())),
+        executor_config.strong_hold_track_kp,
+        0.0);
+    executor_config.strong_hold_track_kd = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.strong_hold_track_kd",
+            std::vector<double>(executor_config.strong_hold_track_kd.begin(),
+                                executor_config.strong_hold_track_kd.end())),
+        executor_config.strong_hold_track_kd,
+        0.0);
+    executor_config.strong_hold_track_ki = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.strong_hold_track_ki",
+            std::vector<double>(executor_config.strong_hold_track_ki.begin(),
+                                executor_config.strong_hold_track_ki.end())),
+        executor_config.strong_hold_track_ki,
+        0.0);
+    executor_config.static_friction = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.static_friction",
+            std::vector<double>(executor_config.static_friction.begin(), executor_config.static_friction.end())),
+        executor_config.static_friction,
+        0.0);
+    executor_config.gravity_compensation = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.gravity_compensation",
+            std::vector<double>(executor_config.gravity_compensation.begin(),
+                                executor_config.gravity_compensation.end())),
+        executor_config.gravity_compensation,
+        0.0);
+    executor_config.effort_limit = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.effort_limit",
+            std::vector<double>(executor_config.effort_limit.begin(), executor_config.effort_limit.end())),
+        executor_config.effort_limit,
+        1e-6);
+    executor_config.torque_rate_limit = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "executor.torque_rate_limit",
+            std::vector<double>(executor_config.torque_rate_limit.begin(),
+                                executor_config.torque_rate_limit.end())),
+        executor_config.torque_rate_limit,
+        1e-6);
+    executor_config.tracking_position_tolerance_rad = std::max(
+        node_->declare_parameter("executor.tracking_position_tolerance_rad",
+                                 executor_config.tracking_position_tolerance_rad),
+        1e-6);
+    executor_config.tracking_velocity_tolerance_rad = std::max(
+        node_->declare_parameter("executor.tracking_velocity_tolerance_rad",
+                                 executor_config.tracking_velocity_tolerance_rad),
+        1e-6);
+    executor_config.final_position_tolerance_rad = std::max(
+        node_->declare_parameter("executor.final_position_tolerance_rad",
+                                 executor_config.final_position_tolerance_rad),
+        1e-6);
+    executor_config.final_velocity_tolerance_rad = std::max(
+        node_->declare_parameter("executor.final_velocity_tolerance_rad",
+                                 executor_config.final_velocity_tolerance_rad),
+        1e-6);
+    executor_config.soft_final_position_tolerance_rad = std::max(
+        node_->declare_parameter("executor.soft_final_position_tolerance_rad",
+                                 executor_config.soft_final_position_tolerance_rad),
+        1e-6);
+    executor_config.soft_final_velocity_tolerance_rad = std::max(
+        node_->declare_parameter("executor.soft_final_velocity_tolerance_rad",
+                                 executor_config.soft_final_velocity_tolerance_rad),
+        1e-6);
+
+    const int zone_valid_min_mm = node_->declare_parameter("zone_valid_min_mm", 0);
+    const int zone_valid_max_mm = node_->declare_parameter("zone_valid_max_mm", 200);
+    runtime_context_->motionOptionsState().setZoneValidRange(zone_valid_min_mm, zone_valid_max_mm);
+
+    runtime::RuntimeControlBridgeConfig control_bridge_config;
+    control_bridge_config.collision_nominal_thresholds = vectorToArray(
+        node_->declare_parameter<std::vector<double>>(
+            "collision_nominal_thresholds",
+            std::vector<double>(control_bridge_config.collision_nominal_thresholds.begin(),
+                                control_bridge_config.collision_nominal_thresholds.end())),
+        control_bridge_config.collision_nominal_thresholds,
+        1e-6);
+    control_bridge_config.collision_slow_scale = std::clamp(
+        node_->declare_parameter("collision_slow_scale", control_bridge_config.collision_slow_scale),
+        0.05,
+        1.0);
+    control_bridge_config.collision_retreat_distance =
+        std::max(node_->declare_parameter("collision_retreat_distance",
+                                          control_bridge_config.collision_retreat_distance),
+                 0.0);
+
     kinematics_ = std::make_unique<xMate3Kinematics>();
     motion_backend_ = std::make_unique<GazeboRuntimeBackend>(&joints_, &original_joint_limits_);
-    motion_backend_->configureTrajectoryClient(node_, joint_names_);
+    if (backend_mode_ != BackendMode::effort) {
+        motion_backend_->configureTrajectoryClient(node_, joint_names_);
+    }
     runtime_context_->attachBackend(motion_backend_.get());
+    runtime_context_->motionRuntime().setExecutorConfig(executor_config);
     executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
     executor_->add_node(node_);
 
@@ -436,7 +677,7 @@ void XCoreControllerPlugin::InitROS2() {
         GetCachedJointState(position, velocity, torque);
     };
     auto time_provider = [this]() { return node_->get_clock()->now(); };
-    auto trajectory_dt_provider = []() { return kTrajectorySampleDt; };
+    auto trajectory_dt_provider = [this]() { return trajectory_sample_dt_; };
     auto request_id_generator = [this](const std::string &prefix) {
         return prefix + std::to_string(next_request_id_.fetch_add(1));
     };
@@ -452,7 +693,7 @@ void XCoreControllerPlugin::InitROS2() {
         time_provider,
         trajectory_dt_provider,
         request_id_generator);
-    control_bridge_ = std::make_unique<runtime::RuntimeControlBridge>(*runtime_context_);
+    control_bridge_ = std::make_unique<runtime::RuntimeControlBridge>(*runtime_context_, control_bridge_config);
 
     executor_thread_ = std::thread([this]() {
         try {
@@ -503,7 +744,7 @@ const runtime::MotionRuntime *XCoreControllerPlugin::motionRuntime() const {
 }
 
 void XCoreControllerPlugin::OnUpdate() {
-    double sim_dt = kTrajectorySampleDt;
+    double sim_dt = trajectory_sample_dt_;
     if (model_ && model_->GetWorld()) {
         const double sim_time = model_->GetWorld()->SimTime().Double();
         if (last_sim_time_ >= 0.0) {

@@ -7,19 +7,27 @@
 
 #include <algorithm>
 #include <cmath>
+#include <mutex>
+
+#include "runtime/joint_retimer.hpp"
 
 namespace gazebo {
 
 namespace {
+TrajectoryPlannerConfig& mutable_config() {
+    static TrajectoryPlannerConfig config;
+    return config;
+}
 
-constexpr double kMinNrtSpeedMmPerSec = 5.0;
-constexpr double kMaxNrtSpeedMmPerSec = 4000.0;
-constexpr double kReferenceJointFullSpeedMmPerSec = 500.0;
-constexpr double kMinTrajectorySampleDt = 0.001;
-constexpr double kMaxTrajectorySampleDt = 0.05;
-constexpr double kMaxJointStepRad = 0.025;
-constexpr double kMaxCartesianStepMeters = 0.002;
-constexpr double kMaxOrientationStepRad = 0.03;
+std::mutex& config_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+TrajectoryPlannerConfig current_config() {
+    std::lock_guard<std::mutex> lock(config_mutex());
+    return mutable_config();
+}
 
 bool checkInputValid(
     const std::vector<double>& start,
@@ -27,8 +35,9 @@ bool checkInputValid(
     size_t expect_dim,
     double speed_mm_per_s,
     double dt) {
+    const auto config = current_config();
     if (start.size() != expect_dim || end.size() != expect_dim) return false;
-    if (speed_mm_per_s < kMinNrtSpeedMmPerSec || speed_mm_per_s > kMaxNrtSpeedMmPerSec) return false;
+    if (speed_mm_per_s < config.min_nrt_speed_mm_per_s || speed_mm_per_s > config.max_nrt_speed_mm_per_s) return false;
     if (dt <= 1e-9) return false;
     return true;
 }
@@ -90,20 +99,42 @@ bool computeCircleParams(
 }
 
 double clampCartesianSpeedMetersPerSecond(double speed_mm_per_s) {
-    return std::clamp(speed_mm_per_s, kMinNrtSpeedMmPerSec, kMaxNrtSpeedMmPerSec) / 1000.0;
+    const auto config = current_config();
+    return std::clamp(speed_mm_per_s, config.min_nrt_speed_mm_per_s, config.max_nrt_speed_mm_per_s) / 1000.0;
 }
 
-double clampJointSpeedRadPerSecond(double speed_mm_per_s) {
-    const double normalized =
-        std::clamp(speed_mm_per_s, kMinNrtSpeedMmPerSec, kMaxNrtSpeedMmPerSec) /
-        kReferenceJointFullSpeedMmPerSec;
-    return std::clamp(normalized * M_PI, 0.05, M_PI);
+double joint_speed_scale(double speed_mm_per_s, const TrajectoryPlannerConfig& config) {
+    return std::clamp(speed_mm_per_s, config.min_nrt_speed_mm_per_s, config.max_nrt_speed_mm_per_s) /
+           config.max_nrt_speed_mm_per_s;
+}
+
+std::array<double, 6> scaled_joint_speed_limits(double speed_mm_per_s,
+                                                const TrajectoryPlannerConfig& config) {
+    auto limits = config.joint_speed_limits_rad_per_sec;
+    const double scale = std::max(joint_speed_scale(speed_mm_per_s, config), 0.05);
+    for (double &value : limits) {
+        value *= scale;
+    }
+    return limits;
+}
+
+std::array<double, 6> scaled_joint_acc_limits(double speed_mm_per_s,
+                                              const TrajectoryPlannerConfig& config) {
+    auto limits = config.joint_acc_limits_rad_per_sec2;
+    const double scale = std::max(joint_speed_scale(speed_mm_per_s, config), 0.05);
+    for (double &value : limits) {
+        value *= scale * scale;
+    }
+    return limits;
 }
 
 TrajectorySamples makeSinglePointTrajectory(const std::vector<double>& point, double fallback_dt) {
     TrajectorySamples result;
     result.points.push_back(point);
-    result.sample_dt = std::clamp(fallback_dt, kMinTrajectorySampleDt, kMaxTrajectorySampleDt);
+    result.velocities.push_back(std::vector<double>(point.size(), 0.0));
+    result.accelerations.push_back(std::vector<double>(point.size(), 0.0));
+    const auto config = current_config();
+    result.sample_dt = std::clamp(fallback_dt, config.min_sample_dt, config.max_sample_dt);
     result.total_time = 0.0;
     return result;
 }
@@ -113,19 +144,22 @@ int determine_interval_count(double total_time,
                              double path_metric,
                              double max_path_step,
                              double orientation_metric = 0.0,
-                             double max_orientation_step = kMaxOrientationStepRad) {
+                             double max_orientation_step = 0.0) {
+    const auto config = current_config();
     if (total_time <= 1e-9) {
         return 1;
     }
-    const double clamped_max_dt = std::clamp(requested_dt, kMinTrajectorySampleDt, kMaxTrajectorySampleDt);
+    const double resolved_orientation_step =
+        max_orientation_step > 1e-9 ? max_orientation_step : config.max_orientation_step_rad;
+    const double clamped_max_dt = std::clamp(requested_dt, config.min_sample_dt, config.max_sample_dt);
     const int time_intervals = std::max(1, static_cast<int>(std::ceil(total_time / clamped_max_dt)));
     const int path_intervals = max_path_step > 1e-9
         ? std::max(1, static_cast<int>(std::ceil(path_metric / max_path_step)))
         : 1;
-    const int orientation_intervals = max_orientation_step > 1e-9
-        ? std::max(1, static_cast<int>(std::ceil(orientation_metric / max_orientation_step)))
+    const int orientation_intervals = resolved_orientation_step > 1e-9
+        ? std::max(1, static_cast<int>(std::ceil(orientation_metric / resolved_orientation_step)))
         : 1;
-    const int min_dt_intervals = std::max(1, static_cast<int>(std::ceil(total_time / kMinTrajectorySampleDt)));
+    const int min_dt_intervals = std::max(1, static_cast<int>(std::ceil(total_time / config.min_sample_dt)));
     return std::clamp(std::max({time_intervals, path_intervals, orientation_intervals}), 1, min_dt_intervals);
 }
 
@@ -136,36 +170,36 @@ TrajectorySamples finalizeTrajectory(std::vector<std::vector<double>> trajectory
     TrajectorySamples result;
     result.points = std::move(trajectory);
     result.total_time = std::max(total_time, 0.0);
+    const auto config = current_config();
     if (num_intervals > 0 && result.total_time > 1e-9) {
         result.sample_dt = result.total_time / static_cast<double>(num_intervals);
     } else {
-        result.sample_dt = std::clamp(fallback_dt, kMinTrajectorySampleDt, kMaxTrajectorySampleDt);
+        result.sample_dt = std::clamp(fallback_dt, config.min_sample_dt, config.max_sample_dt);
     }
     return result;
 }
 
 } // namespace
 
-double TrajectoryPlanner::computeBlendRatio(double t, double T) {
-    constexpr double ACCEL_RATIO = 0.2;
-    const double ta = ACCEL_RATIO * T;
-    const double td = ta;
-    const double tc = T - ta - td;
+void TrajectoryPlanner::setConfig(const TrajectoryPlannerConfig& config) {
+    std::lock_guard<std::mutex> lock(config_mutex());
+    mutable_config() = config;
+}
 
-    if (t <= 0.0) return 0.0;
+TrajectoryPlannerConfig TrajectoryPlanner::config() {
+    return current_config();
+}
+
+double TrajectoryPlanner::computeBlendRatio(double t, double T) {
+    if (T <= 1e-9 || t <= 0.0) return 0.0;
     if (t >= T) return 1.0;
 
-    const double v_max = 1.0 / (0.5 * ta + tc + 0.5 * td);
-    const double a = v_max / ta;
-
-    if (t < ta) {
-        return 0.5 * a * t * t;
-    } else if (t < ta + tc) {
-        return 0.5 * a * ta * ta + v_max * (t - ta);
-    } else {
-        const double t_dec = T - t;
-        return 1.0 - 0.5 * a * t_dec * t_dec;
-    }
+    const double u = std::clamp(t / T, 0.0, 1.0);
+    const double u2 = u * u;
+    const double u3 = u2 * u;
+    const double u4 = u3 * u;
+    const double u5 = u4 * u;
+    return 10.0 * u3 - 15.0 * u4 + 6.0 * u5;
 }
 
 TrajectorySamples TrajectoryPlanner::planJointMove(
@@ -186,24 +220,22 @@ TrajectorySamples TrajectoryPlanner::planJointMove(
         return makeSinglePointTrajectory(start, dt);
     }
 
-    const double max_vel = clampJointSpeedRadPerSecond(speed_mm_per_s);
-    const double total_time = max_displacement / max_vel;
-    const int num_points = determine_interval_count(total_time, dt, max_displacement, kMaxJointStepRad);
+    const auto config = current_config();
+    rokae_xmate3_ros2::runtime::JointRetimerConfig retimer_config;
+    retimer_config.joint_speed_limits_rad_per_sec = config.joint_speed_limits_rad_per_sec;
+    retimer_config.joint_acc_limits_rad_per_sec2 = config.joint_acc_limits_rad_per_sec2;
+    retimer_config.sample_dt = dt;
+    retimer_config.min_sample_dt = config.min_sample_dt;
+    retimer_config.max_sample_dt = config.max_sample_dt;
+    retimer_config.max_joint_step_rad = config.max_joint_step_rad;
 
-    std::vector<std::vector<double>> trajectory;
-    trajectory.reserve(num_points + 1);
-    for (int i = 0; i <= num_points; ++i) {
-        const double t = static_cast<double>(i) / num_points * total_time;
-        const double s = computeBlendRatio(t, total_time);
-
-        std::vector<double> point(start.size());
-        for (size_t j = 0; j < start.size(); ++j) {
-            point[j] = start[j] + s * (end[j] - start[j]);
-        }
-        trajectory.push_back(std::move(point));
-    }
-
-    return finalizeTrajectory(std::move(trajectory), num_points, total_time, dt);
+    const auto retimed = rokae_xmate3_ros2::runtime::retimeJointQuintic(
+        start,
+        end,
+        retimer_config,
+        scaled_joint_speed_limits(speed_mm_per_s, config),
+        scaled_joint_acc_limits(speed_mm_per_s, config));
+    return rokae_xmate3_ros2::runtime::toTrajectorySamples(retimed);
 }
 
 TrajectorySamples TrajectoryPlanner::planCartesianLine(
@@ -225,8 +257,10 @@ TrajectorySamples TrajectoryPlanner::planCartesianLine(
 
     const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
     const double total_time = displacement / max_vel;
+    const auto config = current_config();
     const int num_points = determine_interval_count(
-        total_time, dt, displacement, kMaxCartesianStepMeters, orientationDistance(start, end));
+        total_time, dt, displacement, config.max_cartesian_step_m, orientationDistance(start, end),
+        config.max_orientation_step_rad);
 
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};
@@ -291,8 +325,10 @@ TrajectorySamples TrajectoryPlanner::planCircularArc(
 
     const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
     const double total_time = arc_length / max_vel;
+    const auto config = current_config();
     const int num_points = determine_interval_count(
-        total_time, dt, arc_length, kMaxCartesianStepMeters, orientationDistance(start, end));
+        total_time, dt, arc_length, config.max_cartesian_step_m, orientationDistance(start, end),
+        config.max_orientation_step_rad);
 
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};
@@ -344,8 +380,10 @@ TrajectorySamples TrajectoryPlanner::planCircularContinuous(
     const double arc_length = radius * std::abs(angle);
     const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
     const double total_time = arc_length / max_vel;
+    const auto config = current_config();
     const int num_points = determine_interval_count(
-        total_time, dt, arc_length, kMaxCartesianStepMeters, orientationDistance(start, end));
+        total_time, dt, arc_length, config.max_cartesian_step_m, orientationDistance(start, end),
+        config.max_orientation_step_rad);
 
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};
@@ -409,8 +447,10 @@ TrajectorySamples TrajectoryPlanner::planSpiralMove(
     const double spiral_length = axis_length + avg_radius * std::abs(angle);
     const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
     const double total_time = spiral_length / max_vel;
+    const auto config = current_config();
     const int num_points = determine_interval_count(
-        total_time, dt, spiral_length, kMaxCartesianStepMeters, orientationDistance(start, end));
+        total_time, dt, spiral_length, config.max_cartesian_step_m, orientationDistance(start, end),
+        config.max_orientation_step_rad);
 
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};

@@ -1,6 +1,8 @@
 #include "runtime/runtime_state.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 #include "runtime/pose_utils.hpp"
 
@@ -9,6 +11,13 @@ namespace {
 
 std::vector<double> normalize_runtime_pose(const std::vector<double> &pose) {
   return pose_utils::sanitizePose(pose);
+}
+
+double clamp_record_timestamp(double timestamp_sec, double fallback) {
+  if (!std::isfinite(timestamp_sec)) {
+    return fallback;
+  }
+  return timestamp_sec;
 }
 
 }  // namespace
@@ -81,6 +90,25 @@ bool SessionState::collisionDetectionEnabled() const {
   return collision_detection_enabled_;
 }
 
+void SessionState::setCollisionDetectionConfig(const std::array<double, 6> &sensitivity,
+                                               std::uint8_t behaviour,
+                                               double fallback) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  collision_sensitivity_ = sensitivity;
+  collision_behaviour_ = behaviour;
+  collision_fallback_ = fallback;
+}
+
+CollisionDetectionSnapshot SessionState::collisionDetection() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return CollisionDetectionSnapshot{
+      collision_detection_enabled_,
+      collision_sensitivity_,
+      collision_behaviour_,
+      collision_fallback_,
+  };
+}
+
 void SessionState::setMotionMode(int mode) {
   std::lock_guard<std::mutex> lock(mutex_);
   motion_mode_ = mode;
@@ -140,6 +168,21 @@ void MotionOptionsState::setDefaultZone(int zone) {
 int MotionOptionsState::defaultZone() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return default_zone_;
+}
+
+void MotionOptionsState::setZoneValidRange(int min_zone, int max_zone) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (max_zone < min_zone) {
+    std::swap(min_zone, max_zone);
+  }
+  zone_valid_min_ = min_zone;
+  zone_valid_max_ = max_zone;
+  default_zone_ = std::clamp(default_zone_, zone_valid_min_, zone_valid_max_);
+}
+
+std::array<int, 2> MotionOptionsState::zoneValidRange() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return {zone_valid_min_, zone_valid_max_};
 }
 
 void MotionOptionsState::setSpeedScale(double scale) {
@@ -213,6 +256,14 @@ void ToolingState::setToolset(const std::string &tool_name,
   current_wobj_pose_ = normalize_runtime_pose(wobj_pose);
   tool_registry_[current_tool_name_] = current_tool_pose_;
   wobj_registry_[current_wobj_name_] = current_wobj_pose_;
+  if (tool_mass_registry_.find(current_tool_name_) == tool_mass_registry_.end()) {
+    tool_mass_registry_[current_tool_name_] = 0.0;
+  }
+  if (tool_com_registry_.find(current_tool_name_) == tool_com_registry_.end()) {
+    tool_com_registry_[current_tool_name_] = {0.0, 0.0, 0.0};
+  }
+  current_tool_mass_ = tool_mass_registry_[current_tool_name_];
+  current_tool_com_ = tool_com_registry_[current_tool_name_];
   base_pose_ = current_wobj_pose_;
 }
 
@@ -229,13 +280,36 @@ bool ToolingState::setToolsetByName(const std::string &tool_name, const std::str
   current_wobj_name_ = resolved_wobj_name;
   current_tool_pose_ = tool_it->second;
   current_wobj_pose_ = wobj_it->second;
+  current_tool_mass_ = tool_mass_registry_[current_tool_name_];
+  current_tool_com_ = tool_com_registry_[current_tool_name_];
   base_pose_ = current_wobj_pose_;
   return true;
 }
 
+void ToolingState::setToolDynamics(const std::string &tool_name,
+                                   double mass,
+                                   const std::array<double, 3> &com) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const std::string resolved_tool_name = tool_name.empty() ? current_tool_name_ : tool_name;
+  tool_mass_registry_[resolved_tool_name] = std::max(0.0, mass);
+  tool_com_registry_[resolved_tool_name] = com;
+  if (resolved_tool_name == current_tool_name_) {
+    current_tool_mass_ = tool_mass_registry_[resolved_tool_name];
+    current_tool_com_ = tool_com_registry_[resolved_tool_name];
+  }
+}
+
 ToolsetSnapshot ToolingState::toolset() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return ToolsetSnapshot{current_tool_name_, current_wobj_name_, current_tool_pose_, current_wobj_pose_, base_pose_};
+  return ToolsetSnapshot{
+      current_tool_name_,
+      current_wobj_name_,
+      current_tool_pose_,
+      current_wobj_pose_,
+      base_pose_,
+      current_tool_mass_,
+      current_tool_com_,
+  };
 }
 
 void ToolingState::setBaseFrame(const std::vector<double> &base_pose) {
@@ -386,6 +460,20 @@ void ProgramState::startRecordingPath() {
   std::lock_guard<std::mutex> lock(mutex_);
   is_recording_path_ = true;
   recorded_path_.clear();
+  record_time_origin_initialized_ = false;
+  record_time_origin_sec_ = 0.0;
+  recorded_toolset_ = ToolsetSnapshot{};
+  record_source_ = "sdk_record";
+}
+
+void ProgramState::startRecordingPath(const ToolsetSnapshot &toolset, const std::string &source) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  is_recording_path_ = true;
+  recorded_path_.clear();
+  record_time_origin_initialized_ = false;
+  record_time_origin_sec_ = 0.0;
+  recorded_toolset_ = toolset;
+  record_source_ = source.empty() ? std::string("sdk_record") : source;
 }
 
 void ProgramState::stopRecordingPath() {
@@ -397,6 +485,7 @@ void ProgramState::cancelRecordingPath() {
   std::lock_guard<std::mutex> lock(mutex_);
   is_recording_path_ = false;
   recorded_path_.clear();
+  record_time_origin_initialized_ = false;
 }
 
 bool ProgramState::isRecordingPath() const {
@@ -404,17 +493,44 @@ bool ProgramState::isRecordingPath() const {
   return is_recording_path_;
 }
 
-void ProgramState::recordPathSample(const std::array<double, 6> &joint_position) {
+void ProgramState::recordPathSample(double timestamp_sec,
+                                    const std::array<double, 6> &joint_position,
+                                    const std::array<double, 6> &joint_velocity) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!is_recording_path_) {
     return;
   }
-  recorded_path_.emplace_back(joint_position.begin(), joint_position.end());
+
+  const double fallback_time = recorded_path_.empty() ? 0.0 : recorded_path_.back().time_from_start_sec + 0.01;
+  const double absolute_timestamp = clamp_record_timestamp(timestamp_sec, fallback_time);
+  if (!record_time_origin_initialized_) {
+    record_time_origin_sec_ = absolute_timestamp;
+    record_time_origin_initialized_ = true;
+  }
+
+  double relative_time = std::max(0.0, absolute_timestamp - record_time_origin_sec_);
+  if (!recorded_path_.empty() && relative_time <= recorded_path_.back().time_from_start_sec) {
+    relative_time = recorded_path_.back().time_from_start_sec + 0.01;
+  }
+
+  RecordedPathSample sample;
+  sample.time_from_start_sec = relative_time;
+  sample.joint_position = joint_position;
+  sample.joint_velocity = joint_velocity;
+  recorded_path_.push_back(sample);
+}
+
+void ProgramState::recordPathSample(const std::array<double, 6> &joint_position) {
+  recordPathSample(std::numeric_limits<double>::quiet_NaN(), joint_position, std::array<double, 6>{});
 }
 
 void ProgramState::saveRecordedPath(const std::string &name) {
   std::lock_guard<std::mutex> lock(mutex_);
-  saved_paths_[name] = recorded_path_;
+  ReplayPathAsset asset;
+  asset.samples = recorded_path_;
+  asset.toolset = recorded_toolset_;
+  asset.source = record_source_;
+  saved_paths_[name] = std::move(asset);
 }
 
 bool ProgramState::getSavedPath(const std::string &name,
@@ -424,7 +540,21 @@ bool ProgramState::getSavedPath(const std::string &name,
   if (it == saved_paths_.end()) {
     return false;
   }
-  path = it->second;
+  path.clear();
+  path.reserve(it->second.samples.size());
+  for (const auto &sample : it->second.samples) {
+    path.emplace_back(sample.joint_position.begin(), sample.joint_position.end());
+  }
+  return true;
+}
+
+bool ProgramState::getReplayAsset(const std::string &name, ReplayPathAsset &asset) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto it = saved_paths_.find(name);
+  if (it == saved_paths_.end()) {
+    return false;
+  }
+  asset = it->second;
   return true;
 }
 

@@ -260,6 +260,7 @@ class IoProgramFacade {
 class PathFacade {
  public:
   PathFacade(ProgramState &program_state,
+             ToolingState &tooling_state,
              MotionRequestCoordinator *request_coordinator,
              JointStateFetcher joint_state_fetcher,
              TrajectoryDtProvider trajectory_dt_provider,
@@ -283,6 +284,7 @@ class PathFacade {
 
  private:
   ProgramState &program_state_;
+  ToolingState &tooling_state_;
   MotionRequestCoordinator *request_coordinator_;
   JointStateFetcher joint_state_fetcher_;
   TrajectoryDtProvider trajectory_dt_provider_;

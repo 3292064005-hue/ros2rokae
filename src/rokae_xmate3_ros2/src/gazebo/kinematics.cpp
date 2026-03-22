@@ -4,16 +4,17 @@
  */
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
-#include <limits>
+#include "gazebo/kinematics_backend.hpp"
+
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
 namespace gazebo {
-
 xMate3Kinematics::xMate3Kinematics() {
     // DH 参数 (单位 m) - 完全保留你的原版
     dh_a_ = {0.0, 0.0, 0.394, 0.0, 0.0, 0.0};
@@ -23,25 +24,24 @@ xMate3Kinematics::xMate3Kinematics() {
     // 关节限位 - 完全保留你的原版
     joint_limits_min_ = {-3.0527, -2.0933, -2.0933, -3.0527, -2.0933, -6.1082};
     joint_limits_max_ = {3.0527, 2.0933, 2.0933, 3.0527, 2.0933, 6.1082};
+    backend_ = detail::makePreferredKinematicsBackend();
 }
 
 // ==================================================
 // 核心辅助函数：100%保留你的初始偏移逻辑
 // ==================================================
 std::vector<Matrix4d> xMate3Kinematics::computeAllTransforms(const std::vector<double>& joints) {
+    if (backend_) {
+        return backend_->computeAllTransforms(joints);
+    }
     std::vector<Matrix4d> T(7);
     T[0] = Matrix4d::Identity();
-
-    // ========== 核心偏移逻辑 - 完全保留你的原版 ==========
     std::vector<double> jnt = joints;
     jnt[1] -= M_PI / 2.0;
     jnt[2] += M_PI / 2.0;
-    // =====================================================
-
     for (int i = 0; i < 6; ++i) {
-        T[i+1] = T[i] * dhTransform(i, jnt[i]);
+        T[i + 1] = T[i] * dhTransform(i, jnt[i]);
     }
-
     return T;
 }
 
@@ -106,11 +106,11 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
         const std::vector<double>& current_joints) {
     Matrix4d T_target = rpyToTransform(target);
 
-    const int max_iter = 1000;
+    const int max_iter = 280;
     const double position_tolerance = 1e-5;
     const double orientation_tolerance = 1e-3;
     const double orientation_weight = 0.8;
-    const double max_joint_step = 0.02;
+    const double max_joint_step = 0.03;
     const double min_lambda = 0.02;
     const double max_lambda = 0.8;
     const double solution_valid_threshold = 5e-3;
@@ -223,6 +223,16 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
         seeds.push_back(seed_elbow_down);
     }
     {
+        std::vector<double> seed_sing_avoid1 = current_joints;
+        seed_sing_avoid1[4] = 0.5;
+        seeds.push_back(seed_sing_avoid1);
+    }
+    {
+        std::vector<double> seed_sing_avoid2 = current_joints;
+        seed_sing_avoid2[4] = -0.5;
+        seeds.push_back(seed_sing_avoid2);
+    }
+    {
         std::vector<double> seed_wrist_flip = current_joints;
         seed_wrist_flip[5] = std::clamp(M_PI, joint_limits_min_[5], joint_limits_max_[5]);
         seed_wrist_flip[4] = 0.25;
@@ -234,27 +244,6 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
         seed_wrist_noflip[4] = -0.25;
         seeds.push_back(seed_wrist_noflip);
     }
-    {
-        std::vector<double> zero_seed = {0, 0, 0, 0, 0, 0};
-        zero_seed[4] = 0.2;
-        seeds.push_back(zero_seed);
-    }
-    {
-        std::vector<double> zero_seed2 = {0, 0, 0, 0, 0, 0};
-        zero_seed2[4] = -0.2;
-        seeds.push_back(zero_seed2);
-    }
-    {
-        std::vector<double> seed_sing_avoid1 = current_joints;
-        seed_sing_avoid1[4] = 0.5;
-        seeds.push_back(seed_sing_avoid1);
-    }
-    {
-        std::vector<double> seed_sing_avoid2 = current_joints;
-        seed_sing_avoid2[4] = -0.5;
-        seeds.push_back(seed_sing_avoid2);
-    }
-
     std::vector<std::vector<double>> candidate_solutions;
     for (const auto& seed : seeds) {
         auto [candidate_joints, score] = solveFromSeed(seed);
@@ -314,11 +303,11 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
     }
 
     Matrix4d T_target = rpyToTransform(target);
-    const int max_iter = 140;
+    const int max_iter = 16;
     const double position_tolerance = 1e-5;
     const double orientation_tolerance = 1e-3;
     const double orientation_weight = 0.8;
-    const double max_joint_step = 0.03;
+    const double max_joint_step = 0.05;
     const double min_lambda = 0.02;
     const double max_lambda = 0.5;
     const double solution_valid_threshold = 5e-3;
@@ -399,6 +388,9 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
 
 xMate3Kinematics::Matrix6d xMate3Kinematics::computeJacobian(const std::vector<double>& joints) {
     ++debug_counters_.jacobian_calls;
+    if (backend_) {
+        return backend_->computeJacobian(joints);
+    }
 
     Matrix6d J = Matrix6d::Zero();
     const double delta = 1e-6;
@@ -483,6 +475,17 @@ void xMate3Kinematics::resetDebugCounters() {
 
 xMate3Kinematics::DebugCounters xMate3Kinematics::debugCounters() const {
     return debug_counters_;
+}
+
+const char *xMate3Kinematics::backendName() const noexcept {
+    if (!backend_) {
+        return "legacy";
+    }
+    const std::string name = backend_->name();
+    if (name == "kdl") {
+        return "kdl";
+    }
+    return "legacy";
 }
 
 // -------------------------- 改进DH变换矩阵 - 完全保留你的原版 --------------------------

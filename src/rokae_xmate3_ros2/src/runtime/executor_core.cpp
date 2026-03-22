@@ -7,12 +7,6 @@
 namespace rokae_xmate3_ros2::runtime {
 namespace {
 
-constexpr double kTrackingPositionToleranceRad = 0.03;
-constexpr double kTrackingVelocityToleranceRad = 0.40;
-constexpr double kFinalPositionToleranceRad = 0.01;
-constexpr double kFinalVelocityToleranceRad = 0.08;
-constexpr double kSoftFinalPositionToleranceRad = 0.02;
-constexpr double kSoftFinalVelocityToleranceRad = 0.18;
 constexpr double kVelocityEstimateTimeConstant = 0.03;
 constexpr double kAccelerationEstimateTimeConstant = 0.05;
 constexpr double kVelocitySpikeClampRad = 6.0;
@@ -25,22 +19,9 @@ constexpr double kHoldVelocityAssistGain = 2.2;
 constexpr double kStrongHoldVelocityAssistGain = 3.8;
 constexpr double kHoldVelocityAssistLimit = 0.18;
 constexpr double kStrongHoldVelocityAssistLimit = 0.38;
-constexpr std::array<double, 6> kActiveTrackKp = {260.0, 280.0, 240.0, 120.0, 90.0, 45.0};
-constexpr std::array<double, 6> kActiveTrackKd = {28.0, 30.0, 24.0, 12.0, 8.0, 3.5};
-constexpr std::array<double, 6> kActiveTrackKi = {10.0, 12.0, 10.0, 4.0, 2.0, 1.0};
-constexpr std::array<double, 6> kHoldTrackKp = {380.0, 400.0, 350.0, 170.0, 125.0, 60.0};
-constexpr std::array<double, 6> kHoldTrackKd = {38.0, 40.0, 32.0, 16.0, 11.0, 5.5};
-constexpr std::array<double, 6> kHoldTrackKi = {24.0, 26.0, 22.0, 9.0, 4.5, 2.0};
-constexpr std::array<double, 6> kStrongHoldTrackKp = {560.0, 580.0, 500.0, 235.0, 170.0, 82.0};
-constexpr std::array<double, 6> kStrongHoldTrackKd = {54.0, 56.0, 45.0, 22.0, 15.0, 7.2};
-constexpr std::array<double, 6> kStrongHoldTrackKi = {40.0, 42.0, 34.0, 14.0, 7.0, 3.0};
 constexpr std::array<double, 6> kIntegralClamp = {0.70, 0.70, 0.65, 0.42, 0.32, 0.22};
 constexpr std::array<double, 6> kVelocityFeedforward = {1.5, 1.7, 1.5, 0.8, 0.5, 0.2};
 constexpr std::array<double, 6> kAccelerationFeedforward = {1.2, 1.4, 1.1, 0.5, 0.35, 0.15};
-constexpr std::array<double, 6> kGravityCompensation = {0.0, 10.0, 7.0, 1.5, 0.8, 0.2};
-constexpr std::array<double, 6> kStaticFrictionComp = {0.8, 1.0, 0.8, 0.3, 0.2, 0.1};
-constexpr std::array<double, 6> kEffortLimit = {300.0, 300.0, 300.0, 300.0, 300.0, 300.0};
-constexpr std::array<double, 6> kTorqueRateLimit = {1200.0, 1200.0, 1000.0, 450.0, 320.0, 180.0};
 
 struct TrajectoryTrackingSample {
   std::vector<double> position;
@@ -139,8 +120,17 @@ TrajectoryTrackingSample sampleJointTrajectory(const std::vector<std::vector<dou
 
 }  // namespace
 
-MotionExecutor::MotionExecutor() {
+MotionExecutor::MotionExecutor(MotionExecutorConfig config)
+    : config_(std::move(config)) {
   hold_position_.resize(6, 0.0);
+}
+
+void MotionExecutor::setConfig(const MotionExecutorConfig &config) {
+  config_ = config;
+}
+
+const MotionExecutorConfig &MotionExecutor::config() const noexcept {
+  return config_;
 }
 
 void MotionExecutor::resetControllerState() {
@@ -295,9 +285,9 @@ MotionExecutor::TrackingStatus MotionExecutor::applyEffortTracking(
 
     double static_friction = 0.0;
     if (std::fabs(desired_vel) > 1e-3) {
-      static_friction = std::copysign(kStaticFrictionComp[i], desired_vel);
+      static_friction = std::copysign(config_.static_friction[i], desired_vel);
     } else if (std::fabs(pos_error) > 1e-3) {
-      static_friction = std::copysign(kStaticFrictionComp[i] * 0.5, pos_error);
+      static_friction = std::copysign(config_.static_friction[i] * 0.5, pos_error);
     }
 
     double axis_effort =
@@ -306,13 +296,13 @@ MotionExecutor::TrackingStatus MotionExecutor::applyEffortTracking(
         ki[i] * effort_error_integral_[i] +
         kVelocityFeedforward[i] * desired_vel +
         kAccelerationFeedforward[i] * acc_error +
-        kGravityCompensation[i] * std::sin(current_pos) +
+        config_.gravity_compensation[i] * std::sin(current_pos) +
         static_friction;
-    const double max_effort_delta = kTorqueRateLimit[i] * safe_dt;
+    const double max_effort_delta = config_.torque_rate_limit[i] * safe_dt;
     axis_effort = std::clamp(axis_effort,
                              effort_last_command_[i] - max_effort_delta,
                              effort_last_command_[i] + max_effort_delta);
-    axis_effort = std::clamp(axis_effort, -kEffortLimit[i], kEffortLimit[i]);
+    axis_effort = std::clamp(axis_effort, -config_.effort_limit[i], config_.effort_limit[i]);
     effort[i] = axis_effort;
     effort_last_command_[i] = axis_effort;
 
@@ -333,8 +323,9 @@ ExecutionStep MotionExecutor::holdPositionStep(const RobotSnapshot &snapshot, do
   const std::vector<double> zero_acceleration(hold_position_.size(), 0.0);
   const auto tracking = applyEffortTracking(snapshot, dt, hold_position_, zero_velocity,
                                             zero_acceleration,
-                                            kHoldTrackKp, kHoldTrackKd, kHoldTrackKi,
-                                            kFinalPositionToleranceRad, kFinalVelocityToleranceRad);
+                                            config_.hold_track_kp, config_.hold_track_kd, config_.hold_track_ki,
+                                            config_.final_position_tolerance_rad,
+                                            config_.final_velocity_tolerance_rad);
   ExecutionStep step;
   step.command = tracking.command;
   step.state = ExecutionState::idle;
@@ -388,9 +379,11 @@ ExecutionStep MotionExecutor::tick(const RobotSnapshot &snapshot, double dt, dou
     }
     const auto tracking = applyEffortTracking(snapshot, dt, sample.position, scaled_velocity,
                                               scaled_acceleration,
-                                              kActiveTrackKp, kActiveTrackKd, kActiveTrackKi,
-                                              kTrackingPositionToleranceRad,
-                                              kTrackingVelocityToleranceRad);
+                                              config_.active_track_kp,
+                                              config_.active_track_kd,
+                                              config_.active_track_ki,
+                                              config_.tracking_position_tolerance_rad,
+                                              config_.tracking_velocity_tolerance_rad);
     step.command = tracking.command;
     step.state = ExecutionState::executing;
     if (sample.finished) {
@@ -419,9 +412,9 @@ ExecutionStep MotionExecutor::tick(const RobotSnapshot &snapshot, double dt, dou
     resetControllerState();
   }
 
-  const auto &hold_kp = use_strong_settle ? kStrongHoldTrackKp : kHoldTrackKp;
-  const auto &hold_kd = use_strong_settle ? kStrongHoldTrackKd : kHoldTrackKd;
-  const auto &hold_ki = use_strong_settle ? kStrongHoldTrackKi : kHoldTrackKi;
+  const auto &hold_kp = use_strong_settle ? config_.strong_hold_track_kp : config_.hold_track_kp;
+  const auto &hold_kd = use_strong_settle ? config_.strong_hold_track_kd : config_.hold_track_kd;
+  const auto &hold_ki = use_strong_settle ? config_.strong_hold_track_ki : config_.hold_track_ki;
   const auto assisted_velocity = buildTerminalVelocityAssist(
       snapshot,
       segment.segment.target_joints,
@@ -431,15 +424,15 @@ ExecutionStep MotionExecutor::tick(const RobotSnapshot &snapshot, double dt, dou
   const auto tracking = applyEffortTracking(snapshot, dt, segment.segment.target_joints,
                                             assisted_velocity, zero_acceleration,
                                             hold_kp, hold_kd, hold_ki,
-                                            kFinalPositionToleranceRad,
-                                            kFinalVelocityToleranceRad);
+                                            config_.final_position_tolerance_rad,
+                                            config_.final_velocity_tolerance_rad);
   step.command = tracking.command;
   step.state = ExecutionState::settling;
 
   const bool soft_settled =
       segment.settle_attempts >= kSoftSettleWarmupCycles &&
-      tracking.max_position_error <= kSoftFinalPositionToleranceRad &&
-      tracking.max_velocity_error <= kSoftFinalVelocityToleranceRad;
+      tracking.max_position_error <= config_.soft_final_position_tolerance_rad &&
+      tracking.max_velocity_error <= config_.soft_final_velocity_tolerance_rad;
   if (tracking.settled || soft_settled) {
     ++segment.fine_tuning_steps;
   } else {

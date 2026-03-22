@@ -10,6 +10,28 @@
 
 namespace rokae_xmate3_ros2::runtime {
 
+struct MotionExecutorConfig {
+  std::array<double, 6> active_track_kp{{260.0, 280.0, 240.0, 120.0, 90.0, 45.0}};
+  std::array<double, 6> active_track_kd{{28.0, 30.0, 24.0, 12.0, 8.0, 3.5}};
+  std::array<double, 6> active_track_ki{{10.0, 12.0, 10.0, 4.0, 2.0, 1.0}};
+  std::array<double, 6> hold_track_kp{{380.0, 400.0, 350.0, 170.0, 125.0, 60.0}};
+  std::array<double, 6> hold_track_kd{{38.0, 40.0, 32.0, 16.0, 11.0, 5.5}};
+  std::array<double, 6> hold_track_ki{{24.0, 26.0, 22.0, 9.0, 4.5, 2.0}};
+  std::array<double, 6> strong_hold_track_kp{{560.0, 580.0, 500.0, 235.0, 170.0, 82.0}};
+  std::array<double, 6> strong_hold_track_kd{{54.0, 56.0, 45.0, 22.0, 15.0, 7.2}};
+  std::array<double, 6> strong_hold_track_ki{{40.0, 42.0, 34.0, 14.0, 7.0, 3.0}};
+  std::array<double, 6> static_friction{{0.8, 1.0, 0.8, 0.3, 0.2, 0.1}};
+  std::array<double, 6> gravity_compensation{{0.0, 10.0, 7.0, 1.5, 0.8, 0.2}};
+  std::array<double, 6> effort_limit{{300.0, 300.0, 300.0, 300.0, 300.0, 300.0}};
+  std::array<double, 6> torque_rate_limit{{1200.0, 1200.0, 1000.0, 450.0, 320.0, 180.0}};
+  double tracking_position_tolerance_rad = 0.03;
+  double tracking_velocity_tolerance_rad = 0.40;
+  double final_position_tolerance_rad = 0.01;
+  double final_velocity_tolerance_rad = 0.08;
+  double soft_final_position_tolerance_rad = 0.02;
+  double soft_final_velocity_tolerance_rad = 0.18;
+};
+
 struct ExecutionStep {
   ControlCommand command;
   ExecutionState state = ExecutionState::idle;
@@ -22,11 +44,13 @@ struct ExecutionStep {
 
 class MotionExecutor {
  public:
-  MotionExecutor();
+  explicit MotionExecutor(MotionExecutorConfig config = {});
 
   void reset();
   void stop(const RobotSnapshot &snapshot);
   void loadPlan(MotionPlan plan);
+  void setConfig(const MotionExecutorConfig &config);
+  [[nodiscard]] const MotionExecutorConfig &config() const noexcept;
 
   [[nodiscard]] bool hasActivePlan() const noexcept;
   [[nodiscard]] std::size_t currentSegmentIndex() const noexcept;
@@ -74,6 +98,7 @@ class MotionExecutor {
 
   std::optional<MotionPlan> active_plan_;
   std::optional<ActiveSegment> active_segment_;
+  MotionExecutorConfig config_;
   std::size_t segment_index_ = 0;
   std::vector<double> hold_position_;
   bool hold_position_initialized_ = false;

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 
+#include "runtime/joint_retimer.hpp"
 #include "runtime/runtime_state.hpp"
 #include "runtime/motion_runtime.hpp"
 #include "runtime/pose_utils.hpp"
@@ -88,6 +89,25 @@ TEST(ServiceFacadeTest, ControlFacadeCoordinatesPowerDragAndStopWithRuntime) {
   EXPECT_DOUBLE_EQ(motion_options_state.speedScale(), 1.6);
   EXPECT_DOUBLE_EQ(motion_runtime.activeSpeedScale(), 1.6);
 
+  rokae_xmate3_ros2::srv::EnableCollisionDetection::Request collision_req;
+  rokae_xmate3_ros2::srv::EnableCollisionDetection::Response collision_res;
+  collision_req.sensitivity = {2.0, 1.5, 1.0, 0.5, 3.0, 4.0};
+  collision_req.behaviour = 2;
+  collision_req.fallback = 0.7;
+  facade.handleEnableCollisionDetection(collision_req, collision_res);
+  ASSERT_TRUE(collision_res.success);
+  const auto collision_snapshot = session_state.collisionDetection();
+  EXPECT_TRUE(collision_snapshot.enabled);
+  EXPECT_EQ(collision_snapshot.behaviour, 2u);
+  EXPECT_DOUBLE_EQ(collision_snapshot.fallback, 0.7);
+  EXPECT_DOUBLE_EQ(collision_snapshot.sensitivity[0], 2.0);
+
+  rokae_xmate3_ros2::srv::DisableCollisionDetection::Request collision_disable_req;
+  rokae_xmate3_ros2::srv::DisableCollisionDetection::Response collision_disable_res;
+  facade.handleDisableCollisionDetection(collision_disable_req, collision_disable_res);
+  ASSERT_TRUE(collision_disable_res.success);
+  EXPECT_FALSE(session_state.collisionDetectionEnabled());
+
   rokae_xmate3_ros2::srv::Stop::Request stop_req;
   rokae_xmate3_ros2::srv::Stop::Response stop_res;
   facade.handleStop(stop_req, stop_res);
@@ -125,11 +145,12 @@ TEST(ServiceFacadeTest, PathFacadeSubmitsReplayRequestsThroughCoordinator) {
   auto dt_provider = []() { return 0.01; };
   auto request_id_generator = [](const std::string &prefix) { return prefix + "_001"; };
 
-  rt::PathFacade facade(program_state, &coordinator, joint_state_fetcher, dt_provider, request_id_generator);
+  rt::PathFacade facade(
+      program_state, tooling_state, &coordinator, joint_state_fetcher, dt_provider, request_id_generator);
 
-  program_state.startRecordingPath();
-  program_state.recordPathSample({0.0, 0.1, 0.2, 0.3, 0.4, 0.5});
-  program_state.recordPathSample({0.2, 0.3, 0.4, 0.5, 0.6, 0.7});
+  program_state.startRecordingPath(tooling_state.toolset(), "test_record");
+  program_state.recordPathSample(0.00, {0.0, 0.1, 0.2, 0.3, 0.4, 0.5}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+  program_state.recordPathSample(0.20, {0.2, 0.3, 0.4, 0.5, 0.6, 0.7}, {1.0, 1.0, 1.0, 1.0, 1.0, 1.0});
   program_state.stopRecordingPath();
   program_state.saveRecordedPath("demo_path");
 
@@ -182,6 +203,7 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   set_tool_req.wobj_pose = {0.20, -0.10, 0.30, 0.0, 0.0, 0.0};
   facade.handleSetToolset(set_tool_req, set_tool_res);
   ASSERT_TRUE(set_tool_res.success);
+  tooling_state.setToolDynamics("tcpA", 0.6, {0.0, 0.0, 0.08});
 
   rokae_xmate3_ros2::srv::GetBaseFrame::Request base_req;
   rokae_xmate3_ros2::srv::GetBaseFrame::Response base_res;
@@ -279,7 +301,45 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   ASSERT_TRUE(traj_res.success);
   EXPECT_GT(traj_res.total_time, 0.0);
   ASSERT_GT(traj_res.trajectory_points.size(), 2u);
+  const auto planner_config = gazebo::TrajectoryPlanner::config();
+  rt::JointRetimerConfig retimer_config;
+  retimer_config.joint_speed_limits_rad_per_sec = planner_config.joint_speed_limits_rad_per_sec;
+  retimer_config.joint_acc_limits_rad_per_sec2 = planner_config.joint_acc_limits_rad_per_sec2;
+  retimer_config.sample_dt = 0.01;
+  retimer_config.min_sample_dt = planner_config.min_sample_dt;
+  retimer_config.max_sample_dt = planner_config.max_sample_dt;
+  retimer_config.max_joint_step_rad = planner_config.max_joint_step_rad;
+  std::vector<double> start_joint(traj_req.start_joint_pos.begin(), traj_req.start_joint_pos.end());
+  std::vector<double> target_joint(traj_req.target_joint_pos.begin(), traj_req.target_joint_pos.end());
+  std::array<double, 6> velocity_limits{};
+  std::array<double, 6> acceleration_limits{};
+  const double smoothing_scale = 1.0 / (1.0 + 0.25 * std::clamp(traj_req.blend_radius, 0.0, 1.0));
+  velocity_limits.fill(std::clamp(traj_req.max_velocity, 0.05, M_PI) * smoothing_scale);
+  acceleration_limits.fill(
+      std::clamp(traj_req.max_acceleration, 0.05, 10.0 * M_PI) * smoothing_scale * smoothing_scale);
+  const auto retimed =
+      rt::retimeJointQuintic(start_joint, target_joint, retimer_config, velocity_limits, acceleration_limits);
+  EXPECT_NEAR(traj_res.total_time, retimed.total_time, 1e-9);
+  EXPECT_EQ(traj_res.trajectory_points.size(), retimed.positions.size());
+  EXPECT_DOUBLE_EQ(traj_res.trajectory_points.front().pos[0], retimed.positions.front()[0]);
+  EXPECT_DOUBLE_EQ(traj_res.trajectory_points.back().pos[0], retimed.positions.back()[0]);
   traj_req.is_cartesian = true;
   facade.handleGenerateSTrajectory(traj_req, traj_res);
   EXPECT_FALSE(traj_res.success);
+
+  rt::ControlFacade control_facade(session_state, motion_options_state, nullptr, nullptr, nullptr);
+  rokae_xmate3_ros2::srv::SetDefaultZone::Request zone_req;
+  rokae_xmate3_ros2::srv::SetDefaultZone::Response zone_res;
+  zone_req.zone = 250;
+  control_facade.handleSetDefaultZone(zone_req, zone_res);
+  EXPECT_FALSE(zone_res.success);
+
+  motion_options_state.setZoneValidRange(0, 80);
+  zone_req.zone = 81;
+  control_facade.handleSetDefaultZone(zone_req, zone_res);
+  EXPECT_FALSE(zone_res.success);
+  EXPECT_EQ(zone_res.message, "default zone must be within [0, 80] mm");
+  zone_req.zone = 60;
+  control_facade.handleSetDefaultZone(zone_req, zone_res);
+  EXPECT_TRUE(zone_res.success);
 }
