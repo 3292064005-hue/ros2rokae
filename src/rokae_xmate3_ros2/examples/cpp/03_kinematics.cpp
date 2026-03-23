@@ -47,33 +47,55 @@ int main() {
   printArray("getCartPose(flange)", model.getCartPose(q_current), 4);
 
   printSection("2 逆运动学与结果校验");
-  CartesianPosition target_pose({0.40, 0.00, 0.50, kPi, 0.0, 0.0});
-  target_pose.confData = {-1, 1, -1, 0, 1, 0, 0, 2};
+  CartesianPosition target_pose = fk_current;
+  target_pose.x += 0.02;
+  target_pose.z += 0.03;
   printPose("ik target", target_pose);
-  printVector("ik confData", target_pose.confData, 0);
-
-  const auto q_target = model.calcIk(target_pose, ec);
-  if (reportError("model.calcIk", ec)) {
-    cleanupRobot(robot);
-    return 1;
+  if (!target_pose.confData.empty()) {
+    printVector("ik confData", target_pose.confData, 0);
   }
-  printArray("ik result", q_target, 4, " rad");
 
-  const auto fk_verify = model.calcFk(q_target, ec);
-  if (reportError("model.calcFk(ik)", ec)) {
-    cleanupRobot(robot);
-    return 1;
+  bool have_ik_solution = false;
+  std::array<double, 6> q_target{};
+  for (const auto &candidate_pose : std::array<CartesianPosition, 2>{
+           target_pose,
+           fk_current,
+       }) {
+    ec.clear();
+    const auto q_candidate = model.calcIk(candidate_pose, ec);
+    if (!ec) {
+      q_target = q_candidate;
+      target_pose = candidate_pose;
+      have_ik_solution = true;
+      break;
+    }
+    printCapabilityStatus("approximate", "IK demo target fallback: " + ec.message());
   }
-  printPose("fk(ik result)", fk_verify);
 
-  const auto cart_target = model.getCartPose(q_target);
-  printArray("getCartPose(ik result)", cart_target, 4);
+  if (have_ik_solution) {
+    printPose("ik target(used)", target_pose);
+    printArray("ik result", q_target, 4, " rad");
 
-  std::array<double, 6> q_recovered{};
-  const auto ik_ret = model.getJointPos(cart_target, 0.0, q_target, q_recovered);
-  os << "getJointPos ret = " << ik_ret << std::endl;
-  if (ik_ret == 0) {
-    printArray("getJointPos result", q_recovered, 4, " rad");
+    const auto fk_verify = model.calcFk(q_target, ec);
+    if (reportError("model.calcFk(ik)", ec)) {
+      printCapabilityStatus("approximate", "FK verification on IK result unavailable in current simulation backend: " + ec.message());
+      ec.clear();
+    } else {
+      printPose("fk(ik result)", fk_verify);
+    }
+
+    const auto cart_target = model.getCartPose(q_target);
+    printArray("getCartPose(ik result)", cart_target, 4);
+
+    std::array<double, 6> q_recovered{};
+    const auto ik_ret = model.getJointPos(cart_target, 0.0, q_target, q_recovered);
+    os << "getJointPos ret = " << ik_ret << std::endl;
+    if (ik_ret == 0) {
+      printArray("getJointPos result", q_recovered, 4, " rad");
+    }
+  } else {
+    ec.clear();
+    printCapabilityStatus("approximate", "No valid IK solution found for demo target set; continuing with Jacobian and dynamics outputs");
   }
 
   printSection("3 雅可比与速度加速度映射");

@@ -258,8 +258,9 @@ bool build_line_primitive(const PoseSample &start_pose,
   primitive.length_m = (primitive.end_pose.position - primitive.start_pose.position).norm();
   if (primitive.length_m < kPoseEpsilon &&
       orientation_distance(primitive.start_pose, primitive.end_pose) < kPoseEpsilon) {
-    error_message = "MoveL target is identical to the current pose";
-    return false;
+    primitive.length_m = 0.0;
+    error_message.clear();
+    return true;
   }
   return true;
 }

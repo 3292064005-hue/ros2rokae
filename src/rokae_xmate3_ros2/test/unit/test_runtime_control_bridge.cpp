@@ -153,3 +153,32 @@ TEST(RuntimeControlBridgeTest, CollisionDetectionCanTriggerRetreatPulse) {
   EXPECT_GT(backend.apply_count, 0);
   EXPECT_EQ(backend.controlOwner(), rt::ControlOwner::none);
 }
+
+TEST(RuntimeControlBridgeTest, CollisionStop2SlowsActiveRuntimeBeforeStopping) {
+  rt::RuntimeContext context;
+  context.sessionState().setPowerOn(true);
+  context.sessionState().setCollisionDetectionEnabled(true);
+  context.sessionState().setCollisionDetectionConfig({{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}}, 2, 0.0);
+  FakeBackend backend;
+  backend.snapshot.power_on = true;
+  backend.snapshot.joint_velocity[2] = 0.25;
+  backend.snapshot.joint_torque[2] = 220.0;
+  rt::RuntimeControlBridge bridge(context);
+
+  rt::MotionRequest request;
+  request.request_id = "collision_stop2_trip";
+  request.start_joints = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  rt::MotionCommandSpec cmd;
+  cmd.kind = rt::MotionKind::move_absj;
+  cmd.target_joints = {0.1, 0.1, 0.1, 0.1, 0.1, 0.1};
+  request.commands.push_back(cmd);
+  std::string message;
+  ASSERT_TRUE(context.motionRuntime().submit(request, message)) << message;
+  context.motionRuntime().setActiveSpeedScale(1.0);
+
+  const auto result = bridge.tick(backend, backend.readSnapshot(), 0.01);
+
+  EXPECT_EQ(result.status.state, rt::ExecutionState::stopped);
+  EXPECT_DOUBLE_EQ(context.motionRuntime().activeSpeedScale(), 0.25);
+  EXPECT_EQ(backend.controlOwner(), rt::ControlOwner::none);
+}

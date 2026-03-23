@@ -9,6 +9,7 @@
 #include "runtime/motion_runtime.hpp"
 #include "runtime/pose_utils.hpp"
 #include "runtime/service_facade.hpp"
+#include "rokae_xmate3_ros2/gazebo/approximate_model.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 
 namespace rt = rokae_xmate3_ros2::runtime;
@@ -284,7 +285,18 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   torque_req.external_force = {0.0, 0.0, 3.0, 0.0, 0.0, 0.0};
   facade.handleCalcJointTorque(torque_req, torque_res);
   ASSERT_TRUE(torque_res.success);
-  EXPECT_GT(std::fabs(torque_res.joint_torque[0]), 0.0);
+  const auto expected_torque = rokae_xmate3_ros2::gazebo_model::computeApproximateDynamics(
+      kinematics,
+      torque_req.joint_pos,
+      torque_req.joint_vel,
+      torque_req.joint_acc,
+      torque_req.external_force,
+      rokae_xmate3_ros2::gazebo_model::LoadContext{0.6, {0.0, 0.0, 0.08}});
+  for (int i = 0; i < 6; ++i) {
+    EXPECT_NEAR(torque_res.joint_torque[i], expected_torque.full[i], 1e-9);
+    EXPECT_NEAR(torque_res.gravity_torque[i], expected_torque.gravity[i], 1e-9);
+    EXPECT_NEAR(torque_res.coriolis_torque[i], expected_torque.coriolis[i], 1e-9);
+  }
   torque_req.joint_pos[0] = std::numeric_limits<double>::quiet_NaN();
   facade.handleCalcJointTorque(torque_req, torque_res);
   EXPECT_FALSE(torque_res.success);
@@ -324,8 +336,16 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   EXPECT_DOUBLE_EQ(traj_res.trajectory_points.front().pos[0], retimed.positions.front()[0]);
   EXPECT_DOUBLE_EQ(traj_res.trajectory_points.back().pos[0], retimed.positions.back()[0]);
   traj_req.is_cartesian = true;
+  traj_req.max_velocity = 0.6;
+  traj_req.max_acceleration = 1.5;
   facade.handleGenerateSTrajectory(traj_req, traj_res);
-  EXPECT_FALSE(traj_res.success);
+  ASSERT_TRUE(traj_res.success) << traj_res.error_msg;
+  EXPECT_GT(traj_res.total_time, 0.0);
+  ASSERT_GT(traj_res.trajectory_points.size(), 2u);
+  for (int j = 0; j < 6; ++j) {
+    EXPECT_NEAR(traj_res.trajectory_points.front().pos[j], traj_req.start_joint_pos[j], 1e-9);
+    EXPECT_NEAR(traj_res.trajectory_points.back().pos[j], traj_req.target_joint_pos[j], 1e-3);
+  }
 
   rt::ControlFacade control_facade(session_state, motion_options_state, nullptr, nullptr, nullptr);
   rokae_xmate3_ros2::srv::SetDefaultZone::Request zone_req;

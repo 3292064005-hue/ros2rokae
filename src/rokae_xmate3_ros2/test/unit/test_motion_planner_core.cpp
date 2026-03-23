@@ -243,6 +243,41 @@ TEST(MotionPlannerCoreTest, CartesianZoneZeroKeepsTrimMetadataAtZero) {
   EXPECT_EQ(plan.segments.front().blend_length_m, 0.0);
 }
 
+TEST(MotionPlannerCoreTest, AcceptsNoOpMoveLWithoutFailingFollowingOffsetMoveL) {
+  gazebo::xMate3Kinematics kinematics;
+  const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
+
+  rt::MotionRequest request;
+  request.request_id = "noop_movel";
+  request.start_joints = start_joints;
+  request.default_speed = 120.0;
+  request.trajectory_dt = 0.01;
+
+  rt::MotionCommandSpec first;
+  first.kind = rt::MotionKind::move_l;
+  first.speed = 120.0;
+  first.zone = 0;
+  first.target_cartesian = start_pose;
+
+  rt::MotionCommandSpec second = first;
+  second.target_cartesian = start_pose;
+  second.target_cartesian[2] += 0.02;
+
+  request.commands = {first, second};
+
+  rt::MotionPlanner planner;
+  const auto plan = planner.plan(request);
+
+  ASSERT_TRUE(plan.valid()) << plan.error_message;
+  ASSERT_EQ(plan.segments.size(), 2u);
+  EXPECT_EQ(plan.segments.front().path_family, rt::PathFamily::cartesian_line);
+  EXPECT_EQ(plan.segments.front().joint_trajectory.size(), 1u);
+  EXPECT_DOUBLE_EQ(plan.segments.front().trajectory_total_time, 0.0);
+  EXPECT_FALSE(plan.segments.front().blend_to_next);
+  EXPECT_FALSE(plan.segments.back().joint_trajectory.empty());
+}
+
 TEST(MotionPlannerCoreTest, MoveSpUsesCartesianLookaheadPipelineAndDerivativeMetadata) {
   gazebo::xMate3Kinematics kinematics;
   const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};

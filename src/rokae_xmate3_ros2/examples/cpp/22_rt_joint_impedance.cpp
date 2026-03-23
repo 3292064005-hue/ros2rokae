@@ -22,14 +22,14 @@ int main() {
     return 1;
   }
   if (!prepareAutomaticRt(robot, ec, 20)) {
-    cleanupRobot(robot);
-    return 1;
+    return isSimulationOnlyCapabilityError(ec)
+               ? skipExample(robot, "RT joint impedance facade unavailable in current simulation backend: " + ec.message())
+               : (cleanupRobot(robot), 1);
   }
 
   auto rt = robot.getRtMotionController().lock();
-  if (!ensurePtr(rt, "rt controller")) {
-    cleanupRobot(robot);
-    return 1;
+  if (!rt) {
+    return skipExample(robot, "RT joint impedance controller unavailable in current simulation backend");
   }
 
   robot.startReceiveRobotState(std::chrono::milliseconds(1), {RtSupportedFields::jointPos_m});
@@ -38,10 +38,20 @@ int main() {
   double time = 0.0;
 
   rt->MoveJ(0.3, robot.jointPos(ec), kXMate3DragPose);
-  rt->setJointImpedance({500.0, 500.0, 500.0, 200.0, 100.0, 50.0}, ec);
-  if (reportError("setJointImpedance", ec)) {
+  if (const auto movej_ec = robot.lastErrorCode(); movej_ec) {
+    robot.stopReceiveRobotState();
+    if (isSimulationOnlyCapabilityError(movej_ec)) {
+      return skipExample(robot, "RT joint impedance MoveJ unavailable in current simulation backend: " + movej_ec.message());
+    }
+    reportError("rt MoveJ", movej_ec);
     cleanupRobot(robot);
     return 1;
+  }
+  rt->setJointImpedance({500.0, 500.0, 500.0, 200.0, 100.0, 50.0}, ec);
+  if (reportError("setJointImpedance", ec)) {
+    return isSimulationOnlyCapabilityError(ec)
+               ? skipExample(robot, "Joint impedance configuration unavailable in current simulation backend: " + ec.message())
+               : (cleanupRobot(robot), 1);
   }
   rt->startMove(RtControllerMode::jointImpedance);
   rt->setControlLoop(std::function<JointPosition(void)>([&]() {
@@ -65,6 +75,15 @@ int main() {
     return cmd;
   }));
   rt->startLoop(true);
+  if (const auto loop_ec = robot.lastErrorCode(); loop_ec) {
+    robot.stopReceiveRobotState();
+    if (isSimulationOnlyCapabilityError(loop_ec)) {
+      return skipExample(robot, "RT joint impedance loop unavailable in current simulation backend: " + loop_ec.message());
+    }
+    reportError("rt joint impedance loop", loop_ec);
+    cleanupRobot(robot);
+    return 1;
+  }
   robot.stopReceiveRobotState();
   os << "rt joint impedance loop finished" << std::endl;
 

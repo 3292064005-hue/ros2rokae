@@ -1,6 +1,7 @@
 #ifndef ROKAE_XMATE3_ROS2_RUNTIME_CONTROL_BRIDGE_HPP
 #define ROKAE_XMATE3_ROS2_RUNTIME_CONTROL_BRIDGE_HPP
 
+#include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "runtime/runtime_context.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
@@ -29,8 +30,9 @@ class RuntimeControlBridge {
                                        double dt);
 
  private:
-  RuntimeContext &runtime_context_;
+ RuntimeContext &runtime_context_;
   RuntimeControlBridgeConfig config_;
+  gazebo::xMate3Kinematics kinematics_;
   double servo_accumulator_sec_ = 0.0;
 };
 

@@ -29,6 +29,7 @@
 
 #include "rokae/base.h"
 #include "rokae/data_types.h"
+#include "rokae_xmate3_ros2/gazebo/approximate_model.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
 #include "rokae_xmate3_ros2/robot.hpp"
@@ -926,18 +927,7 @@ public:
                                    const std::array<double, DoF> &jntVel,
                                    SegmentFrame nr = SegmentFrame::flange) {
     (void)nr;
-    std::vector<double> joints(jntPos.begin(), jntPos.end());
-    const auto jacobian = kinematics_.computeJacobian(joints);
-    Eigen::Matrix<double, 6, 1> velocity = Eigen::Matrix<double, 6, 1>::Zero();
-    for (size_t i = 0; i < DoF; ++i) {
-      velocity(i) = jntVel[i];
-    }
-    const auto cart = jacobian * velocity;
-    std::array<double, 6> result{};
-    for (size_t i = 0; i < 6; ++i) {
-      result[i] = cart(i);
-    }
-    return result;
+    return modelFacade().cartVelocity(jntPos, jntVel);
   }
 
   std::array<double, 6> getCartAcc(const std::array<double, DoF> &jntPos,
@@ -945,19 +935,7 @@ public:
                                    const std::array<double, DoF> &jntAcc,
                                    SegmentFrame nr = SegmentFrame::flange) {
     (void)nr;
-    (void)jntVel;
-    std::vector<double> joints(jntPos.begin(), jntPos.end());
-    const auto jacobian = kinematics_.computeJacobian(joints);
-    Eigen::Matrix<double, 6, 1> acceleration = Eigen::Matrix<double, 6, 1>::Zero();
-    for (size_t i = 0; i < DoF; ++i) {
-      acceleration(i) = jntAcc[i];
-    }
-    const auto cart = jacobian * acceleration;
-    std::array<double, 6> result{};
-    for (size_t i = 0; i < 6; ++i) {
-      result[i] = cart(i);
-    }
-    return result;
+    return modelFacade().cartAcceleration(jntPos, jntVel, jntAcc);
   }
 
   int getJointPos(const std::array<double, 16> &cartPos,
@@ -978,7 +956,10 @@ public:
                            target_matrix(1, 0) * target_matrix(1, 0))),
       std::atan2(target_matrix(1, 0), target_matrix(0, 0))};
     std::vector<double> init(jntInit.begin(), jntInit.end());
-    const auto solution = kinematics_.inverseKinematics(target, init);
+    auto solution = kinematics_.inverseKinematicsSeededFast(target, init);
+    if (solution.size() != DoF) {
+      solution = kinematics_.inverseKinematics(target, init);
+    }
     if (solution.size() != DoF) {
       return -1;
     }
@@ -1008,25 +989,12 @@ public:
                                       const std::array<double, DoF> &jntPos,
                                       const std::array<double, DoF> &jntVel) {
     (void)jntVel;
-    std::vector<double> joints(jntPos.begin(), jntPos.end());
-    const auto jacobian = kinematics_.computeJacobian(joints);
-    const auto pseudo_inv = jacobian.completeOrthogonalDecomposition().pseudoInverse();
-    Eigen::Matrix<double, 6, 1> cart;
-    for (size_t i = 0; i < 6; ++i) {
-      cart(i) = cartAcc[i];
-    }
-    const auto joint = pseudo_inv * cart;
-    std::array<double, DoF> result{};
-    for (size_t i = 0; i < DoF; ++i) {
-      result[i] = joint(i);
-    }
-    return result;
+    return modelFacade().jointAcceleration(cartAcc, jntPos);
   }
 
   std::array<double, DoF * 6> jacobian(const std::array<double, DoF> &jntPos, SegmentFrame nr = SegmentFrame::flange) {
     (void)nr;
-    std::vector<double> joints(jntPos.begin(), jntPos.end());
-    const auto jac = kinematics_.computeJacobian(joints);
+    const auto jac = modelFacade().jacobian(jntPos);
     std::array<double, DoF * 6> result{};
     for (size_t row = 0; row < 6; ++row) {
       for (size_t col = 0; col < DoF; ++col) {
@@ -1077,20 +1045,13 @@ public:
                              std::array<double, DoF> &trq_coriolis,
                              std::array<double, DoF> &trq_friction,
                              std::array<double, DoF> &trq_gravity) {
-    std::array<double, 6> external_force{};
-    std::array<double, 6> full6{};
-    std::array<double, 6> gravity6{};
-    std::array<double, 6> coriolis6{};
-    error_code ec;
-    if (this->session_) {
-      this->session_->robot->calcJointTorque(to_six(jntPos), to_six(jntVel), to_six(jntAcc), external_force, full6, gravity6, coriolis6, ec);
-    }
+    const auto breakdown = approximateDynamics(jntPos, jntVel, jntAcc);
     for (size_t i = 0; i < DoF; ++i) {
-      trq_full[i] = full6[i] + friction_[i];
-      trq_inertia[i] = jntAcc[i] * 0.02;
-      trq_coriolis[i] = coriolis6[i];
+      trq_full[i] = breakdown.full[i] + friction_[i];
+      trq_inertia[i] = breakdown.inertia[i];
+      trq_coriolis[i] = breakdown.coriolis[i];
       trq_friction[i] = friction_[i];
-      trq_gravity[i] = gravity6[i];
+      trq_gravity[i] = breakdown.gravity[i];
     }
   }
 
@@ -1101,23 +1062,40 @@ public:
                            std::array<double, DoF> &trq_inertia,
                            std::array<double, DoF> &trq_coriolis,
                            std::array<double, DoF> &trq_gravity) {
-    std::array<double, 6> external_force{};
-    std::array<double, 6> full6{};
-    std::array<double, 6> gravity6{};
-    std::array<double, 6> coriolis6{};
-    error_code ec;
-    if (this->session_) {
-      this->session_->robot->calcJointTorque(to_six(jntPos), to_six(jntVel), to_six(jntAcc), external_force, full6, gravity6, coriolis6, ec);
-    }
+    const auto breakdown = approximateDynamics(jntPos, jntVel, jntAcc);
     for (size_t i = 0; i < DoF; ++i) {
-      trq_full[i] = full6[i];
-      trq_inertia[i] = jntAcc[i] * 0.02;
-      trq_coriolis[i] = coriolis6[i];
-      trq_gravity[i] = gravity6[i];
+      trq_full[i] = breakdown.full[i];
+      trq_inertia[i] = breakdown.inertia[i];
+      trq_coriolis[i] = breakdown.coriolis[i];
+      trq_gravity[i] = breakdown.gravity[i];
     }
   }
 
 private:
+  [[nodiscard]] rokae_xmate3_ros2::gazebo_model::LoadContext loadContext() const {
+    return rokae_xmate3_ros2::gazebo_model::LoadContext{model_load_.mass, model_load_.cog};
+  }
+
+  [[nodiscard]] rokae_xmate3_ros2::gazebo_model::ModelFacade modelFacade() {
+    std::array<double, 6> tool_pose{};
+    const Eigen::Matrix4d tool_matrix = arrayToMatrix(f_t_ee_) * arrayToMatrix(ee_t_k_);
+    const auto tool_pose_array =
+        rokae_xmate3_ros2::gazebo_model::matrixToPose(tool_matrix);
+    for (std::size_t i = 0; i < 6; ++i) {
+      tool_pose[i] = tool_pose_array[i];
+    }
+    return rokae_xmate3_ros2::gazebo_model::configuredModelFacade(
+        kinematics_, tool_pose, loadContext());
+  }
+
+  [[nodiscard]] rokae_xmate3_ros2::gazebo_model::DynamicsBreakdown approximateDynamics(
+      const std::array<double, DoF> &jntPos,
+      const std::array<double, DoF> &jntVel,
+      const std::array<double, DoF> &jntAcc) {
+    const std::array<double, 6> external_force{};
+    return modelFacade().dynamics(jntPos, jntVel, jntAcc, external_force);
+  }
+
   static Eigen::Matrix4d arrayToMatrix(const std::array<double, 16> &values) {
     Eigen::Matrix4d matrix = Eigen::Matrix4d::Identity();
     for (int row = 0; row < 4; ++row) {

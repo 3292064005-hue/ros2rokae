@@ -71,13 +71,22 @@ int main() {
   printVector("paths after record", paths_after);
 
   printSection("4 回放路径");
+  os << "replay rate uses time-axis reparameterization in the Gazebo shim" << std::endl;
   robot.replayPath(path_name, 1.0, ec);
   if (reportError("replayPath", ec) || !waitMotionCycle(robot, ec, std::chrono::seconds(60))) {
     reportError("waitMotionCycle", ec);
     cleanupRobot(robot);
     return 1;
   }
-  os << "path replay finished" << std::endl;
+  os << "path replay finished @ rate=1.0" << std::endl;
+
+  robot.replayPath(path_name, 1.5, ec);
+  if (reportError("replayPath(rate=1.5)", ec) || !waitMotionCycle(robot, ec, std::chrono::seconds(60))) {
+    reportError("waitMotionCycle(rate=1.5)", ec);
+    cleanupRobot(robot);
+    return 1;
+  }
+  os << "path replay finished @ rate=1.5" << std::endl;
 
   printSection("5 断开连接");
   cleanupRobot(robot);

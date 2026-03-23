@@ -46,6 +46,11 @@ examples/
 - `实验性`：主要用于验证链路与接口形状，不承诺真机级语义
 - `不支持`：当前示例或接口明确未提供
 
+全量 examples harness 分组说明：
+- `严格通过组`：`01-08`、`10-19`、`99`。这些示例在 headless Gazebo 下必须完成主流程并退出 `0`。
+- `实验性 RT 组`：`20-26`，以及 `09` 里的 RT 子流程。若当前仿真 backend 不支持某个 RT 子能力，会打印 `simulation-only` / `skipped` 并退出 `0`。
+- `模型近似组`：`03`、`09`、`14`、`19`、`24`、`26`。这些示例默认接受 KDL/URDF-backed 运动学 + approximate dynamics。
+
 ### 第 4.3 节
 - `01_basic_connect.cpp`: 连接机器人、获取信息、电源/模式切换
 - `02_joint_cartesian_read.cpp`: 读取关节位置、速度、力矩、笛卡尔位姿
@@ -108,6 +113,26 @@ ros2 run rokae_xmate3_ros2 example_01_basic_connect
 
 兼容启动名 `xmate3_simulation.launch.py` 和 `xmate3_gazebo.launch.py` 仍可用。
 
+### 全量 examples harness
+```bash
+cd ~/ros2_ws0
+colcon build --packages-select rokae_xmate3_ros2
+cd build/rokae_xmate3_ros2
+cmake -DROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
+cmake --build . -j4
+ctest -R gazebo_examples_full --output-on-failure
+```
+
+默认 `ctest` 不会包含这条全量 harness。
+
+backend mode smoke（非默认，覆盖 `effort / jtc / hybrid`）：
+```bash
+cd ~/ros2_ws0/build/rokae_xmate3_ros2
+cmake -DROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
+cmake --build . -j4
+ctest -L gazebo_integration_modes --output-on-failure
+```
+
 ## 学习路径建议
 
 ### 入门
@@ -136,7 +161,8 @@ ros2 run rokae_xmate3_ros2 example_01_basic_connect
 7. `26_rt_torque_control.cpp`
 
 > 说明：20-26 在 Gazebo 中保留 RT API 的调用形状，但语义是 simulation-only / approximate，属于实验性能力。
-> 说明：`25_rt_s_line.cpp` 使用 joint-only shared quintic retimer，笛卡尔 `GenerateSTrajectory` 当前不支持。
+> 说明：`25_rt_s_line.cpp` 使用 shared quintic retimer；笛卡尔 `GenerateSTrajectory` 当前是基于路径弧长与 seeded IK 的近似实现。
+> 说明：`08_path_record_replay.cpp` 的 `replayPath(name, rate)` 采用时间轴重参数化近似原始速率。
 
 ## 注意事项
 1. 所有示例都需要先启动仿真。

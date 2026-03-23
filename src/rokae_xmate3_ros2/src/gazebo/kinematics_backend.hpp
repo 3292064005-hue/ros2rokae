@@ -17,12 +17,44 @@ class KinematicsBackend {
  public:
   using Matrix4d = Eigen::Matrix4d;
   using Matrix6d = Eigen::Matrix<double, 6, 6>;
+  using VectorJ = std::vector<double>;
+
+  struct SeededIkRequest {
+    Matrix4d target_transform = Matrix4d::Identity();
+    VectorJ seed_joints;
+    VectorJ joint_limits_min;
+    VectorJ joint_limits_max;
+    int max_iter = 16;
+    double position_tolerance = 1e-5;
+    double orientation_tolerance = 1e-3;
+    double orientation_weight = 0.8;
+    double max_joint_step = 0.05;
+    double min_lambda = 0.02;
+    double max_lambda = 0.5;
+    double solution_valid_threshold = 5e-3;
+    double wrist_singularity_threshold = 0.15;
+    double jacobian_singularity_threshold = 0.08;
+    double singularity_avoidance_offset = 0.2;
+    double continuity_weight = 0.02;
+    double joint_limit_weight = 0.01;
+    double singularity_weight = 0.1;
+  };
 
   virtual ~KinematicsBackend() = default;
 
   [[nodiscard]] virtual std::string name() const = 0;
+  [[nodiscard]] virtual Matrix4d computeForwardTransform(const std::vector<double> &joints) const = 0;
   [[nodiscard]] virtual std::vector<Matrix4d> computeAllTransforms(const std::vector<double> &joints) const = 0;
   [[nodiscard]] virtual Matrix6d computeJacobian(const std::vector<double> &joints) const = 0;
+  [[nodiscard]] virtual Matrix4d computeFrameTransform(const std::vector<double> &joints, std::size_t frame_index) const {
+    const auto transforms = computeAllTransforms(joints);
+    if (transforms.empty()) {
+      return Matrix4d::Identity();
+    }
+    const auto resolved_index = std::min(frame_index, transforms.size() - 1);
+    return transforms[resolved_index];
+  }
+  [[nodiscard]] virtual VectorJ inverseKinematicsSeeded(const SeededIkRequest &request) const = 0;
 };
 
 [[nodiscard]] std::shared_ptr<KinematicsBackend> makePreferredKinematicsBackend();

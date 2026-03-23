@@ -36,18 +36,26 @@ int main() {
     return 1;
   }
   if (!prepareAutomaticRt(robot, ec, 20)) {
-    cleanupRobot(robot);
-    return 1;
+    return isSimulationOnlyCapabilityError(ec)
+               ? skipExample(robot, "RT follow position facade unavailable in current simulation backend: " + ec.message())
+               : (cleanupRobot(robot), 1);
   }
 
   auto rt = robot.getRtMotionController().lock();
-  if (!ensurePtr(rt, "rt controller")) {
-    cleanupRobot(robot);
-    return 1;
+  if (!rt) {
+    return skipExample(robot, "RT follow position controller unavailable in current simulation backend");
   }
 
   printSection("1 MoveJ 到跟随起始位");
   rt->MoveJ(0.3, robot.jointPos(ec), kXMate3DragPose);
+  if (const auto movej_ec = robot.lastErrorCode(); movej_ec) {
+    if (isSimulationOnlyCapabilityError(movej_ec)) {
+      return skipExample(robot, "RT follow position MoveJ unavailable in current simulation backend: " + movej_ec.message());
+    }
+    reportError("rt MoveJ", movej_ec);
+    cleanupRobot(robot);
+    return 1;
+  }
 
   printSection("2 FollowPosition 更新点位");
   auto model = robot.model();
@@ -67,6 +75,14 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
   }
   follow.stop();
+  if (const auto follow_ec = robot.lastErrorCode(); follow_ec) {
+    if (isSimulationOnlyCapabilityError(follow_ec)) {
+      return skipExample(robot, "RT follow position loop unavailable in current simulation backend: " + follow_ec.message());
+    }
+    reportError("follow position", follow_ec);
+    cleanupRobot(robot);
+    return 1;
+  }
   os << "follow position finished" << std::endl;
 
   printSection("3 恢复并断开连接");

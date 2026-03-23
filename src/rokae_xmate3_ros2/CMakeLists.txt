@@ -253,6 +253,10 @@ target_compile_features(${PROJECT_NAME}_runtime_core PUBLIC cxx_std_17)
 # 2. SDK库
 add_library(${PROJECT_NAME}_sdk SHARED
   src/robot.cpp
+  src/sdk/robot_clients.cpp
+  src/sdk/robot_state.cpp
+  src/sdk/robot_motion.cpp
+  src/sdk/robot_model.cpp
 )
 ament_target_dependencies(${PROJECT_NAME}_sdk
   ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs gazebo_ros kdl_parser
@@ -373,6 +377,8 @@ ament_export_libraries(
 
 if(BUILD_TESTING)
   option(ROKAE_ENABLE_GAZEBO_STRICT_TESTS "Enable strict Gazebo precision regression tests" OFF)
+  option(ROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS "Enable full Gazebo examples harness" OFF)
+  option(ROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS "Enable Gazebo backend mode smoke harnesses" OFF)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(launch_testing_ament_cmake REQUIRED)
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -384,7 +390,7 @@ if(BUILD_TESTING)
   endif()
 
   ament_add_gtest(test_motion_planner_core
-    test/test_motion_planner_core.cpp
+    test/unit/test_motion_planner_core.cpp
   )
   if(TARGET test_motion_planner_core)
     target_include_directories(test_motion_planner_core
@@ -401,7 +407,7 @@ if(BUILD_TESTING)
   endif()
 
   ament_add_gtest(test_motion_runtime_state
-    test/test_motion_runtime_state.cpp
+    test/unit/test_motion_runtime_state.cpp
   )
   if(TARGET test_motion_runtime_state)
     target_include_directories(test_motion_runtime_state
@@ -418,13 +424,13 @@ if(BUILD_TESTING)
   endif()
 
   ament_add_gtest(test_runtime_adapters
-    test/test_runtime_adapters.cpp
+    test/unit/test_runtime_adapters.cpp
   )
   ament_add_gtest(test_runtime_publish_bridge
-    test/test_runtime_publish_bridge.cpp
+    test/unit/test_runtime_publish_bridge.cpp
   )
   ament_add_gtest(test_runtime_control_bridge
-    test/test_runtime_control_bridge.cpp
+    test/unit/test_runtime_control_bridge.cpp
   )
   if(TARGET test_runtime_adapters)
     target_include_directories(test_runtime_adapters
@@ -469,18 +475,18 @@ if(BUILD_TESTING)
   endif()
 
   ament_add_gtest(test_controller_state
-    test/test_controller_state.cpp
+    test/unit/test_controller_state.cpp
   )
 
   ament_add_gtest(test_request_coordinator
-    test/test_request_coordinator.cpp
+    test/unit/test_request_coordinator.cpp
   )
   ament_add_gtest(test_runtime_state
-    test/test_runtime_state.cpp
+    test/unit/test_runtime_state.cpp
   )
 
   ament_add_gtest(test_service_facade
-    test/test_service_facade.cpp
+    test/unit/test_service_facade.cpp
   )
   if(TARGET test_controller_state)
     target_include_directories(test_controller_state
@@ -539,7 +545,7 @@ if(BUILD_TESTING)
   endif()
 
   add_executable(gazebo_sdk_regression_helper
-    test/gazebo_sdk_regression_helper.cpp
+    test/strict/gazebo_sdk_regression_helper.cpp
   )
   target_include_directories(gazebo_sdk_regression_helper
     PRIVATE
@@ -612,6 +618,7 @@ def generate_test_description():
     launch_description = launch.LaunchDescription([
         SetEnvironmentVariable("ROKAE_XMATE3_ROS2_SHARE_DIR", PACKAGE_SHARE),
         SetEnvironmentVariable("ROKAE_XMATE3_ROS2_LIB_DIR", PACKAGE_LIB_DIR),
+        SetEnvironmentVariable("GAZEBO_MASTER_URI", "http://127.0.0.1:11454"),
         SetEnvironmentVariable("PYTHONPATH", [ROSIDL_PY_PATH, ":", EnvironmentVariable("PYTHONPATH", default_value="")]),
         simulation,
         runner,
@@ -729,7 +736,7 @@ from launch.substitutions import EnvironmentVariable
 
 SIMULATION_LAUNCH = r"@CMAKE_CURRENT_SOURCE_DIR@/launch/simulation.launch.py"
 PYTHON_BIN = r"@ROKAE_LAUNCH_TEST_PYTHON@"
-RUNNER = r"@CMAKE_CURRENT_SOURCE_DIR@/test/gazebo_examples_smoke_runner.py"
+RUNNER = r"@CMAKE_CURRENT_SOURCE_DIR@/test/harness/gazebo_examples_smoke_runner.py"
 EXAMPLE_04 = r"$<TARGET_FILE:example_04_motion_basic>"
 EXAMPLE_05 = r"$<TARGET_FILE:example_05_motion_cartesian>"
 EXAMPLE_18 = r"$<TARGET_FILE:example_18_toolset_and_calibration>"
@@ -755,7 +762,12 @@ def generate_test_description():
     shutdown_handler = RegisterEventHandler(
         OnProcessExit(
             target_action=runner,
-            on_exit=[EmitEvent(event=Shutdown(reason="gazebo examples smoke complete"))],
+            on_exit=[
+                launch.actions.TimerAction(
+                    period=3.0,
+                    actions=[EmitEvent(event=Shutdown(reason="gazebo examples smoke complete"))],
+                )
+            ],
         )
     )
     launch_description = launch.LaunchDescription([
@@ -790,6 +802,123 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
   )
   set_tests_properties(gazebo_examples_smoke PROPERTIES RUN_SERIAL TRUE)
 
+  if(ROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS)
+    set(GAZEBO_EXAMPLES_FULL_COMMAND
+      "${ROKAE_LAUNCH_TEST_PYTHON}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/run_gazebo_examples_full_test.py"
+      "--simulation-launch" "${CMAKE_CURRENT_SOURCE_DIR}/launch/simulation.launch.py"
+      "--launch-runner" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/run_launch_service.py"
+      "--runner" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/gazebo_examples_full_runner.py"
+      "--package-share" "${CMAKE_CURRENT_SOURCE_DIR}"
+      "--package-lib-dir" "$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
+      "--rosidl-python-path" "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"
+      "--log-file" "${CMAKE_CURRENT_BINARY_DIR}/launch_test/gazebo_examples_full.txt"
+      "--python-bin" "${ROKAE_LAUNCH_TEST_PYTHON}"
+    )
+    foreach(example_target IN LISTS EXAMPLE_TARGETS)
+      list(APPEND GAZEBO_EXAMPLES_FULL_COMMAND "--example" "$<TARGET_FILE:${example_target}>")
+    endforeach()
+
+    add_test(
+      NAME gazebo_examples_full
+      COMMAND ${GAZEBO_EXAMPLES_FULL_COMMAND}
+    )
+    set_tests_properties(gazebo_examples_full PROPERTIES RUN_SERIAL TRUE)
+    set_tests_properties(gazebo_examples_full PROPERTIES
+      LABELS "gazebo_integration_examples_full"
+      TIMEOUT 1800
+    )
+  endif()
+
+  if(ROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS)
+    foreach(GAZEBO_BACKEND_MODE IN ITEMS effort jtc hybrid)
+      string(TOUPPER "${GAZEBO_BACKEND_MODE}" GAZEBO_BACKEND_MODE_UPPER)
+      set(GAZEBO_BACKEND_ENABLE_PLUGIN "true")
+      if(GAZEBO_BACKEND_MODE STREQUAL "jtc")
+        set(GAZEBO_BACKEND_ENABLE_PLUGIN "false")
+      endif()
+      set(GAZEBO_BACKEND_MODE_LAUNCH_TEST
+          "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/gazebo_backend_mode_${GAZEBO_BACKEND_MODE}_launch_test.py")
+      string(CONFIGURE [=[
+import unittest
+
+import launch
+import launch_testing
+from launch.actions import EmitEvent, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler, SetEnvironmentVariable
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import EnvironmentVariable
+
+SIMULATION_LAUNCH = r"@CMAKE_CURRENT_SOURCE_DIR@/launch/simulation.launch.py"
+PYTHON_BIN = r"@ROKAE_LAUNCH_TEST_PYTHON@"
+RUNNER = r"@CMAKE_CURRENT_SOURCE_DIR@/test/harness/gazebo_backend_mode_smoke_runner.py"
+PACKAGE_SHARE = r"@CMAKE_CURRENT_SOURCE_DIR@"
+PACKAGE_LIB_DIR = r"$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
+ROSIDL_PY_PATH = r"@CMAKE_CURRENT_BINARY_DIR@/rosidl_generator_py"
+
+
+def generate_test_description():
+    simulation = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(SIMULATION_LAUNCH),
+        launch_arguments={
+            "gui": "false",
+            "rviz": "false",
+            "verbose": "false",
+            "enable_ros2_control": "true",
+            "enable_xcore_plugin": "@GAZEBO_BACKEND_ENABLE_PLUGIN@",
+            "backend_mode": "@GAZEBO_BACKEND_MODE@",
+        }.items(),
+    )
+    runner = ExecuteProcess(
+        cmd=[PYTHON_BIN, RUNNER, "@GAZEBO_BACKEND_MODE@"],
+        output="screen",
+    )
+    shutdown_handler = RegisterEventHandler(
+        OnProcessExit(
+            target_action=runner,
+            on_exit=[
+                launch.actions.TimerAction(
+                    period=3.0,
+                    actions=[EmitEvent(event=Shutdown(reason="gazebo backend mode smoke complete"))],
+                )
+            ],
+        )
+    )
+    launch_description = launch.LaunchDescription([
+        SetEnvironmentVariable("ROKAE_XMATE3_ROS2_SHARE_DIR", PACKAGE_SHARE),
+        SetEnvironmentVariable("ROKAE_XMATE3_ROS2_LIB_DIR", PACKAGE_LIB_DIR),
+        SetEnvironmentVariable("PYTHONPATH", [ROSIDL_PY_PATH, ":", EnvironmentVariable("PYTHONPATH", default_value="")]),
+        simulation,
+        runner,
+        shutdown_handler,
+        launch_testing.actions.ReadyToTest(),
+    ])
+    return launch_description, {"runner": runner}
+
+
+class TestGazeboBackendModeSmokeActive(unittest.TestCase):
+    def test_runner_finishes(self, proc_info, runner):
+        proc_info.assertWaitForShutdown(process=runner, timeout=120)
+
+
+@launch_testing.post_shutdown_test()
+class TestGazeboBackendModeSmoke(unittest.TestCase):
+    def test_exit_code(self, proc_info, runner):
+        launch_testing.asserts.assertExitCodes(proc_info, process=runner)
+]=] GAZEBO_BACKEND_MODE_LAUNCH_TEST_CONTENT @ONLY)
+      file(GENERATE OUTPUT "${GAZEBO_BACKEND_MODE_LAUNCH_TEST}" CONTENT "${GAZEBO_BACKEND_MODE_LAUNCH_TEST_CONTENT}")
+
+      add_launch_test("${GAZEBO_BACKEND_MODE_LAUNCH_TEST}"
+        TARGET "gazebo_backend_mode_${GAZEBO_BACKEND_MODE}_smoke"
+        LABELS gazebo_integration_modes
+        TIMEOUT 120
+        PYTHON_EXECUTABLE "${ROKAE_LAUNCH_TEST_PYTHON}"
+      )
+      set_tests_properties("gazebo_backend_mode_${GAZEBO_BACKEND_MODE}_smoke" PROPERTIES RUN_SERIAL TRUE)
+    endforeach()
+  endif()
+
   set(GAZEBO_ALIAS_LAUNCH_TEST "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/gazebo_alias_smoke_launch_test.py")
   string(CONFIGURE [=[
 import unittest
@@ -804,7 +933,7 @@ from launch.substitutions import EnvironmentVariable
 
 SIMULATION_LAUNCH = r"@CMAKE_CURRENT_SOURCE_DIR@/launch/xmate3_simulation.launch.py"
 PYTHON_BIN = r"@ROKAE_LAUNCH_TEST_PYTHON@"
-RUNNER = r"@CMAKE_CURRENT_SOURCE_DIR@/test/gazebo_alias_smoke_runner.py"
+RUNNER = r"@CMAKE_CURRENT_SOURCE_DIR@/test/harness/gazebo_alias_smoke_runner.py"
 PACKAGE_SHARE = r"@CMAKE_CURRENT_SOURCE_DIR@"
 PACKAGE_LIB_DIR = r"$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
 ROSIDL_PY_PATH = r"@CMAKE_CURRENT_BINARY_DIR@/rosidl_generator_py"
@@ -827,7 +956,12 @@ def generate_test_description():
     shutdown_handler = RegisterEventHandler(
         OnProcessExit(
             target_action=runner,
-            on_exit=[EmitEvent(event=Shutdown(reason="gazebo alias smoke complete"))],
+            on_exit=[
+                launch.actions.TimerAction(
+                    period=3.0,
+                    actions=[EmitEvent(event=Shutdown(reason="gazebo alias smoke complete"))],
+                )
+            ],
         )
     )
     launch_description = launch.LaunchDescription([

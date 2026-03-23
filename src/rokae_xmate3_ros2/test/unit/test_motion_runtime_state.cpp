@@ -401,6 +401,61 @@ class TrajectoryBackend final : public rt::BackendInterface {
   rt::ControlOwner control_owner_ = rt::ControlOwner::none;
 };
 
+class RejectingTrajectoryBackend final : public rt::BackendInterface {
+ public:
+  explicit RejectingTrajectoryBackend(const std::array<double, 6> &target) : target_(target) {
+    snapshot_.power_on = true;
+  }
+
+  rt::RobotSnapshot readSnapshot() const override { return snapshot_; }
+
+  void applyControl(const rt::ControlCommand &command) override {
+    ++apply_control_count_;
+    const auto previous_position = snapshot_.joint_position;
+    for (std::size_t i = 0; i < 6; ++i) {
+      const double error = target_[i] - snapshot_.joint_position[i];
+      const double step = std::clamp(error * 0.30, -0.006, 0.006);
+      snapshot_.joint_position[i] += step;
+      snapshot_.joint_velocity[i] = step / 0.01;
+      snapshot_.joint_torque[i] = command.has_effort ? command.effort[i] : 0.0;
+      if (std::fabs(target_[i] - snapshot_.joint_position[i]) < 1e-4) {
+        snapshot_.joint_position[i] = target_[i];
+        snapshot_.joint_velocity[i] = 0.0;
+      }
+    }
+    last_position_ = previous_position;
+  }
+
+  void clearControl() override {
+    ++clear_control_count_;
+    snapshot_.joint_velocity.fill(0.0);
+    snapshot_.joint_torque.fill(0.0);
+  }
+
+  void setControlOwner(rt::ControlOwner owner) override { control_owner_ = owner; }
+  [[nodiscard]] rt::ControlOwner controlOwner() const override { return control_owner_; }
+  [[nodiscard]] bool supportsTrajectoryExecution() const override { return true; }
+
+  bool startTrajectoryExecution(const rt::TrajectoryExecutionGoal &, std::string &message) override {
+    ++start_count_;
+    message = "trajectory backend rejected goal";
+    return false;
+  }
+
+  int startCount() const { return start_count_; }
+  int applyControlCount() const { return apply_control_count_; }
+  int clearControlCount() const { return clear_control_count_; }
+
+ private:
+  mutable rt::RobotSnapshot snapshot_{};
+  std::array<double, 6> target_{};
+  std::array<double, 6> last_position_{};
+  int start_count_ = 0;
+  int apply_control_count_ = 0;
+  int clear_control_count_ = 0;
+  rt::ControlOwner control_owner_ = rt::ControlOwner::none;
+};
+
 TEST(MotionRuntimeStateTest, IdleTickClearsControlWithoutEffortOwnership) {
   rt::MotionRuntime runtime;
   TrajectoryBackend backend;
@@ -550,4 +605,49 @@ TEST(MotionRuntimeStateTest, TrajectoryBackendRetimesOnSpeedScaleChange) {
     velocity_norm += std::fabs(value);
   }
   EXPECT_GT(velocity_norm, 1e-6);
+}
+
+TEST(MotionRuntimeStateTest, RejectedTrajectoryBackendFallsBackToEffortOncePerRequest) {
+  rt::MotionRuntime runtime;
+  const std::array<double, 6> target = {0.14, -0.10, 0.08, 0.0, 0.0, 0.0};
+  RejectingTrajectoryBackend backend(target);
+  runtime.attachBackend(&backend);
+
+  rt::MotionRequest request;
+  request.request_id = "trajectory_backend_rejected_runtime";
+  request.start_joints.assign(6, 0.0);
+  request.default_speed = 180.0;
+  request.trajectory_dt = 0.01;
+
+  rt::MotionCommandSpec command;
+  command.kind = rt::MotionKind::move_absj;
+  command.use_preplanned_trajectory = true;
+  command.preplanned_dt = 0.01;
+  command.preplanned_trajectory = {
+      {0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {target[0], target[1], target[2], target[3], target[4], target[5]},
+  };
+  command.target_joints.assign(target.begin(), target.end());
+  request.commands.push_back(command);
+
+  std::string message;
+  ASSERT_TRUE(runtime.submit(request, message)) << message;
+
+  bool saw_effort_execution = false;
+  for (int i = 0; i < 2000; ++i) {
+    const auto status = runtime.tick(backend, 0.01);
+    if (status.state == rt::ExecutionState::executing) {
+      saw_effort_execution = saw_effort_execution || status.execution_backend == rt::ExecutionBackend::effort;
+    }
+    if (status.terminal()) {
+      EXPECT_TRUE(status.execution_backend == rt::ExecutionBackend::effort ||
+                  status.state == rt::ExecutionState::completed_relaxed);
+      EXPECT_EQ(status.control_owner, rt::ControlOwner::none);
+      break;
+    }
+  }
+
+  EXPECT_TRUE(saw_effort_execution);
+  EXPECT_EQ(backend.startCount(), 1);
+  EXPECT_GT(backend.applyControlCount(), 0);
 }

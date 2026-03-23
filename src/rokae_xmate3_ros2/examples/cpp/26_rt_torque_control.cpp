@@ -77,14 +77,14 @@ int main() {
     return 1;
   }
   if (!prepareAutomaticRt(robot, ec, 20)) {
-    cleanupRobot(robot);
-    return 1;
+    return isSimulationOnlyCapabilityError(ec)
+               ? skipExample(robot, "RT torque facade unavailable in current simulation backend: " + ec.message())
+               : (cleanupRobot(robot), 1);
   }
 
   auto rt = robot.getRtMotionController().lock();
-  if (!ensurePtr(rt, "rt controller")) {
-    cleanupRobot(robot);
-    return 1;
+  if (!rt) {
+    return skipExample(robot, "RT torque controller unavailable in current simulation backend");
   }
 
   printSection("1 MoveJ 到 RT 起始位");
@@ -95,8 +95,9 @@ int main() {
   }
   rt->MoveJ(0.2, current, kXMate3DragPose);
   if (const auto move_ec = robot.lastErrorCode(); reportError("rt MoveJ", move_ec)) {
-    cleanupRobot(robot);
-    return 1;
+    return isSimulationOnlyCapabilityError(move_ec)
+               ? skipExample(robot, "RT torque MoveJ unavailable in current simulation backend: " + move_ec.message())
+               : (cleanupRobot(robot), 1);
   }
   os << "rt MoveJ finished" << std::endl;
 
@@ -128,6 +129,10 @@ int main() {
         return cmd;
       }, false)) {
     robot.stopReceiveRobotState();
+    const auto loop_ec = robot.lastErrorCode();
+    if (isSimulationOnlyCapabilityError(loop_ec)) {
+      return skipExample(robot, "RT zero-torque loop unavailable in current simulation backend: " + loop_ec.message());
+    }
     robot.setMotionControlMode(MotionControlMode::NrtCommand, ec);
     cleanupRobot(robot);
     return 1;
@@ -153,6 +158,10 @@ int main() {
         return cmd;
       }, true)) {
     robot.stopReceiveRobotState();
+    const auto loop_ec = robot.lastErrorCode();
+    if (isSimulationOnlyCapabilityError(loop_ec)) {
+      return skipExample(robot, "RT model-based torque loop unavailable in current simulation backend: " + loop_ec.message());
+    }
     robot.setMotionControlMode(MotionControlMode::NrtCommand, ec);
     cleanupRobot(robot);
     return 1;

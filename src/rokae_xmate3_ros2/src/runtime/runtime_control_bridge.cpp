@@ -5,12 +5,13 @@
 #include <sstream>
 #include <utility>
 
+#include "rokae_xmate3_ros2/gazebo/approximate_model.hpp"
+
 namespace rokae_xmate3_ros2::runtime {
 namespace {
 
 constexpr double kServoTickSec = 0.001;
 constexpr int kMaxServoSubstepsPerUpdate = 8;
-constexpr std::array<double, 6> kCollisionGravityProxy = {0.0, 10.0, 7.0, 1.5, 0.8, 0.2};
 constexpr std::array<double, 6> kCollisionRetreatEffort = {18.0, 18.0, 16.0, 8.0, 5.0, 3.0};
 constexpr double kDefaultCollisionRetreatDistance = 0.04;
 
@@ -25,12 +26,6 @@ bool exceeds_soft_limit(const RobotSnapshot &snapshot, const SoftLimitSnapshot &
     }
   }
   return false;
-}
-
-double tool_com_norm(const ToolsetSnapshot &toolset) {
-  return std::sqrt(toolset.tool_com[0] * toolset.tool_com[0] +
-                   toolset.tool_com[1] * toolset.tool_com[1] +
-                   toolset.tool_com[2] * toolset.tool_com[2]);
 }
 
 ControlCommand make_retreat_command(const RobotSnapshot &snapshot,
@@ -58,6 +53,7 @@ ControlCommand make_retreat_command(const RobotSnapshot &snapshot,
 
 bool detect_collision_event(const RobotSnapshot &snapshot,
                             const CollisionDetectionSnapshot &collision_detection,
+                            ::gazebo::xMate3Kinematics &kinematics,
                             const ToolsetSnapshot &toolset,
                             const RuntimeControlBridgeConfig &config,
                             std::size_t &axis_index,
@@ -66,14 +62,15 @@ bool detect_collision_event(const RobotSnapshot &snapshot,
     return false;
   }
 
-  const double com_norm = tool_com_norm(toolset);
+  const auto expected =
+      rokae_xmate3_ros2::gazebo_model::configuredModelFacade(
+          kinematics,
+          {toolset.tool_pose[0], toolset.tool_pose[1], toolset.tool_pose[2],
+           toolset.tool_pose[3], toolset.tool_pose[4], toolset.tool_pose[5]},
+          {toolset.tool_mass, toolset.tool_com})
+          .expectedTorque(snapshot.joint_position, snapshot.joint_velocity);
   for (std::size_t axis = 0; axis < snapshot.joint_torque.size(); ++axis) {
-    const double expected_torque =
-        std::sin(snapshot.joint_position[axis]) *
-            (kCollisionGravityProxy[axis] + toolset.tool_mass * (0.15 + 0.05 * static_cast<double>(axis)) +
-             com_norm * 0.5) +
-        0.04 * snapshot.joint_velocity[axis];
-    const double residual = std::fabs(snapshot.joint_torque[axis] - expected_torque);
+    const double residual = std::fabs(snapshot.joint_torque[axis] - expected[axis]);
     const double threshold =
         config.collision_nominal_thresholds[axis] /
         std::clamp(collision_detection.sensitivity[axis], 0.1, 10.0);
@@ -145,7 +142,13 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   std::string collision_message;
   const auto collision_detection = session_state.collisionDetection();
   if (detect_collision_event(
-          snapshot, collision_detection, tooling_state.toolset(), config_, collision_axis, collision_message)) {
+          snapshot,
+          collision_detection,
+          kinematics_,
+          tooling_state.toolset(),
+          config_,
+          collision_axis,
+          collision_message)) {
     servo_accumulator_sec_ = 0.0;
     if (collision_detection.behaviour == 2) {
       motion_runtime.setActiveSpeedScale(config_.collision_slow_scale);

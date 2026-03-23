@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -95,6 +96,152 @@ Vector6d poseError(const Matrix4d &target, const Matrix4d &current) {
   }
   error.tail<3>() = orientation_error;
   return error;
+}
+
+double jointLimitPenalty(const std::vector<double> &joints,
+                         const std::vector<double> &joint_limits_min,
+                         const std::vector<double> &joint_limits_max) {
+  double penalty = 0.0;
+  for (std::size_t index = 0; index < 6 && index < joints.size() && index < joint_limits_min.size() &&
+                              index < joint_limits_max.size();
+       ++index) {
+    const double lower_margin = joints[index] - joint_limits_min[index];
+    const double upper_margin = joint_limits_max[index] - joints[index];
+    const double range = std::max(joint_limits_max[index] - joint_limits_min[index], 1e-6);
+    const double normalized_margin = std::clamp(std::min(lower_margin, upper_margin) / range, 0.0, 1.0);
+    penalty += (1.0 - normalized_margin);
+  }
+  return penalty / 6.0;
+}
+
+struct SeededIkAnalysis {
+  Matrix6d jacobian = Matrix6d::Zero();
+  double min_sigma = 0.0;
+  bool near_singularity = true;
+  double singularity_measure = 1.0;
+};
+
+SeededIkAnalysis analyzeSeededIk(const KinematicsBackend &backend,
+                                 const KinematicsBackend::SeededIkRequest &request,
+                                 const std::vector<double> &joints) {
+  SeededIkAnalysis analysis;
+  if (joints.size() < 6) {
+    return analysis;
+  }
+  const double j5 = std::fabs(joints[4]);
+  double wrist_measure = 0.0;
+  if (j5 < request.wrist_singularity_threshold) {
+    wrist_measure = 1.0 - (j5 / std::max(request.wrist_singularity_threshold, 1e-6));
+  }
+
+  analysis.jacobian = backend.computeJacobian(joints);
+  Eigen::JacobiSVD<Matrix6d> svd(analysis.jacobian, Eigen::ComputeFullU | Eigen::ComputeFullV);
+  if (svd.singularValues().size() == 0) {
+    return analysis;
+  }
+
+  analysis.min_sigma = svd.singularValues().tail<1>()(0);
+  const double jacobian_measure = std::clamp(
+      1.0 - (analysis.min_sigma / std::max(request.jacobian_singularity_threshold, 1e-6)), 0.0, 1.0);
+  analysis.singularity_measure = std::max(wrist_measure, jacobian_measure);
+  analysis.near_singularity = std::fabs(joints[4]) < request.wrist_singularity_threshold ||
+                              analysis.min_sigma < request.jacobian_singularity_threshold;
+  return analysis;
+}
+
+bool nudgeAwayFromSingularity(const KinematicsBackend::SeededIkRequest &request, std::vector<double> &joints) {
+  if (joints.size() < 6 || request.joint_limits_min.size() < 6 || request.joint_limits_max.size() < 6) {
+    return false;
+  }
+
+  const double current_j5 = joints[4];
+  const double target_offset = request.singularity_avoidance_offset;
+  joints[4] = current_j5 >= 0.0 ? std::max(target_offset, request.joint_limits_min[4])
+                                : std::min(-target_offset, request.joint_limits_max[4]);
+  joints[4] = std::clamp(joints[4], request.joint_limits_min[4], request.joint_limits_max[4]);
+  joints[2] = std::clamp(joints[2] + (joints[2] >= 0.0 ? 0.12 : -0.12),
+                         request.joint_limits_min[2], request.joint_limits_max[2]);
+  joints[3] = std::clamp(joints[3] + (joints[3] >= 0.0 ? 0.08 : -0.08),
+                         request.joint_limits_min[3], request.joint_limits_max[3]);
+  joints[5] = std::clamp(joints[5] + (joints[5] >= 0.0 ? 0.1 : -0.1),
+                         request.joint_limits_min[5], request.joint_limits_max[5]);
+  return true;
+}
+
+std::vector<double> solveSeededIk(const KinematicsBackend &backend,
+                                  const KinematicsBackend::SeededIkRequest &request) {
+  if (request.seed_joints.size() < 6 || request.joint_limits_min.size() < 6 || request.joint_limits_max.size() < 6) {
+    return {};
+  }
+
+  std::vector<double> joints = request.seed_joints;
+  const auto initial_singularity = analyzeSeededIk(backend, request, joints);
+  if (initial_singularity.near_singularity) {
+    nudgeAwayFromSingularity(request, joints);
+  }
+
+  double best_score = std::numeric_limits<double>::infinity();
+  std::vector<double> best_joints = joints;
+
+  for (int iter = 0; iter < request.max_iter; ++iter) {
+    const Matrix4d current_transform = backend.computeForwardTransform(joints);
+    const Vector6d error = poseError(request.target_transform, current_transform);
+
+    const auto singularity = analyzeSeededIk(backend, request, joints);
+    const double pos_err = error.head<3>().norm();
+    const double ori_err = error.tail<3>().norm();
+    const double continuity_cost =
+        request.continuity_weight *
+        (Eigen::Map<const Eigen::VectorXd>(joints.data(), 6) -
+         Eigen::Map<const Eigen::VectorXd>(request.seed_joints.data(), 6))
+            .norm();
+    const double limit_cost =
+        request.joint_limit_weight * jointLimitPenalty(joints, request.joint_limits_min, request.joint_limits_max);
+    const double singularity_cost = request.singularity_weight * singularity.singularity_measure;
+    const double current_score =
+        pos_err + request.orientation_weight * ori_err + continuity_cost + limit_cost + singularity_cost;
+    if (current_score < best_score) {
+      best_score = current_score;
+      best_joints = joints;
+    }
+    if (pos_err < request.position_tolerance && ori_err < request.orientation_tolerance) {
+      break;
+    }
+
+    Matrix6d weight = Matrix6d::Identity();
+    weight(3, 3) = weight(4, 4) = weight(5, 5) = request.orientation_weight;
+    if (singularity.near_singularity) {
+      weight(3, 3) *= 0.3;
+      weight(4, 4) *= 0.3;
+      weight(5, 5) *= 0.3;
+    }
+
+    Vector6d weighted_error = error;
+    weighted_error.tail<3>() *= weight(3, 3);
+    const Matrix6d weighted_jacobian = weight * singularity.jacobian;
+    const double lambda_base =
+        request.min_lambda + request.max_lambda * (1.0 - static_cast<double>(iter) / std::max(request.max_iter, 1));
+    const double lambda = lambda_base * (1.0 + 2.0 * singularity.singularity_measure);
+    const Matrix6d jj_t = weighted_jacobian * weighted_jacobian.transpose();
+    Vector6d delta_q =
+        weighted_jacobian.transpose() * (jj_t + lambda * lambda * Matrix6d::Identity()).inverse() * weighted_error;
+
+    const double step_scale = singularity.near_singularity ? 0.6 : 1.0;
+    for (int index = 0; index < 6; ++index) {
+      double step = delta_q(index);
+      step = std::clamp(step, -request.max_joint_step * step_scale, request.max_joint_step * step_scale);
+      joints[index] += step;
+      joints[index] = std::clamp(joints[index], request.joint_limits_min[index], request.joint_limits_max[index]);
+    }
+  }
+
+  const Matrix4d best_transform = backend.computeForwardTransform(best_joints);
+  const Vector6d best_error = poseError(request.target_transform, best_transform);
+  if (best_error.head<3>().norm() > request.solution_valid_threshold ||
+      best_error.tail<3>().norm() > request.solution_valid_threshold) {
+    return {};
+  }
+  return best_joints;
 }
 
 std::filesystem::path fallbackSourceShareDir() {
@@ -252,6 +399,10 @@ class LegacyKinematicsBackend final : public KinematicsBackend {
  public:
   [[nodiscard]] std::string name() const override { return "legacy"; }
 
+  [[nodiscard]] Matrix4d computeForwardTransform(const std::vector<double> &joints) const override {
+    return legacyForwardKinematics(joints);
+  }
+
   [[nodiscard]] std::vector<Matrix4d> computeAllTransforms(const std::vector<double> &joints) const override {
     return legacyAllTransforms(joints);
   }
@@ -267,6 +418,10 @@ class LegacyKinematicsBackend final : public KinematicsBackend {
       jacobian.col(axis) = poseError(plus, current) / kDelta;
     }
     return jacobian;
+  }
+
+  [[nodiscard]] VectorJ inverseKinematicsSeeded(const SeededIkRequest &request) const override {
+    return solveSeededIk(*this, request);
   }
 };
 
@@ -288,6 +443,13 @@ class KdlKinematicsBackend final : public KinematicsBackend {
   }
 
   [[nodiscard]] std::string name() const override { return valid_ ? "kdl-urdf" : "legacy"; }
+
+  [[nodiscard]] Matrix4d computeForwardTransform(const std::vector<double> &joints) const override {
+    if (!valid_) {
+      return LegacyKinematicsBackend{}.computeForwardTransform(joints);
+    }
+    return computeKdlTransforms(chain_, joints).back();
+  }
 
   [[nodiscard]] std::vector<Matrix4d> computeAllTransforms(const std::vector<double> &joints) const override {
     if (!valid_) {
@@ -317,6 +479,13 @@ class KdlKinematicsBackend final : public KinematicsBackend {
       }
     }
     return result;
+  }
+
+  [[nodiscard]] VectorJ inverseKinematicsSeeded(const SeededIkRequest &request) const override {
+    if (!valid_) {
+      return LegacyKinematicsBackend{}.inverseKinematicsSeeded(request);
+    }
+    return solveSeededIk(*this, request);
   }
 
  private:

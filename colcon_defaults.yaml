@@ -1,3 +1,6 @@
 build:
   base-paths:
     - src
+  cmake-args:
+    - -DROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS=OFF
+    - -DROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS=OFF

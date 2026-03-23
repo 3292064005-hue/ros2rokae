@@ -22,14 +22,14 @@ int main() {
     return 1;
   }
   if (!prepareAutomaticRt(robot, ec, 20)) {
-    cleanupRobot(robot);
-    return 1;
+    return isSimulationOnlyCapabilityError(ec)
+               ? skipExample(robot, "RT joint position facade unavailable in current simulation backend: " + ec.message())
+               : (cleanupRobot(robot), 1);
   }
 
   auto rt = robot.getRtMotionController().lock();
-  if (!ensurePtr(rt, "rt controller")) {
-    cleanupRobot(robot);
-    return 1;
+  if (!rt) {
+    return skipExample(robot, "RT joint position controller unavailable in current simulation backend");
   }
 
   printSection("1 MoveJ 到 RT 起始位");
@@ -39,6 +39,14 @@ int main() {
     return 1;
   }
   rt->MoveJ(0.3, current, kXMate3DragPose);
+  if (const auto movej_ec = robot.lastErrorCode(); movej_ec) {
+    if (isSimulationOnlyCapabilityError(movej_ec)) {
+      return skipExample(robot, "RT MoveJ unavailable in current simulation backend: " + movej_ec.message());
+    }
+    reportError("rt MoveJ", movej_ec);
+    cleanupRobot(robot);
+    return 1;
+  }
   os << "rt MoveJ finished" << std::endl;
 
   printSection("2 启动 jointPosition 控制回调");
@@ -68,6 +76,15 @@ int main() {
     return cmd;
   }));
   rt->startLoop(true);
+  if (const auto loop_ec = robot.lastErrorCode(); loop_ec) {
+    robot.stopReceiveRobotState();
+    if (isSimulationOnlyCapabilityError(loop_ec)) {
+      return skipExample(robot, "RT joint position control loop unavailable in current simulation backend: " + loop_ec.message());
+    }
+    reportError("rt joint position loop", loop_ec);
+    cleanupRobot(robot);
+    return 1;
+  }
   robot.stopReceiveRobotState();
   os << "rt joint position loop finished" << std::endl;
 

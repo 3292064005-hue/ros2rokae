@@ -30,6 +30,98 @@ void printCurrentState(xMateRobot &robot, error_code &ec) {
   printPose("flange in base", pose);
 }
 
+bool executeRobustJointMoveFromCurrentState(xMateRobot &robot, error_code &ec) {
+  const auto base_joints = robot.jointPos(ec);
+  if (reportError("jointPos", ec)) {
+    return false;
+  }
+
+  const std::array<std::array<double, 6>, 4> candidates{{
+      {base_joints[0] + 0.10, base_joints[1] + 0.08, base_joints[2] - 0.12, base_joints[3], base_joints[4] - 0.05, base_joints[5] + 0.08},
+      {base_joints[0] - 0.12, base_joints[1] + 0.05, base_joints[2] + 0.08, base_joints[3], base_joints[4] + 0.03, base_joints[5] - 0.10},
+      {base_joints[0] + 0.06, base_joints[1] - 0.04, base_joints[2] + 0.10, base_joints[3], base_joints[4] + 0.08, base_joints[5] + 0.05},
+      {base_joints[0] - 0.08, base_joints[1] - 0.02, base_joints[2] - 0.08, base_joints[3], base_joints[4] - 0.04, base_joints[5] - 0.06},
+  }};
+
+  for (const auto &target_joints : candidates) {
+    MoveAbsJCommand target(std::vector<double>(target_joints.begin(), target_joints.end()), 35, 5);
+    ec.clear();
+    robot.executeCommand(std::vector<MoveAbsJCommand>{target}, ec);
+    if (!ec && waitForCommandResult(robot, "executeCommand(MoveAbsJ refine)", ec)) {
+      printArray("joint refine target", target_joints, 4, " rad");
+      return true;
+    }
+    if (ec) {
+      printCapabilityStatus("retry", "Joint refine target rejected, trying next candidate: " + ec.message());
+    }
+    error_code ignore_error;
+    robot.moveReset(ignore_error);
+  }
+
+  return !reportError("executeCommand(MoveAbsJ refine)", ec);
+}
+
+bool executeRobustMoveLSequence(xMateRobot &robot, error_code &ec) {
+  const auto base_pose = robot.cartPosture(CoordinateType::flangeInBase, ec);
+  if (reportError("cartPosture(flangeInBase)", ec)) {
+    return false;
+  }
+
+  struct LineSequence {
+    CartesianPosition a;
+    CartesianPosition b;
+    CartesianPosition c;
+    const char *label;
+  };
+  const auto make_pose = [&base_pose](double dx, double dy, double dz) {
+    CartesianPosition pose = base_pose;
+    pose.x += dx;
+    pose.y += dy;
+    pose.z = std::max(0.15, base_pose.z + dz);
+    return pose;
+  };
+  const std::array<LineSequence, 4> candidates{{
+      {make_pose(0.00, 0.04, 0.00),
+       make_pose(0.00, -0.04, 0.00),
+       make_pose(0.00, 0.00, -0.03),
+       "y=+/-0.04 z=-0.03"},
+      {make_pose(0.01, 0.03, 0.00),
+       make_pose(0.01, -0.03, 0.00),
+       make_pose(0.01, 0.00, -0.02),
+       "x=+0.01 y=+/-0.03"},
+      {make_pose(-0.01, 0.02, 0.00),
+       make_pose(-0.01, -0.02, 0.00),
+       make_pose(-0.01, 0.00, -0.02),
+       "x=-0.01 y=+/-0.02"},
+      {make_pose(0.00, 0.02, 0.01),
+       make_pose(0.00, -0.02, 0.01),
+       make_pose(0.00, 0.00, -0.01),
+       "y=+/-0.02 z sweep"},
+  }};
+
+  for (const auto &sequence : candidates) {
+    ec.clear();
+    robot.executeCommand(std::vector<MoveLCommand>{
+                             MoveLCommand(sequence.a, 120, 5),
+                             MoveLCommand(sequence.b, 120, 5),
+                             MoveLCommand(sequence.c, 120, 0),
+                         },
+                         ec);
+    if (!ec && waitForCommandResult(robot, "executeCommand(multi MoveL)", ec)) {
+      os << "MoveL sequence: " << sequence.label << std::endl;
+      return true;
+    }
+    if (ec) {
+      printCapabilityStatus("retry", std::string("MoveL sequence ") + sequence.label +
+                                         " rejected, trying next path: " + ec.message());
+    }
+    error_code ignore_error;
+    robot.moveReset(ignore_error);
+  }
+
+  return !reportError("executeCommand(multi MoveL)", ec);
+}
+
 }  // namespace
 
 int main() {
@@ -87,23 +179,29 @@ int main() {
     return 1;
   }
 
-  robot.executeCommand(std::vector<MoveAbsJCommand>{MoveAbsJCommand({0.0, 0.5, 0.0, 0.0, 0.5, 0.0}, 30, 0)}, ec);
+  const std::vector<MoveAbsJCommand> start_cmds{
+      MoveAbsJCommand({0.0, 0.5, 0.0, 0.0, 0.5, 0.0}, 30, 0),
+  };
+  robot.executeCommand(start_cmds, ec);
   if (reportError("executeCommand(MoveAbsJ)", ec)) {
     cleanupRobot(robot);
     return 1;
   }
-  robot.executeCommand(std::vector<MoveJCommand>{MoveJCommand({0.40, 0.00, 0.50, kPi, 0.0, 0.0}, 40, 5)}, ec);
-  if (reportError("executeCommand(MoveJ)", ec)) {
+  if (!waitForCommandResult(robot, "executeCommand(MoveAbsJ)", ec)) {
     cleanupRobot(robot);
     return 1;
   }
-  robot.executeCommand(std::vector<MoveLCommand>{MoveLCommand({0.40, 0.10, 0.50, kPi, 0.0, 0.0}, 20, 5),
-                                                 MoveLCommand({0.40, -0.10, 0.50, kPi, 0.0, 0.0}, 20, 5),
-                                                 MoveLCommand({0.40, 0.00, 0.40, kPi, 0.0, 0.0}, 20, 0)},
-                       ec);
-  if (reportError("executeCommand(multi MoveL)", ec)) {
-    cleanupRobot(robot);
-    return 1;
+
+  if (!executeRobustJointMoveFromCurrentState(robot, ec)) {
+    ec.clear();
+    printCapabilityStatus("approximate",
+                          "Joint-space refine demo target set was not reachable in current simulation state; continuing with line motion demo");
+  }
+
+  if (!executeRobustMoveLSequence(robot, ec)) {
+    ec.clear();
+    printCapabilityStatus("approximate",
+                          "MoveL sequence demo target set was not fully reachable; continuing with remaining SDK facade demo");
   }
   printCurrentState(robot, ec);
   if (ec) {

@@ -87,8 +87,12 @@ int main() {
     cleanupRobot(robot);
     return 1;
   }
-  if (!waitMotionCycle(robot, ec, std::chrono::seconds(10))) {
-    reportError("waitMotionCycle", ec);
+  if (!waitForCommandOrIdle(robot,
+                            cmd_id,
+                            static_cast<int>(cmds.size()) - 1,
+                            ec,
+                            std::chrono::seconds(20))) {
+    reportError("waitForCommandOrIdle", ec);
     cleanupRobot(robot);
     return 1;
   }

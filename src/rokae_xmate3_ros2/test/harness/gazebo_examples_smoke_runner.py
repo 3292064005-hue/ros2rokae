@@ -10,10 +10,16 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
 from rokae_xmate3_ros2.action import MoveAppend
-from rokae_xmate3_ros2.srv import Connect, SetMotionControlMode, SetOperateMode, SetPowerState
+from rokae_xmate3_ros2.srv import (
+    Connect,
+    SetMotionControlMode,
+    SetOperateMode,
+)
+
+from common import RuntimeCleanupMixin
 
 
-class JointStateProbe(Node):
+class JointStateProbe(Node, RuntimeCleanupMixin):
     def __init__(self):
         super().__init__("rokae_gazebo_examples_smoke_probe")
         self._heartbeat_count = 0
@@ -25,9 +31,7 @@ class JointStateProbe(Node):
         self._set_operate_mode_client = self.create_client(
             SetOperateMode, "/xmate3/cobot/set_operate_mode"
         )
-        self._set_power_state_client = self.create_client(
-            SetPowerState, "/xmate3/cobot/set_power_state"
-        )
+        self._init_runtime_cleanup_clients()
         self._move_append_client = ActionClient(self, MoveAppend, "/xmate3/cobot/move_append")
         self.create_subscription(JointState, "/xmate3/joint_states", self._callback, 20)
 
@@ -57,7 +61,7 @@ class JointStateProbe(Node):
             (self._connect_client, "/xmate3/cobot/connect"),
             (self._set_motion_control_mode_client, "/xmate3/cobot/set_motion_control_mode"),
             (self._set_operate_mode_client, "/xmate3/cobot/set_operate_mode"),
-            (self._set_power_state_client, "/xmate3/cobot/set_power_state"),
+            (self._power_client, "/xmate3/cobot/set_power_state"),
         ]
         deadline = time.monotonic() + timeout_sec
         for client, service_name in service_specs:
@@ -72,7 +76,6 @@ class JointStateProbe(Node):
                 return True
         sys.stderr.write("Timed out waiting for /xmate3/cobot/move_append action server\n")
         return False
-
 
 def run_example(binary_path, required_markers):
     completed = subprocess.run(
@@ -146,6 +149,7 @@ def main(argv):
             time.sleep(0.5)
         return 0
     finally:
+        probe.cleanup_runtime()
         probe.destroy_node()
         rclpy.shutdown()
 

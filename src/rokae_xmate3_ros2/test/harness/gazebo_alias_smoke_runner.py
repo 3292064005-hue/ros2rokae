@@ -11,11 +11,14 @@ from sensor_msgs.msg import JointState
 from rokae_xmate3_ros2.action import MoveAppend
 from rokae_xmate3_ros2.srv import Connect
 
+from common import RuntimeCleanupMixin
 
-class AliasSmokeProbe(Node):
+
+class AliasSmokeProbe(Node, RuntimeCleanupMixin):
     def __init__(self):
         super().__init__("rokae_gazebo_alias_smoke_probe")
         self._connect_client = self.create_client(Connect, "/xmate3/cobot/connect")
+        self._init_runtime_cleanup_clients()
         self._move_append_client = ActionClient(self, MoveAppend, "/xmate3/cobot/move_append")
         self._heartbeat_count = 0
         self.create_subscription(JointState, "/xmate3/joint_states", self._joint_state_callback, 20)
@@ -45,7 +48,6 @@ class AliasSmokeProbe(Node):
                 return True
         return False
 
-
 def main():
     rclpy.init()
     probe = AliasSmokeProbe()
@@ -61,6 +63,7 @@ def main():
             return 1
         return 0
     finally:
+        probe.cleanup_runtime()
         probe.destroy_node()
         rclpy.shutdown()
 

@@ -20,21 +20,22 @@ int main() {
     return 1;
   }
   if (!prepareAutomaticRt(robot, ec, 20)) {
-    cleanupRobot(robot);
-    return 1;
+    return isSimulationOnlyCapabilityError(ec)
+               ? skipExample(robot, "RT move commands unavailable in current simulation backend: " + ec.message())
+               : (cleanupRobot(robot), 1);
   }
 
   auto rt = robot.getRtMotionController().lock();
-  if (!ensurePtr(rt, "rt controller")) {
-    cleanupRobot(robot);
-    return 1;
+  if (!rt) {
+    return skipExample(robot, "RT move command controller unavailable in current simulation backend");
   }
 
   printSection("1 RT MoveJ");
   rt->MoveJ(0.3, robot.jointPos(ec), kXMate3DragPose);
   if (const auto movej_ec = robot.lastErrorCode(); reportError("rt MoveJ", movej_ec)) {
-    cleanupRobot(robot);
-    return 1;
+    return isSimulationOnlyCapabilityError(movej_ec)
+               ? skipExample(robot, "RT MoveJ unavailable in current simulation backend: " + movej_ec.message())
+               : (cleanupRobot(robot), 1);
   }
 
   printSection("2 RT MoveC");
@@ -52,8 +53,9 @@ int main() {
   target.z += 0.02;
   rt->MoveC(0.12, start, aux, target);
   if (const auto movec_ec = robot.lastErrorCode(); reportError("rt MoveC", movec_ec)) {
-    cleanupRobot(robot);
-    return 1;
+    return isSimulationOnlyCapabilityError(movec_ec)
+               ? skipExample(robot, "RT MoveC unavailable in current simulation backend: " + movec_ec.message())
+               : (cleanupRobot(robot), 1);
   }
 
   printSection("3 RT MoveL");
@@ -67,8 +69,9 @@ int main() {
   target.z += 0.03;
   rt->MoveL(0.12, start, target);
   if (const auto movel_ec = robot.lastErrorCode(); reportError("rt MoveL", movel_ec)) {
-    cleanupRobot(robot);
-    return 1;
+    return isSimulationOnlyCapabilityError(movel_ec)
+               ? skipExample(robot, "RT MoveL unavailable in current simulation backend: " + movel_ec.message())
+               : (cleanupRobot(robot), 1);
   }
   printPose("flange in base", robot.cartPosture(CoordinateType::flangeInBase, ec));
 

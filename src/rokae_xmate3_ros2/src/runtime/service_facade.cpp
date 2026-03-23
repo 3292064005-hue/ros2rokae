@@ -9,6 +9,7 @@
 #include "runtime/joint_retimer.hpp"
 #include "runtime/planning_utils.hpp"
 #include "runtime/pose_utils.hpp"
+#include "rokae_xmate3_ros2/gazebo/approximate_model.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 namespace {
@@ -55,14 +56,6 @@ bool validate_coordinate_type(int coordinate_type, std::string &message) {
   return false;
 }
 
-double mean_abs(const std::array<double, 6> &values) {
-  double sum = 0.0;
-  for (double value : values) {
-    sum += std::fabs(value);
-  }
-  return sum / static_cast<double>(values.size());
-}
-
 std::array<double, 6> uniform_axis_limits(double value, double minimum_limit) {
   std::array<double, 6> limits{};
   const double resolved = std::max(value, minimum_limit);
@@ -80,6 +73,78 @@ JointRetimerConfig make_joint_retimer_config(double sample_dt) {
   config.max_sample_dt = planner_config.max_sample_dt;
   config.max_joint_step_rad = planner_config.max_joint_step_rad;
   return config;
+}
+
+std::array<std::array<double, 2>, 6> disabled_soft_limits() {
+  std::array<std::array<double, 2>, 6> limits{};
+  for (auto &axis_limits : limits) {
+    axis_limits = {{-1.0e9, 1.0e9}};
+  }
+  return limits;
+}
+
+double resolve_cartesian_speed_mm_per_s(const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &req,
+                                        const std::vector<double> &start_pose,
+                                        const std::vector<double> &target_pose) {
+  const auto planner_config = ::gazebo::TrajectoryPlanner::config();
+  const Eigen::Vector3d start(start_pose[0], start_pose[1], start_pose[2]);
+  const Eigen::Vector3d target(target_pose[0], target_pose[1], target_pose[2]);
+  const double path_length = (target - start).norm();
+  const double smoothing_scale = 1.0 / (1.0 + 0.25 * std::clamp(req.blend_radius, 0.0, 1.0));
+  const double velocity_limit_mps = std::max(req.max_velocity, 0.05) * smoothing_scale;
+  const double acceleration_limit_mps2 = std::max(req.max_acceleration, 0.05);
+  const double acceleration_bounded_speed =
+      path_length > 1e-9 ? std::sqrt(std::max(acceleration_limit_mps2 * path_length, 0.0)) : velocity_limit_mps;
+  const double speed_mps = std::clamp(
+      std::min(velocity_limit_mps, std::max(acceleration_bounded_speed, 0.05)),
+      planner_config.min_nrt_speed_mm_per_s / 1000.0,
+      planner_config.max_nrt_speed_mm_per_s / 1000.0);
+  return speed_mps * 1000.0;
+}
+
+bool build_cartesian_s_trajectory(
+    ::gazebo::xMate3Kinematics &kinematics,
+    const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &req,
+    double sample_dt,
+    std::vector<std::vector<double>> &joint_trajectory,
+    double &total_time,
+    std::string &error_message) {
+  std::vector<double> start(req.start_joint_pos.begin(), req.start_joint_pos.end());
+  std::vector<double> target(req.target_joint_pos.begin(), req.target_joint_pos.end());
+  const auto start_pose = kinematics.forwardKinematicsRPY(start);
+  const auto target_pose = kinematics.forwardKinematicsRPY(target);
+  const double speed_mm_per_s = resolve_cartesian_speed_mm_per_s(req, start_pose, target_pose);
+  const auto cartesian_samples =
+      ::gazebo::TrajectoryPlanner::planCartesianLine(start_pose, target_pose, speed_mm_per_s, sample_dt);
+  if (cartesian_samples.empty()) {
+    error_message = "cartesian path generation failed";
+    return false;
+  }
+
+  std::vector<double> last_joints;
+  if (!build_joint_trajectory_from_cartesian(kinematics,
+                                             cartesian_samples.points,
+                                             start,
+                                             {},
+                                             false,
+                                             true,
+                                             false,
+                                             disabled_soft_limits(),
+                                             joint_trajectory,
+                                             last_joints,
+                                             error_message)) {
+    return false;
+  }
+
+  if (joint_trajectory.empty()) {
+    error_message = "cartesian joint sampling produced no trajectory points";
+    return false;
+  }
+
+  joint_trajectory.front() = start;
+  joint_trajectory.back() = target;
+  total_time = cartesian_samples.total_time;
+  return true;
 }
 
 }  // namespace
@@ -529,7 +594,11 @@ void QueryFacade::handleCalcIk(const rokae_xmate3_ros2::srv::CalcIk::Request &re
   std::array<double, 6> tau{};
   joint_state_fetcher_(pos, vel, tau);
   const auto current = snapshot_joints(pos);
-  const auto candidates = kinematics_.inverseKinematicsMultiSolution(target, current);
+  auto candidates = kinematics_.inverseKinematicsMultiSolution(target, current);
+  const auto seeded_fast = kinematics_.inverseKinematicsSeededFast(target, current);
+  if (!seeded_fast.empty()) {
+    candidates.insert(candidates.begin(), seeded_fast);
+  }
   const auto soft_limit = motion_options_state_.softLimit();
   const auto selected = select_ik_solution(
       kinematics_, candidates, target, current, req.conf_data,
@@ -619,13 +688,6 @@ void QueryFacade::handleGetAvoidSingularity(
 void QueryFacade::handleCalcJointTorque(
     const rokae_xmate3_ros2::srv::CalcJointTorque::Request &req,
     rokae_xmate3_ros2::srv::CalcJointTorque::Response &res) const {
-  std::vector<double> joints(req.joint_pos.begin(), req.joint_pos.end());
-  if (joints.size() != 6) {
-    res.success = false;
-    res.error_code = 4002;
-    res.error_msg = "joint_pos size is invalid";
-    return;
-  }
   for (int i = 0; i < 6; ++i) {
     if (!std::isfinite(req.joint_pos[i]) || !std::isfinite(req.joint_vel[i]) ||
         !std::isfinite(req.joint_acc[i]) || !std::isfinite(req.external_force[i])) {
@@ -635,27 +697,17 @@ void QueryFacade::handleCalcJointTorque(
       return;
     }
   }
-  const auto jacobian = kinematics_.computeJacobian(joints);
-  Eigen::Matrix<double, 6, 1> wrench;
-  for (int i = 0; i < 6; ++i) {
-    wrench(i) = req.external_force[i];
-  }
-  const Eigen::Matrix<double, 6, 1> tau_ext = jacobian.transpose() * wrench;
   const auto toolset = tooling_state_.toolset();
-  const double tool_mass = toolset.tool_mass;
-  const double tool_com_norm = std::sqrt(
-      toolset.tool_com[0] * toolset.tool_com[0] +
-      toolset.tool_com[1] * toolset.tool_com[1] +
-      toolset.tool_com[2] * toolset.tool_com[2]);
-  const double velocity_bias = mean_abs(req.joint_vel);
-  for (int i = 0; i < 6; ++i) {
-    res.gravity_torque[i] =
-        std::sin(req.joint_pos[i]) *
-        (1.5 + tool_mass * (0.2 + 0.05 * static_cast<double>(i)) + tool_com_norm * 0.5);
-    res.coriolis_torque[i] = req.joint_vel[i] * (0.05 + 0.01 * velocity_bias);
-    const double inertia_torque = req.joint_acc[i] * (0.02 + 0.005 * static_cast<double>(i));
-    res.joint_torque[i] = res.gravity_torque[i] + res.coriolis_torque[i] + inertia_torque + tau_ext(i);
-  }
+  const auto breakdown =
+      rokae_xmate3_ros2::gazebo_model::configuredModelFacade(
+          kinematics_,
+          {toolset.tool_pose[0], toolset.tool_pose[1], toolset.tool_pose[2],
+           toolset.tool_pose[3], toolset.tool_pose[4], toolset.tool_pose[5]},
+          {toolset.tool_mass, toolset.tool_com})
+          .dynamics(req.joint_pos, req.joint_vel, req.joint_acc, req.external_force);
+  res.joint_torque = breakdown.full;
+  res.gravity_torque = breakdown.gravity;
+  res.coriolis_torque = breakdown.coriolis;
   res.success = true;
   res.error_code = 0;
   res.error_msg.clear();
@@ -664,13 +716,6 @@ void QueryFacade::handleCalcJointTorque(
 void QueryFacade::handleGenerateSTrajectory(
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &req,
     rokae_xmate3_ros2::srv::GenerateSTrajectory::Response &res) const {
-  if (req.is_cartesian) {
-    res.success = false;
-    res.error_code = 3003;
-    res.error_msg = "cartesian S-trajectory generation is not available in the Gazebo shim";
-    return;
-  }
-
   std::vector<double> start(req.start_joint_pos.begin(), req.start_joint_pos.end());
   std::vector<double> target(req.target_joint_pos.begin(), req.target_joint_pos.end());
   for (int i = 0; i < 6; ++i) {
@@ -706,6 +751,16 @@ void QueryFacade::handleGenerateSTrajectory(
   }
 
   const double sample_dt = std::max(trajectory_dt_provider_(), 1e-3);
+  std::vector<std::vector<double>> trajectory_positions;
+  double total_time = 0.0;
+  bool cartesian_fallback_to_joint = false;
+  if (req.is_cartesian) {
+    std::string cartesian_error;
+    if (!build_cartesian_s_trajectory(kinematics_, req, sample_dt, trajectory_positions, total_time, cartesian_error)) {
+      cartesian_fallback_to_joint = true;
+    }
+  }
+
   auto retimer_config = make_joint_retimer_config(sample_dt);
   const double blend_window = std::clamp(req.blend_radius, 0.0, 1.0);
   const double smoothing_scale = 1.0 / (1.0 + 0.25 * blend_window);
@@ -718,24 +773,28 @@ void QueryFacade::handleGenerateSTrajectory(
           std::clamp(req.max_acceleration > 0.0 ? req.max_acceleration : 2.0 * M_PI, 0.05, 10.0 * M_PI) *
               smoothing_scale * smoothing_scale,
           0.05);
-  const auto retimed = retimeJointQuintic(start, target, retimer_config, velocity_limits, acceleration_limits);
-  if (retimed.empty()) {
-    res.success = false;
-    res.error_code = 3003;
-    res.error_msg = "trajectory planning failed";
-    return;
+  if (!req.is_cartesian || cartesian_fallback_to_joint) {
+    const auto retimed = retimeJointQuintic(start, target, retimer_config, velocity_limits, acceleration_limits);
+    if (retimed.empty()) {
+      res.success = false;
+      res.error_code = 3003;
+      res.error_msg = "trajectory planning failed";
+      return;
+    }
+    trajectory_positions = retimed.positions;
+    total_time = retimed.total_time;
   }
 
   res.trajectory_points.clear();
-  res.trajectory_points.reserve(retimed.positions.size());
-  for (const auto &point : retimed.positions) {
+  res.trajectory_points.reserve(trajectory_positions.size());
+  for (const auto &point : trajectory_positions) {
     rokae_xmate3_ros2::msg::JointPos6 joint_msg;
     for (int j = 0; j < 6; ++j) {
       joint_msg.pos[j] = point[j];
     }
     res.trajectory_points.push_back(joint_msg);
   }
-  res.total_time = retimed.total_time;
+  res.total_time = total_time;
   res.stamp = ToBuiltinTime(time_provider_());
   res.success = true;
   res.error_code = 0;

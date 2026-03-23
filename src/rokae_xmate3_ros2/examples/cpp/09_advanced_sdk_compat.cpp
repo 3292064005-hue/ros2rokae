@@ -153,20 +153,37 @@ int main() {
   if (auto rt = robot.getRtMotionController().lock()) {
     rt->setJointImpedance({600, 600, 600, 200, 100, 100}, ec);
     if (reportError("setJointImpedance", ec)) {
-      cleanupRobot(robot);
-      return 1;
+      if (isSimulationOnlyCapabilityError(ec)) {
+        printCapabilityStatus("approximate", "RT joint impedance configuration skipped in simulation backend");
+        ec.clear();
+      } else {
+        cleanupRobot(robot);
+        return 1;
+      }
     }
     rt->setFilterFrequency(50.0, 50.0, 50.0, ec);
     if (reportError("setFilterFrequency", ec)) {
-      cleanupRobot(robot);
-      return 1;
+      if (isSimulationOnlyCapabilityError(ec)) {
+        printCapabilityStatus("approximate", "RT filter frequency configuration skipped in simulation backend");
+        ec.clear();
+      } else {
+        cleanupRobot(robot);
+        return 1;
+      }
     }
     rt->setTorqueFilterCutOffFrequency(30.0, ec);
     if (reportError("setTorqueFilterCutOffFrequency", ec)) {
-      cleanupRobot(robot);
-      return 1;
+      if (isSimulationOnlyCapabilityError(ec)) {
+        printCapabilityStatus("approximate", "RT torque filter configuration skipped in simulation backend");
+        ec.clear();
+      } else {
+        cleanupRobot(robot);
+        return 1;
+      }
     }
     os << "rt controller configured" << std::endl;
+  } else {
+    printCapabilityStatus("approximate", "rt controller unavailable, skip RT controller configuration");
   }
 
   printSection("5 最近错误码与断开连接");

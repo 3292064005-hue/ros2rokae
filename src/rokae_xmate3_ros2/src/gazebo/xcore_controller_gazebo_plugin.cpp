@@ -27,6 +27,7 @@
 #include <cmath>
 #include <future>
 #include <limits>
+#include <chrono>
 
 #include <builtin_interfaces/msg/time.hpp>
 
@@ -104,6 +105,20 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
                        const std::array<std::pair<double, double>, 6> *original_joint_limits)
       : joints_(joints), original_joint_limits_(original_joint_limits) {}
 
+  void beginShutdown() {
+    shutting_down_.store(true);
+    control_owner_.store(runtime::ControlOwner::none);
+    joints_ = nullptr;
+    std::lock_guard<std::mutex> lock(trajectory_mutex_);
+    ++trajectory_generation_;
+    trajectory_state_.active = false;
+    trajectory_state_.completed = true;
+    trajectory_state_.canceled = true;
+    trajectory_state_.message = "backend shutdown";
+    goal_handle_.reset();
+    trajectory_client_.reset();
+  }
+
   void configureTrajectoryClient(const rclcpp::Node::SharedPtr &node,
                                  const std::vector<std::string> &joint_names) {
     node_ = node;
@@ -116,7 +131,7 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
 
   runtime::RobotSnapshot readSnapshot() const override {
     runtime::RobotSnapshot snapshot;
-    if (!joints_) {
+    if (shutting_down_.load() || !joints_) {
       return snapshot;
     }
     for (size_t i = 0; i < 6 && i < joints_->size(); ++i) {
@@ -134,7 +149,8 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
   }
 
   void applyControl(const runtime::ControlCommand &command) override {
-    if (!joints_ || !command.has_effort || control_owner_.load() != runtime::ControlOwner::effort) {
+    if (shutting_down_.load() || !joints_ || !command.has_effort ||
+        control_owner_.load() != runtime::ControlOwner::effort) {
       clearControl();
       return;
     }
@@ -144,7 +160,7 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
   }
 
   void clearControl() override {
-    if (!joints_) {
+    if (shutting_down_.load() || !joints_) {
       return;
     }
     for (size_t i = 0; i < 6 && i < joints_->size(); ++i) {
@@ -153,7 +169,7 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
   }
 
   void setBrakeLock(const runtime::RobotSnapshot &snapshot, bool locked) override {
-    if (!joints_ || locked == brakes_locked_) {
+    if (shutting_down_.load() || !joints_ || locked == brakes_locked_) {
       return;
     }
 
@@ -175,11 +191,15 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
   [[nodiscard]] bool brakesLocked() const override { return brakes_locked_; }
 
   [[nodiscard]] bool supportsTrajectoryExecution() const override {
-    return trajectory_client_ != nullptr && trajectory_client_->action_server_is_ready();
+    return !shutting_down_.load() && trajectory_client_ != nullptr && trajectory_client_->action_server_is_ready();
   }
 
   bool startTrajectoryExecution(const runtime::TrajectoryExecutionGoal &goal,
                                 std::string &message) override {
+    if (shutting_down_.load()) {
+      message = "backend is shutting down";
+      return false;
+    }
     if (trajectory_client_ == nullptr) {
       message = "joint_trajectory_controller client is unavailable";
       return false;
@@ -321,6 +341,7 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
 
   void cancelTrajectoryExecution(const std::string &reason) override {
     std::shared_ptr<FollowJointTrajectoryGoalHandle> goal_handle;
+    rclcpp_action::Client<FollowJointTrajectory>::SharedPtr trajectory_client;
     {
       std::lock_guard<std::mutex> lock(trajectory_mutex_);
       ++trajectory_generation_;
@@ -329,10 +350,25 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
       trajectory_state_.canceled = true;
       trajectory_state_.message = reason.empty() ? "trajectory canceled" : reason;
       goal_handle = goal_handle_;
+      trajectory_client = trajectory_client_;
       goal_handle_.reset();
     }
-    if (trajectory_client_ != nullptr && goal_handle != nullptr) {
-      (void)trajectory_client_->async_cancel_goal(goal_handle);
+    if (!shutting_down_.load() && trajectory_client != nullptr && goal_handle != nullptr) {
+      try {
+        (void)trajectory_client->async_cancel_goal(goal_handle);
+      } catch (const rclcpp_action::exceptions::UnknownGoalHandleError &exc) {
+        if (node_ != nullptr) {
+          RCLCPP_DEBUG(node_->get_logger(),
+                       "Ignoring stale trajectory goal during cancel: %s",
+                       exc.what());
+        }
+      } catch (const std::exception &exc) {
+        if (node_ != nullptr) {
+          RCLCPP_WARN(node_->get_logger(),
+                      "Failed to cancel trajectory goal cleanly: %s",
+                      exc.what());
+        }
+      }
     }
   }
 
@@ -361,6 +397,7 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
   std::vector<double> trajectory_segment_end_times_;
   std::uint64_t trajectory_generation_ = 0;
   std::atomic<runtime::ControlOwner> control_owner_{runtime::ControlOwner::none};
+  std::atomic<bool> shutting_down_{false};
 };
 
 class XCoreControllerPlugin : public ModelPlugin {
@@ -404,7 +441,6 @@ private:
     const std::vector<double> default_initial_pose_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
     double current_update_dt_ = kDefaultTrajectorySampleDt;
-    double last_sim_time_ = -1.0;
     std::mutex joint_state_cache_mutex_;
     std::array<double, 6> cached_joint_position_{};
     std::array<double, 6> cached_joint_velocity_{};
@@ -413,6 +449,7 @@ private:
     std::atomic<uint64_t> next_request_id_{1};
     double trajectory_sample_dt_ = kDefaultTrajectorySampleDt;
     BackendMode backend_mode_ = BackendMode::hybrid;
+    std::atomic<bool> shutting_down_{false};
 
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
     rclcpp::Publisher<rokae_xmate3_ros2::msg::OperationState>::SharedPtr operation_state_pub_;
@@ -476,6 +513,9 @@ void XCoreControllerPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 }
 
 XCoreControllerPlugin::~XCoreControllerPlugin() {
+    shutting_down_.store(true);
+    update_conn_.reset();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     if (executor_) {
         executor_->cancel();
     }
@@ -485,6 +525,22 @@ XCoreControllerPlugin::~XCoreControllerPlugin() {
     if (executor_ && node_) {
         executor_->remove_node(node_);
     }
+    if (motion_backend_) {
+        motion_backend_->beginShutdown();
+    }
+    if (runtime_context_) {
+        runtime_context_->motionRuntime().stop("plugin shutdown");
+        runtime_context_->motionRuntime().reset();
+    }
+    if (motion_backend_) {
+        motion_backend_->cancelTrajectoryExecution("plugin shutdown");
+    }
+    ros_bindings_.reset();
+    publish_bridge_.reset();
+    control_bridge_.reset();
+    motion_backend_.reset();
+    runtime_context_.reset();
+    kinematics_.reset();
     executor_.reset();
     node_.reset();
 }
@@ -744,18 +800,15 @@ const runtime::MotionRuntime *XCoreControllerPlugin::motionRuntime() const {
 }
 
 void XCoreControllerPlugin::OnUpdate() {
-    double sim_dt = trajectory_sample_dt_;
-    if (model_ && model_->GetWorld()) {
-        const double sim_time = model_->GetWorld()->SimTime().Double();
-        if (last_sim_time_ >= 0.0) {
-            const double candidate_dt = sim_time - last_sim_time_;
-            if (candidate_dt > 1e-6 && candidate_dt < 0.1) {
-                sim_dt = candidate_dt;
-            }
-        }
-        last_sim_time_ = sim_time;
+    if (shutting_down_.load() || !model_ || !node_ || !motion_backend_ || !control_bridge_) {
+        return;
     }
-    current_update_dt_ = sim_dt;
+
+    // Keep the runtime tick on a deterministic sample period instead of
+    // querying Gazebo's world during teardown. Model::GetWorld() is not safe
+    // once the model/world are being destroyed, and the runtime already
+    // exposes a configured sampling period for planning/execution.
+    current_update_dt_ = trajectory_sample_dt_;
 
     // ========== 【最高优先级】强制设置初始姿态（仅执行一次） ==========
     if (!initial_pose_set_ && joint_num_ > 0) {
@@ -781,7 +834,7 @@ void XCoreControllerPlugin::OnUpdate() {
     RefreshJointStateCache();
 
     auto now = node_->now();
-    if (publish_bridge_ != nullptr) {
+    if (publish_bridge_ != nullptr && joint_state_pub_ != nullptr && operation_state_pub_ != nullptr) {
         std::array<double, 6> cached_pos{};
         std::array<double, 6> cached_vel{};
         std::array<double, 6> cached_torque{};

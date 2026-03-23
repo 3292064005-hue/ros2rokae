@@ -75,10 +75,21 @@ rokae_xmate3_ros2/
 │   └── rokae_xmate3_ros2/
 ├── src/
 │   ├── robot.cpp
-│   └── gazebo/
+│   ├── sdk/
+│   │   ├── robot_internal.hpp
+│   │   ├── robot_clients.cpp
+│   │   ├── robot_state.cpp
+│   │   ├── robot_motion.cpp
+│   │   └── robot_model.cpp
+│   ├── gazebo/
+│   └── runtime/
 ├── examples/
 │   ├── README.md
 │   └── cpp/
+├── test/
+│   ├── unit/
+│   ├── harness/
+│   └── strict/
 ├── launch/
 │   ├── simulation.launch.py
 │   ├── rviz_only.launch.py
@@ -107,6 +118,7 @@ rokae_xmate3_ros2/
 ```
 
 > `xMate3.xacro` 是主要维护入口，mesh 路径默认走 `models/rokae_xmate3_ros2/meshes/...`。
+> `src/sdk/` 负责 SDK façade 分层；`src/gazebo/` 聚焦模型与 Gazebo 插件；`src/runtime/` 聚焦规划、状态与执行链；`test/` 按 `unit / harness / strict` 三层组织。
 
 ## 快速开始
 
@@ -153,6 +165,28 @@ ros2 run rokae_xmate3_ros2 example_04_motion_basic
 ros2 run rokae_xmate3_ros2 example_25_rt_s_line
 ```
 
+全量 headless examples harness（非默认门禁）：
+```bash
+cd ~/ros2_ws0/build/rokae_xmate3_ros2
+cmake -DROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
+cmake --build . -j4
+ctest -R gazebo_examples_full --output-on-failure
+```
+
+backend mode smoke（非默认，覆盖 `effort / jtc / hybrid`）：
+```bash
+cd ~/ros2_ws0/build/rokae_xmate3_ros2
+cmake -DROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
+cmake --build . -j4
+ctest -L gazebo_integration_modes --output-on-failure
+```
+
+默认 `ctest --output-on-failure` 固定为 12 项轻量门禁：
+- 9 个纯单测
+- `gazebo_sdk_regression`
+- `gazebo_examples_smoke`
+- `gazebo_alias_smoke`
+
 详细步骤请参考 [docs/QUICKSTART.md](docs/QUICKSTART.md)。
 
 ## 示例程序
@@ -195,7 +229,7 @@ std::error_code ec;
 robot.connectToRobot(ec);
 robot.setPowerState(true, ec);
 robot.setOperateMode(rokae::OperateMode::automatic, ec);
-auto joints = robot.getJointPos(ec);
+auto joints = robot.jointPos(ec);
 ```
 
 ### 运动控制
@@ -204,7 +238,7 @@ auto joints = robot.getJointPos(ec);
 
 接口能力分级：
 - `GenerateSTrajectory(joint)`：近似实现，shared quintic retimer
-- `GenerateSTrajectory(cartesian)`：不支持
+- `GenerateSTrajectory(cartesian)`：近似实现，基于路径弧长与 seeded IK 的笛卡尔近似轨迹
 - 碰撞检测：近似实现，residual-based 仿真监督，不等价于真机安全功能
 - 实时控制：实验性，simulated RT facade，不承诺真机 1kHz/硬实时语义
 - 模型库 / 力矩 / 无摩擦力矩：近似实现，基于统一仿真代理项，不是完整刚体动力学库

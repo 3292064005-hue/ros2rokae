@@ -15,6 +15,39 @@
 #endif
 
 namespace gazebo {
+namespace {
+
+detail::KinematicsBackend::SeededIkRequest makeSeededIkRequest(
+    const Matrix4d &target_transform,
+    const std::vector<double> &seed_joints,
+    const std::vector<double> &joint_limits_min,
+    const std::vector<double> &joint_limits_max,
+    int max_iter,
+    double position_tolerance,
+    double orientation_tolerance,
+    double orientation_weight,
+    double max_joint_step,
+    double min_lambda,
+    double max_lambda,
+    double solution_valid_threshold) {
+    detail::KinematicsBackend::SeededIkRequest request;
+    request.target_transform = target_transform;
+    request.seed_joints = seed_joints;
+    request.joint_limits_min = joint_limits_min;
+    request.joint_limits_max = joint_limits_max;
+    request.max_iter = max_iter;
+    request.position_tolerance = position_tolerance;
+    request.orientation_tolerance = orientation_tolerance;
+    request.orientation_weight = orientation_weight;
+    request.max_joint_step = max_joint_step;
+    request.min_lambda = min_lambda;
+    request.max_lambda = max_lambda;
+    request.solution_valid_threshold = solution_valid_threshold;
+    return request;
+}
+
+}  // namespace
+
 xMate3Kinematics::xMate3Kinematics() {
     // DH 参数 (单位 m) - 完全保留你的原版
     dh_a_ = {0.0, 0.0, 0.394, 0.0, 0.0, 0.0};
@@ -47,6 +80,9 @@ std::vector<Matrix4d> xMate3Kinematics::computeAllTransforms(const std::vector<d
 
 // -------------------------- 正运动学 - 完全保留你的原版 --------------------------
 Matrix4d xMate3Kinematics::forwardKinematics(const std::vector<double>& joints) {
+    if (backend_) {
+        return backend_->computeForwardTransform(joints);
+    }
     std::vector<Matrix4d> T = computeAllTransforms(joints);
     return T[6];
 }
@@ -106,88 +142,19 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
         const std::vector<double>& current_joints) {
     Matrix4d T_target = rpyToTransform(target);
 
-    const int max_iter = 280;
-    const double position_tolerance = 1e-5;
-    const double orientation_tolerance = 1e-3;
     const double orientation_weight = 0.8;
-    const double max_joint_step = 0.03;
-    const double min_lambda = 0.02;
-    const double max_lambda = 0.8;
-    const double solution_valid_threshold = 5e-3;
     const double duplicate_threshold = 0.05;
 
     auto solveFromSeed = [&](std::vector<double> joints) -> std::pair<std::vector<double>, double> {
-        if (analyzeSingularity(joints).near_singularity) {
-            avoidSingularity(joints);
+        auto solved = inverseKinematicsSeededFast(target, joints);
+        if (solved.empty()) {
+            return {{}, std::numeric_limits<double>::infinity()};
         }
 
-        double best_score = std::numeric_limits<double>::infinity();
-        std::vector<double> best_joints = joints;
-
-        for (int iter = 0; iter < max_iter; ++iter) {
-            Matrix4d T_current = forwardKinematics(joints);
-            Vector6d error = computePoseError(T_target, T_current);
-
-            const double pos_err = error.head<3>().norm();
-            const double ori_err = error.tail<3>().norm();
-            const double current_score = pos_err + orientation_weight * ori_err;
-            if (current_score < best_score) {
-                best_score = current_score;
-                best_joints = joints;
-            }
-            if (pos_err < position_tolerance && ori_err < orientation_tolerance) {
-                break;
-            }
-
-            const auto singularity = analyzeSingularity(joints);
-            Matrix6d W = Matrix6d::Identity();
-            W(3,3) = W(4,4) = W(5,5) = orientation_weight;
-            if (singularity.near_singularity) {
-                W(3,3) *= 0.3;
-                W(4,4) *= 0.3;
-                W(5,5) *= 0.3;
-            }
-
-            Vector6d err_w = error;
-            err_w.tail<3>() *= W(3,3);
-            const Matrix6d Jw = W * singularity.jacobian;
-            const double lambda_base = min_lambda + max_lambda * (1.0 - static_cast<double>(iter) / max_iter);
-            const double lambda = lambda_base * (1.0 + 2.0 * singularity.singularity_measure);
-            const Matrix6d JJt = Jw * Jw.transpose();
-            Vector6d delta_q =
-                Jw.transpose() * (JJt + lambda * lambda * Matrix6d::Identity()).inverse() * err_w;
-
-            const double step_scale = singularity.near_singularity ? 0.5 : 1.0;
-            for (int i = 0; i < 6; ++i) {
-                double step = delta_q(i);
-                step = std::clamp(step, -max_joint_step * step_scale, max_joint_step * step_scale);
-                joints[i] += step;
-                joints[i] = std::clamp(joints[i], joint_limits_min_[i], joint_limits_max_[i]);
-            }
-        }
-
-        Matrix4d T_final = forwardKinematics(joints);
+        Matrix4d T_final = forwardKinematics(solved);
         Vector6d final_error = computePoseError(T_target, T_final);
-        double final_pos_err = final_error.head<3>().norm();
-        double final_ori_err = final_error.tail<3>().norm();
-        double score = final_pos_err + orientation_weight * final_ori_err;
-
-        Matrix4d T_best = forwardKinematics(best_joints);
-        Vector6d best_error = computePoseError(T_target, T_best);
-        const double best_pos_err = best_error.head<3>().norm();
-        const double best_ori_err = best_error.tail<3>().norm();
-        const double best_final_score = best_pos_err + orientation_weight * best_ori_err;
-        if (best_final_score < score) {
-            joints = best_joints;
-            score = best_final_score;
-            final_pos_err = best_pos_err;
-            final_ori_err = best_ori_err;
-        }
-
-        if (final_pos_err > solution_valid_threshold || final_ori_err > solution_valid_threshold) {
-            score = std::numeric_limits<double>::infinity();
-        }
-        return {joints, score};
+        const double score = final_error.head<3>().norm() + orientation_weight * final_error.tail<3>().norm();
+        return {solved, score};
     };
 
     std::vector<std::vector<double>> seeds;
@@ -311,6 +278,26 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
     const double min_lambda = 0.02;
     const double max_lambda = 0.5;
     const double solution_valid_threshold = 5e-3;
+
+    if (backend_) {
+        auto request = makeSeededIkRequest(
+            T_target,
+            seed_joints,
+            joint_limits_min_,
+            joint_limits_max_,
+            max_iter,
+            position_tolerance,
+            orientation_tolerance,
+            orientation_weight,
+            max_joint_step,
+            min_lambda,
+            max_lambda,
+            solution_valid_threshold);
+        auto solved = backend_->inverseKinematicsSeeded(request);
+        if (!solved.empty()) {
+            return solved;
+        }
+    }
 
     std::vector<double> joints = seed_joints;
     if (analyzeSingularity(joints).near_singularity) {
@@ -482,7 +469,7 @@ const char *xMate3Kinematics::backendName() const noexcept {
         return "legacy";
     }
     const std::string name = backend_->name();
-    if (name == "kdl") {
+    if (name.rfind("kdl", 0) == 0) {
         return "kdl";
     }
     return "legacy";
