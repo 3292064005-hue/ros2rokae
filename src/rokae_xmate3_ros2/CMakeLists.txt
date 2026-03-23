@@ -145,12 +145,23 @@ link_directories(${GAZEBO_LIBRARY_DIRS})
 rosidl_get_typesupport_target(cpp_typesupport_target
   ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
+set(ROKAE_ROSIDL_GENERATOR_TARGET
+  ${PROJECT_NAME}__rosidl_generator_cpp
+)
+
+function(rokae_add_rosidl_dependency target_name)
+  if(TARGET ${target_name} AND TARGET ${ROKAE_ROSIDL_GENERATOR_TARGET})
+    add_dependencies(${target_name} ${ROKAE_ROSIDL_GENERATOR_TARGET})
+  endif()
+endfunction()
+
 # 1. 内部 runtime 私有分层（不导出私有头）
 add_library(${PROJECT_NAME}_runtime_motion_core OBJECT
   src/gazebo/kinematics_backend.cpp
   src/gazebo/kinematics.cpp
   src/gazebo/trajectory_planner.cpp
   src/runtime/joint_retimer.cpp
+  src/runtime/unified_retimer.cpp
   src/runtime/planner_core.cpp
   src/runtime/planning_utils.cpp
   src/runtime/request_adapter.cpp
@@ -214,6 +225,7 @@ foreach(runtime_target IN LISTS RUNTIME_PRIVATE_TARGETS)
   )
   target_compile_features(${runtime_target} PUBLIC cxx_std_17)
   set_target_properties(${runtime_target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  rokae_add_rosidl_dependency(${runtime_target})
 endforeach()
 
 add_library(${PROJECT_NAME}_runtime_core SHARED
@@ -249,6 +261,7 @@ target_link_libraries(${PROJECT_NAME}_runtime_core
   "${cpp_typesupport_target}"
 )
 target_compile_features(${PROJECT_NAME}_runtime_core PUBLIC cxx_std_17)
+rokae_add_rosidl_dependency(${PROJECT_NAME}_runtime_core)
 
 # 2. SDK库
 add_library(${PROJECT_NAME}_sdk SHARED
@@ -256,6 +269,7 @@ add_library(${PROJECT_NAME}_sdk SHARED
   src/sdk/robot_clients.cpp
   src/sdk/robot_state.cpp
   src/sdk/robot_motion.cpp
+  src/sdk/robot_rt.cpp
   src/sdk/robot_model.cpp
 )
 ament_target_dependencies(${PROJECT_NAME}_sdk
@@ -275,6 +289,7 @@ target_link_libraries(${PROJECT_NAME}_sdk
   ${GAZEBO_LIBRARIES}
 )
 target_compile_features(${PROJECT_NAME}_sdk PUBLIC cxx_std_17)
+rokae_add_rosidl_dependency(${PROJECT_NAME}_sdk)
 
 # 3. Gazebo插件
 add_library(xcore_controller_gazebo_plugin SHARED
@@ -296,6 +311,7 @@ target_link_libraries(xcore_controller_gazebo_plugin
   "${cpp_typesupport_target}"
 )
 target_compile_features(xcore_controller_gazebo_plugin PUBLIC cxx_std_17)
+rokae_add_rosidl_dependency(xcore_controller_gazebo_plugin)
 
 # 3. 示例程序
 set(EXAMPLES
@@ -342,6 +358,7 @@ foreach(example IN LISTS EXAMPLES)
     ${PROJECT_NAME}_sdk "${cpp_typesupport_target}"
   )
   target_compile_features(${example_target} PUBLIC cxx_std_17)
+  rokae_add_rosidl_dependency(${example_target})
   list(APPEND EXAMPLE_TARGETS ${example_target})
 endforeach()
 
@@ -404,6 +421,7 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}_runtime_core
     )
     target_compile_features(test_motion_planner_core PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_motion_planner_core)
   endif()
 
   ament_add_gtest(test_motion_runtime_state
@@ -421,6 +439,7 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}_runtime_core
     )
     target_compile_features(test_motion_runtime_state PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_motion_runtime_state)
   endif()
 
   ament_add_gtest(test_runtime_adapters
@@ -444,6 +463,7 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}_runtime_core
     )
     target_compile_features(test_runtime_adapters PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_runtime_adapters)
   endif()
 
   if(TARGET test_runtime_publish_bridge)
@@ -458,6 +478,7 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}_runtime_core
     )
     target_compile_features(test_runtime_publish_bridge PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_runtime_publish_bridge)
   endif()
 
   if(TARGET test_runtime_control_bridge)
@@ -472,6 +493,7 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}_runtime_core
     )
     target_compile_features(test_runtime_control_bridge PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_runtime_control_bridge)
   endif()
 
   ament_add_gtest(test_controller_state
@@ -500,6 +522,7 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}_runtime_core
     )
     target_compile_features(test_controller_state PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_controller_state)
   endif()
 
   if(TARGET test_request_coordinator)
@@ -514,6 +537,7 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}_runtime_core
     )
     target_compile_features(test_request_coordinator PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_request_coordinator)
   endif()
 
   if(TARGET test_runtime_state)
@@ -528,6 +552,7 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}_runtime_core
     )
     target_compile_features(test_runtime_state PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_runtime_state)
   endif()
 
   if(TARGET test_service_facade)
@@ -542,6 +567,7 @@ if(BUILD_TESTING)
       ${PROJECT_NAME}_runtime_core
     )
     target_compile_features(test_service_facade PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_service_facade)
   endif()
 
   add_executable(gazebo_sdk_regression_helper
@@ -571,6 +597,7 @@ if(BUILD_TESTING)
     ${EIGEN3_LIBRARIES}
   )
   target_compile_features(gazebo_sdk_regression_helper PUBLIC cxx_std_17)
+  rokae_add_rosidl_dependency(gazebo_sdk_regression_helper)
 
   set(GAZEBO_TEST_RESULTS_DIR "${CMAKE_BINARY_DIR}/test_results/${PROJECT_NAME}/gazebo")
   file(MAKE_DIRECTORY "${GAZEBO_TEST_RESULTS_DIR}")
@@ -581,7 +608,7 @@ import unittest
 
 import launch
 import launch_testing
-from launch.actions import EmitEvent, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler, SetEnvironmentVariable
+from launch.actions import EmitEvent, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler, SetEnvironmentVariable, TimerAction
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -603,6 +630,8 @@ def generate_test_description():
             "rviz": "false",
             "verbose": "false",
             "enable_ros2_control": "true",
+            "enable_xcore_plugin": "true",
+            "backend_mode": "hybrid",
         }.items(),
     )
     runner = ExecuteProcess(
@@ -621,7 +650,7 @@ def generate_test_description():
         SetEnvironmentVariable("GAZEBO_MASTER_URI", "http://127.0.0.1:11454"),
         SetEnvironmentVariable("PYTHONPATH", [ROSIDL_PY_PATH, ":", EnvironmentVariable("PYTHONPATH", default_value="")]),
         simulation,
-        runner,
+        TimerAction(period=6.0, actions=[runner]),
         shutdown_handler,
         launch_testing.actions.ReadyToTest(),
     ])

@@ -44,6 +44,14 @@ struct IkSelection {
     std::vector<double> &last_joints,
     std::string &error_message);
 
+[[nodiscard]] bool project_joint_derivatives_from_cartesian(
+    ::gazebo::xMate3Kinematics &kinematics,
+    const std::vector<std::vector<double>> &cartesian_trajectory,
+    const std::vector<std::vector<double>> &joint_trajectory,
+    double trajectory_dt,
+    std::vector<std::vector<double>> &joint_velocity_trajectory,
+    std::vector<std::vector<double>> &joint_acceleration_trajectory);
+
 }  // namespace rokae_xmate3_ros2::runtime
 
 #endif

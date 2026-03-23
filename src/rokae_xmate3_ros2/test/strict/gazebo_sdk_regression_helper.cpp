@@ -2,6 +2,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rcl_interfaces/msg/log.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <control_msgs/action/follow_joint_trajectory.hpp>
 
 #include <algorithm>
 #include <array>
@@ -45,6 +46,7 @@ using Clock = std::chrono::steady_clock;
 using Duration = std::chrono::duration<double>;
 namespace rt = rokae_xmate3_ros2::runtime;
 using MoveAppend = rokae_xmate3_ros2::action::MoveAppend;
+using FollowJointTrajectory = control_msgs::action::FollowJointTrajectory;
 
 constexpr double kPlannerDtSec = 0.01;
 constexpr double kRadToDeg = 180.0 / 3.14159265358979323846;
@@ -143,10 +145,16 @@ class JointStateRecorder {
         "/xmate3/cobot/adjust_speed_online");
     move_append_action_client_ =
         rclcpp_action::create_client<MoveAppend>(node_, "/xmate3/cobot/move_append");
+    trajectory_action_client_ = rclcpp_action::create_client<FollowJointTrajectory>(
+        node_, "/joint_trajectory_controller/follow_joint_trajectory");
     joint_state_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
         "/xmate3/joint_states",
         50,
         [this](const sensor_msgs::msg::JointState::SharedPtr msg) { handleJointState(*msg); });
+    ros2_control_joint_state_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
+        "/joint_states",
+        20,
+        [this](const sensor_msgs::msg::JointState::SharedPtr msg) { handleRos2ControlJointState(*msg); });
     operation_state_sub_ = node_->create_subscription<rokae_xmate3_ros2::msg::OperationState>(
         "/xmate3/cobot/operation_state",
         50,
@@ -225,8 +233,22 @@ class JointStateRecorder {
       return false;
     }
 
+    bool trajectory_action_ready = false;
+    while (Clock::now() < deadline) {
+      if (trajectory_action_client_->wait_for_action_server(std::chrono::milliseconds(250))) {
+        trajectory_action_ready = true;
+        break;
+      }
+    }
+    if (!trajectory_action_ready) {
+      std::cerr << "Timed out waiting for action /joint_trajectory_controller/follow_joint_trajectory"
+                << std::endl;
+      return false;
+    }
+
     return waitForJointHeartbeat(deadline - Clock::now()) &&
-           waitForOperationStateHeartbeat(deadline - Clock::now());
+           waitForOperationStateHeartbeat(deadline - Clock::now()) &&
+           waitForRos2ControlJointHeartbeat(deadline - Clock::now());
   }
 
   bool waitForJointHeartbeat(std::chrono::steady_clock::duration timeout) {
@@ -256,6 +278,21 @@ class JointStateRecorder {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     std::cerr << "Timed out waiting for /xmate3/cobot/operation_state heartbeat" << std::endl;
+    return false;
+  }
+
+  bool waitForRos2ControlJointHeartbeat(std::chrono::steady_clock::duration timeout) {
+    const auto deadline = Clock::now() + timeout;
+    while (Clock::now() < deadline) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (ros2_control_heartbeat_count_ > 0) {
+          return true;
+        }
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    std::cerr << "Timed out waiting for /joint_states heartbeat" << std::endl;
     return false;
   }
 
@@ -452,6 +489,11 @@ class JointStateRecorder {
     latest_operation_state_ = msg.state;
   }
 
+  void handleRos2ControlJointState(const sensor_msgs::msg::JointState &) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ++ros2_control_heartbeat_count_;
+  }
+
   void handleRosout(const rcl_interfaces::msg::Log &msg) {
     if (msg.name != "xcore_gazebo_controller" || msg.msg.find("[runtime]") == std::string::npos) {
       return;
@@ -528,7 +570,9 @@ class JointStateRecorder {
   rclcpp::Client<rokae_xmate3_ros2::srv::SetDefaultSpeed>::SharedPtr set_default_speed_client_;
   rclcpp::Client<rokae_xmate3_ros2::srv::AdjustSpeedOnline>::SharedPtr adjust_speed_online_client_;
   rclcpp_action::Client<MoveAppend>::SharedPtr move_append_action_client_;
+  rclcpp_action::Client<FollowJointTrajectory>::SharedPtr trajectory_action_client_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr ros2_control_joint_state_sub_;
   rclcpp::Subscription<rokae_xmate3_ros2::msg::OperationState>::SharedPtr operation_state_sub_;
   rclcpp::Subscription<rcl_interfaces::msg::Log>::SharedPtr rosout_sub_;
 
@@ -537,6 +581,7 @@ class JointStateRecorder {
   Clock::time_point record_start_{Clock::now()};
   bool recording_ = false;
   std::size_t heartbeat_count_ = 0;
+  std::size_t ros2_control_heartbeat_count_ = 0;
   std::size_t operation_state_count_ = 0;
   bool has_latest_joint_state_ = false;
   bool has_operation_state_ = false;
@@ -842,15 +887,27 @@ bool moveToReadyPose(rokae::xMateRobot &robot,
     return false;
   }
 
-  Clock::time_point terminal_time{};
-  std::string terminal_state;
+  Clock::time_point start_time{};
+  std::string start_state;
   if (!recorder.waitForRuntimeRequestState(request_id,
-                                           {"completed", "completed_relaxed"},
-                                           terminal_time,
-                                           terminal_state,
-                                           std::chrono::seconds(45))) {
+                                           {"executing", "completed", "completed_relaxed", "failed", "stopped"},
+                                           start_time,
+                                           start_state,
+                                           std::chrono::seconds(20))) {
     recorder.stopRecording();
-    std::cerr << "Waiting for ready pose runtime completion timed out" << std::endl;
+    std::cerr << "Waiting for ready pose runtime start timed out" << std::endl;
+    return false;
+  }
+  if (start_state == "failed" || start_state == "stopped") {
+    recorder.stopRecording();
+    std::cerr << "Ready pose runtime reached terminal state " << start_state << std::endl;
+    return false;
+  }
+
+  Clock::time_point settled_time{};
+  if (!recorder.waitForIdleAndStill(std::chrono::seconds(45), settled_time)) {
+    recorder.stopRecording();
+    std::cerr << "Waiting for ready pose idle-and-still settle timed out" << std::endl;
     return false;
   }
   std::this_thread::sleep_for(std::chrono::milliseconds(150));
@@ -1117,17 +1174,26 @@ CaseMetrics runScenario(const Scenario &scenario,
 
   Clock::time_point finish_time{};
   std::string terminal_state;
-  if (!recorder.waitForRuntimeRequestState(request_id,
-                                           {"completed", "completed_relaxed", "failed", "stopped"},
-                                           finish_time,
-                                           terminal_state,
-                                           kMotionTimeout)) {
-    metrics.samples = recorder.stopRecording();
-    addFailure(metrics, "waiting for motion completion failed: timed out");
-    return metrics;
-  }
-  if (terminal_state == "failed" || terminal_state == "stopped") {
-    addFailure(metrics, "runtime reached terminal state " + terminal_state);
+  if (mode == RegressionMode::default_smoke) {
+    if (!recorder.waitForIdleAndStill(kMotionTimeout, finish_time)) {
+      metrics.samples = recorder.stopRecording();
+      addFailure(metrics, "waiting for default-smoke motion settle failed: timed out");
+      return metrics;
+    }
+    terminal_state = "completed_smoke";
+  } else {
+    if (!recorder.waitForRuntimeRequestState(request_id,
+                                             {"completed", "completed_relaxed", "failed", "stopped"},
+                                             finish_time,
+                                             terminal_state,
+                                             kMotionTimeout)) {
+      metrics.samples = recorder.stopRecording();
+      addFailure(metrics, "waiting for motion completion failed: timed out");
+      return metrics;
+    }
+    if (terminal_state == "failed" || terminal_state == "stopped") {
+      addFailure(metrics, "runtime reached terminal state " + terminal_state);
+    }
   }
   metrics.execution_backend = recorder.latestRuntimeBackendForRequest(request_id);
   if (metrics.execution_backend.empty()) {
@@ -1139,7 +1205,8 @@ CaseMetrics runScenario(const Scenario &scenario,
   }
 
   Clock::time_point settled_time{};
-  if (recorder.waitForIdleAndStill(std::chrono::seconds(2), settled_time)) {
+  if (mode != RegressionMode::default_smoke &&
+      recorder.waitForIdleAndStill(std::chrono::seconds(2), settled_time)) {
     finish_time = settled_time;
   }
 

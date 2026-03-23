@@ -7,8 +7,10 @@ import time
 from typing import Optional
 
 import rclpy
+from rclpy.action import ActionClient
 from rclpy.node import Node
 
+from control_msgs.action import FollowJointTrajectory
 from rokae_xmate3_ros2.srv import (
     Disconnect,
     MoveReset,
@@ -141,6 +143,24 @@ class RuntimeCleanupMixin:
         while time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=0.1)
             time.sleep(0.05)
+
+
+class RuntimeReadinessMixin:
+    def _init_runtime_readiness_clients(self) -> None:
+        assert isinstance(self, Node)
+        self._trajectory_client = ActionClient(
+            self,
+            FollowJointTrajectory,
+            "/joint_trajectory_controller/follow_joint_trajectory",
+        )
+
+    def wait_for_jtc_action(self, timeout_sec: float) -> bool:
+        assert isinstance(self, Node)
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            if self._trajectory_client.wait_for_server(timeout_sec=0.25):
+                return True
+        return False
 
 
 def ensure_harness_import_path() -> None:

@@ -204,7 +204,8 @@ TEST(MotionPlannerCoreTest, LongCartesianPlansUseAdaptiveSamplingBeyondLegacyCap
     EXPECT_LE(max_step, 0.75);
   }
   EXPECT_GT(counters.jacobian_calls, 0u);
-  EXPECT_EQ(counters.jacobian_calls, counters.svd_calls);
+  EXPECT_GT(counters.svd_calls, 0u);
+  EXPECT_GE(counters.jacobian_calls, counters.svd_calls);
 }
 
 TEST(MotionPlannerCoreTest, CartesianZoneZeroKeepsTrimMetadataAtZero) {
@@ -319,6 +320,20 @@ TEST(MotionPlannerCoreTest, MoveSpUsesCartesianLookaheadPipelineAndDerivativeMet
   EXPECT_NEAR(segment.trajectory_total_time,
               (segment.joint_trajectory.size() - 1) * segment.trajectory_dt,
               1e-9);
+  double max_velocity = 0.0;
+  double max_acceleration = 0.0;
+  for (const auto &sample : segment.joint_velocity_trajectory) {
+    for (double value : sample) {
+      max_velocity = std::max(max_velocity, std::fabs(value));
+    }
+  }
+  for (const auto &sample : segment.joint_acceleration_trajectory) {
+    for (double value : sample) {
+      max_acceleration = std::max(max_acceleration, std::fabs(value));
+    }
+  }
+  EXPECT_GT(max_velocity, 1e-6);
+  EXPECT_GT(max_acceleration, 1e-6);
   for (std::size_t i = 1; i < segment.joint_trajectory.size(); ++i) {
     EXPECT_LE(rt::max_joint_step(segment.joint_trajectory[i - 1], segment.joint_trajectory[i]),
               rt::joint_branch_jump_threshold());

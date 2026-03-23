@@ -9,7 +9,7 @@
 #include <cmath>
 #include <mutex>
 
-#include "runtime/joint_retimer.hpp"
+#include "runtime/unified_retimer.hpp"
 
 namespace gazebo {
 
@@ -221,13 +221,7 @@ TrajectorySamples TrajectoryPlanner::planJointMove(
     }
 
     const auto config = current_config();
-    rokae_xmate3_ros2::runtime::JointRetimerConfig retimer_config;
-    retimer_config.joint_speed_limits_rad_per_sec = config.joint_speed_limits_rad_per_sec;
-    retimer_config.joint_acc_limits_rad_per_sec2 = config.joint_acc_limits_rad_per_sec2;
-    retimer_config.sample_dt = dt;
-    retimer_config.min_sample_dt = config.min_sample_dt;
-    retimer_config.max_sample_dt = config.max_sample_dt;
-    retimer_config.max_joint_step_rad = config.max_joint_step_rad;
+    auto retimer_config = rokae_xmate3_ros2::runtime::makeUnifiedRetimerConfig(dt);
 
     const auto retimed = rokae_xmate3_ros2::runtime::retimeJointQuintic(
         start,

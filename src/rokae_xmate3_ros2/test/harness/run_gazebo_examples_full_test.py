@@ -70,6 +70,24 @@ def _force_stop_process_group(proc: subprocess.Popen[str], timeout_sec: float = 
     raise RuntimeError("Timed out waiting for simulation process group to stop")
 
 
+def _request_graceful_shutdown(
+    proc: subprocess.Popen[str],
+    sentinel_path: Path,
+    timeout_sec: float = 20.0,
+) -> int | None:
+    if proc.poll() is not None:
+        return proc.returncode
+
+    sentinel_path.write_text("shutdown\n", encoding="utf-8")
+
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            return proc.returncode
+        time.sleep(0.1)
+    return None
+
+
 def _contains_forbidden_shutdown(lines: List[str]) -> bool:
     text = "".join(lines[-400:])
     return "exit code -11" in text or "exit code -6" in text
@@ -96,6 +114,9 @@ def main() -> int:
 
     log_path = Path(args.log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    shutdown_sentinel = log_path.with_suffix(".shutdown")
+    if shutdown_sentinel.exists():
+        shutdown_sentinel.unlink()
 
     env = os.environ.copy()
     env["ROKAE_XMATE3_ROS2_SHARE_DIR"] = args.package_share
@@ -113,6 +134,8 @@ def main() -> int:
         args.launch_runner,
         "--launch-file",
         args.simulation_launch,
+        "--shutdown-sentinel",
+        str(shutdown_sentinel),
         "--launch-arg",
         "gui:=false",
         "--launch-arg",
@@ -187,7 +210,9 @@ def main() -> int:
                 sink.flush()
                 return 1
 
-            stop_code = _force_stop_process_group(simulation)
+            stop_code = _request_graceful_shutdown(simulation, shutdown_sentinel)
+            if stop_code is None:
+                stop_code = _force_stop_process_group(simulation)
             sink.write(f"[harness] simulation process group stopped with code {stop_code}\n")
             sink.flush()
             pump.join(timeout=5.0)
@@ -199,6 +224,8 @@ def main() -> int:
 
             return 0
         finally:
+            if shutdown_sentinel.exists():
+                shutdown_sentinel.unlink()
             if simulation.poll() is None:
                 try:
                     _force_stop_process_group(simulation, timeout_sec=5.0)

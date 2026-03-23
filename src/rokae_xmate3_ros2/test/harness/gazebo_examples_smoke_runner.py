@@ -16,10 +16,10 @@ from rokae_xmate3_ros2.srv import (
     SetOperateMode,
 )
 
-from common import RuntimeCleanupMixin
+from common import RuntimeCleanupMixin, RuntimeReadinessMixin
 
 
-class JointStateProbe(Node, RuntimeCleanupMixin):
+class JointStateProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin):
     def __init__(self):
         super().__init__("rokae_gazebo_examples_smoke_probe")
         self._heartbeat_count = 0
@@ -32,6 +32,7 @@ class JointStateProbe(Node, RuntimeCleanupMixin):
             SetOperateMode, "/xmate3/cobot/set_operate_mode"
         )
         self._init_runtime_cleanup_clients()
+        self._init_runtime_readiness_clients()
         self._move_append_client = ActionClient(self, MoveAppend, "/xmate3/cobot/move_append")
         self.create_subscription(JointState, "/xmate3/joint_states", self._callback, 20)
 
@@ -73,9 +74,16 @@ class JointStateProbe(Node, RuntimeCleanupMixin):
                 return False
         while time.monotonic() < deadline:
             if self._move_append_client.wait_for_server(timeout_sec=0.25):
-                return True
-        sys.stderr.write("Timed out waiting for /xmate3/cobot/move_append action server\n")
-        return False
+                break
+        else:
+            sys.stderr.write("Timed out waiting for /xmate3/cobot/move_append action server\n")
+            return False
+        if not self.wait_for_jtc_action(max(0.0, deadline - time.monotonic())):
+            sys.stderr.write(
+                "Timed out waiting for /joint_trajectory_controller/follow_joint_trajectory action server\n"
+            )
+            return False
+        return True
 
 def run_example(binary_path, required_markers):
     completed = subprocess.run(

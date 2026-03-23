@@ -50,6 +50,9 @@ namespace {
 constexpr double kDefaultTrajectorySampleDt = 0.01;
 constexpr double kMinTrajectorySampleDt = 0.001;
 constexpr double kMaxTrajectorySampleDt = 0.05;
+constexpr double kTrajectoryCompletionInferenceGraceSec = 0.35;
+constexpr double kTrajectoryCompletionWallClockGraceSec = 0.5;
+constexpr double kTrajectoryCompletionInferenceVelocityRadPerSec = 0.02;
 
 enum class BackendMode {
   effort,
@@ -93,6 +96,14 @@ const char *toString(BackendMode mode) {
     default:
       return "hybrid";
   }
+}
+
+double maxAbsVector(const std::vector<double> &values) {
+  double max_value = 0.0;
+  for (double value : values) {
+    max_value = std::max(max_value, std::abs(value));
+  }
+  return max_value;
 }
 
 }  // namespace
@@ -237,6 +248,10 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
       trajectory_state_.request_id = goal.request_id;
       trajectory_state_.message = "sending trajectory";
       trajectory_segment_end_times_ = goal.segment_end_times;
+      trajectory_goal_duration_sec_ =
+          goal.points.empty() ? 0.0 : std::max(goal.points.back().time_from_start, 0.0);
+      trajectory_goal_dispatch_time_ = std::chrono::steady_clock::now();
+      trajectory_last_feedback_time_ = std::chrono::steady_clock::now();
       goal_handle_.reset();
     }
 
@@ -253,6 +268,7 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
           trajectory_state_.completed = (goal_handle == nullptr);
           trajectory_state_.failed = (goal_handle == nullptr);
           trajectory_state_.message = goal_handle != nullptr ? "trajectory accepted" : "trajectory goal rejected";
+          trajectory_goal_dispatch_time_ = std::chrono::steady_clock::now();
           goal_handle_ = goal_handle;
         };
     options.feedback_callback =
@@ -270,6 +286,7 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
           trajectory_state_.actual_velocity = feedback->actual.velocities;
           trajectory_state_.actual_acceleration = feedback->actual.accelerations;
           trajectory_state_.message = "executing";
+          trajectory_last_feedback_time_ = std::chrono::steady_clock::now();
         };
     options.result_callback =
         [this, request_id = goal.request_id, generation](const FollowJointTrajectoryGoalHandle::WrappedResult &result) {
@@ -293,6 +310,7 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
           } else {
             trajectory_state_.message = "trajectory aborted";
           }
+          trajectory_last_feedback_time_ = std::chrono::steady_clock::now();
         };
 
     const auto goal_future = trajectory_client_->async_send_goal(goal_msg, options);
@@ -374,6 +392,33 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
 
   [[nodiscard]] runtime::TrajectoryExecutionState readTrajectoryExecutionState() const override {
     std::lock_guard<std::mutex> lock(trajectory_mutex_);
+    if (trajectory_state_.active &&
+        !trajectory_state_.completed &&
+        trajectory_goal_duration_sec_ > 0.0) {
+      const bool reached_goal_horizon =
+          trajectory_state_.desired_time_from_start + 1e-3 >= trajectory_goal_duration_sec_;
+      const auto wall_elapsed =
+          std::chrono::duration<double>(std::chrono::steady_clock::now() - trajectory_goal_dispatch_time_).count();
+      const bool reached_wall_clock_horizon =
+          wall_elapsed >= trajectory_goal_duration_sec_ + kTrajectoryCompletionWallClockGraceSec;
+      const bool nearly_still =
+          !trajectory_state_.actual_velocity.empty() &&
+          maxAbsVector(trajectory_state_.actual_velocity) <=
+              kTrajectoryCompletionInferenceVelocityRadPerSec;
+      const auto feedback_age =
+          std::chrono::duration<double>(std::chrono::steady_clock::now() - trajectory_last_feedback_time_).count();
+      const bool stale_feedback = feedback_age >= kTrajectoryCompletionInferenceGraceSec;
+      if ((reached_goal_horizon && (nearly_still || stale_feedback)) || reached_wall_clock_horizon) {
+        trajectory_state_.active = false;
+        trajectory_state_.completed = true;
+        trajectory_state_.succeeded = true;
+        trajectory_state_.canceled = false;
+        trajectory_state_.failed = false;
+        if (trajectory_state_.message.empty() || trajectory_state_.message == "executing") {
+          trajectory_state_.message = "trajectory completed (inferred)";
+        }
+      }
+    }
     return trajectory_state_;
   }
 
@@ -393,8 +438,13 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
   std::vector<std::string> trajectory_joint_names_;
   mutable std::mutex trajectory_mutex_;
   std::shared_ptr<FollowJointTrajectoryGoalHandle> goal_handle_;
-  runtime::TrajectoryExecutionState trajectory_state_;
-  std::vector<double> trajectory_segment_end_times_;
+  mutable runtime::TrajectoryExecutionState trajectory_state_;
+  mutable std::vector<double> trajectory_segment_end_times_;
+  mutable std::chrono::steady_clock::time_point trajectory_goal_dispatch_time_{
+      std::chrono::steady_clock::now()};
+  mutable std::chrono::steady_clock::time_point trajectory_last_feedback_time_{
+      std::chrono::steady_clock::now()};
+  mutable double trajectory_goal_duration_sec_ = 0.0;
   std::uint64_t trajectory_generation_ = 0;
   std::atomic<runtime::ControlOwner> control_owner_{runtime::ControlOwner::none};
   std::atomic<bool> shutting_down_{false};

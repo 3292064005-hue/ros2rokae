@@ -669,6 +669,15 @@ bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
 
     run_segment.segment.target_joints = last_joints;
     run_segment.segment.target_cartesian = vector_from_pose(segment_final_pose(run_segment));
+    if (!project_joint_derivatives_from_cartesian(kinematics,
+                                                  cartesian_points,
+                                                  run_segment.segment.joint_trajectory,
+                                                  run_segment.segment.trajectory_dt,
+                                                  run_segment.segment.joint_velocity_trajectory,
+                                                  run_segment.segment.joint_acceleration_trajectory)) {
+      run_segment.segment.joint_velocity_trajectory.clear();
+      run_segment.segment.joint_acceleration_trajectory.clear();
+    }
     ik_seed = last_joints;
     current_joints = last_joints;
     segments.push_back(std::move(run_segment.segment));

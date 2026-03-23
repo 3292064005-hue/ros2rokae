@@ -1,6 +1,12 @@
 #include "robot_internal.hpp"
 
 namespace rokae::ros2 {
+namespace {
+
+constexpr size_t kMoveAppendMaxCount = 100;
+constexpr size_t kExecuteCommandMaxCount = 1000;
+
+}
 
 void xMateRobot::setMotionControlMode(rokae::MotionControlMode mode, std::error_code& ec) {
     if (!impl_->connected_) {
@@ -274,6 +280,200 @@ void xMateRobot::adjustSpeedOnline(double scale, std::error_code& ec) {
 
     ec.clear();
     RCLCPP_INFO(impl_->node_->get_logger(), "运动速率在线调整为: %.2f", scale);
+}
+
+void xMateRobot::startJog(rokae::JogOpt::Space space,
+                          double rate,
+                          double step,
+                          unsigned int index,
+                          bool direction,
+                          std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    if (index >= 6) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    if (!(rate > 0.0 && rate <= 1.0)) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    double sdk_step = step;
+    if (space == rokae::JogOpt::Space::jointSpace) {
+        sdk_step = rokae::Utils::degToRad(step);
+    } else {
+        sdk_step = step / 1000.0;
+    }
+    const double signed_step = direction ? std::abs(sdk_step) : -std::abs(sdk_step);
+    const int cmd_speed = std::clamp(static_cast<int>(std::lround(rate * 100.0)), 1, 100);
+    moveReset(ec);
+    if (ec) {
+        return;
+    }
+
+    if (space == rokae::JogOpt::Space::jointSpace) {
+        auto joints = jointPos(ec);
+        if (ec) {
+            return;
+        }
+        rokae::MoveAbsJCommand cmd;
+        cmd.target.joints.assign(joints.begin(), joints.end());
+        cmd.target.joints[index] += signed_step;
+        cmd.speed = cmd_speed;
+        cmd.zone = 0;
+        moveAbsJ(cmd, ec);
+    } else {
+        auto pose = cartPosture(rokae::CoordinateType::flangeInBase, ec);
+        if (ec) {
+            return;
+        }
+        switch (index) {
+            case 0: pose.x += signed_step; break;
+            case 1: pose.y += signed_step; break;
+            case 2: pose.z += signed_step; break;
+            case 3: pose.rx += signed_step; break;
+            case 4: pose.ry += signed_step; break;
+            case 5: pose.rz += signed_step; break;
+            default: break;
+        }
+        rokae::MoveLCommand cmd;
+        cmd.target = pose;
+        cmd.speed = cmd_speed;
+        cmd.zone = 0;
+        moveL(cmd, ec);
+    }
+
+    if (ec) {
+        return;
+    }
+    moveStart(ec);
+}
+
+void xMateRobot::startJog(rokae::JogOpt::Space space,
+                          unsigned int index,
+                          bool direction,
+                          double step,
+                          std::error_code& ec) {
+    startJog(space, 0.1, step, index, direction, ec);
+}
+
+void xMateRobot::moveAppend(const std::vector<rokae::MoveAbsJCommand>& cmds, std::string& cmdID, std::error_code& ec) {
+    if (cmds.empty() || cmds.size() > kMoveAppendMaxCount) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    cmdID = std::to_string(impl_->next_cmd_id_++);
+    for (const auto& cmd : cmds) {
+        moveAbsJ(cmd, ec);
+        if (ec) return;
+    }
+    ec.clear();
+}
+
+void xMateRobot::moveAppend(const std::vector<rokae::MoveJCommand>& cmds, std::string& cmdID, std::error_code& ec) {
+    if (cmds.empty() || cmds.size() > kMoveAppendMaxCount) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    cmdID = std::to_string(impl_->next_cmd_id_++);
+    for (const auto& cmd : cmds) {
+        moveJ(cmd, ec);
+        if (ec) return;
+    }
+    ec.clear();
+}
+
+void xMateRobot::moveAppend(const std::vector<rokae::MoveLCommand>& cmds, std::string& cmdID, std::error_code& ec) {
+    if (cmds.empty() || cmds.size() > kMoveAppendMaxCount) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    cmdID = std::to_string(impl_->next_cmd_id_++);
+    for (const auto& cmd : cmds) {
+        moveL(cmd, ec);
+        if (ec) return;
+    }
+    ec.clear();
+}
+
+void xMateRobot::moveAppend(const std::vector<rokae::MoveCCommand>& cmds, std::string& cmdID, std::error_code& ec) {
+    if (cmds.empty() || cmds.size() > kMoveAppendMaxCount) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    cmdID = std::to_string(impl_->next_cmd_id_++);
+    for (const auto& cmd : cmds) {
+        moveC(cmd, ec);
+        if (ec) return;
+    }
+    ec.clear();
+}
+
+void xMateRobot::moveAppend(const std::vector<rokae::MoveCFCommand>& cmds, std::string& cmdID, std::error_code& ec) {
+    if (cmds.empty() || cmds.size() > kMoveAppendMaxCount) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    cmdID = std::to_string(impl_->next_cmd_id_++);
+    for (const auto& cmd : cmds) {
+        moveCF(cmd, ec);
+        if (ec) return;
+    }
+    ec.clear();
+}
+
+void xMateRobot::moveAppend(const std::vector<rokae::MoveSPCommand>& cmds, std::string& cmdID, std::error_code& ec) {
+    if (cmds.empty() || cmds.size() > kMoveAppendMaxCount) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    cmdID = std::to_string(impl_->next_cmd_id_++);
+    for (const auto& cmd : cmds) {
+        moveSP(cmd, ec);
+        if (ec) return;
+    }
+    ec.clear();
+}
+
+void xMateRobot::executeCommand(const std::vector<rokae::MoveAbsJCommand>& cmds, std::error_code& ec) {
+    if (cmds.empty() || cmds.size() > kExecuteCommandMaxCount) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    std::string cmd_id;
+    moveReset(ec);
+    if (ec) return;
+    moveAppend(cmds, cmd_id, ec);
+    if (ec) return;
+    moveStart(ec);
+}
+
+void xMateRobot::executeCommand(const std::vector<rokae::MoveJCommand>& cmds, std::error_code& ec) {
+    if (cmds.empty() || cmds.size() > kExecuteCommandMaxCount) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    std::string cmd_id;
+    moveReset(ec);
+    if (ec) return;
+    moveAppend(cmds, cmd_id, ec);
+    if (ec) return;
+    moveStart(ec);
+}
+
+void xMateRobot::executeCommand(const std::vector<rokae::MoveLCommand>& cmds, std::error_code& ec) {
+    if (cmds.empty() || cmds.size() > kExecuteCommandMaxCount) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    std::string cmd_id;
+    moveReset(ec);
+    if (ec) return;
+    moveAppend(cmds, cmd_id, ec);
+    if (ec) return;
+    moveStart(ec);
 }
 
 // ==================== IO接口实现 ====================
