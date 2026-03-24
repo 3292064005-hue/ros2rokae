@@ -32,6 +32,17 @@ SHUTDOWN_PHASE = {
     6: "faulted",
 }
 
+CONTRACT_CODE = {
+    0: "ok",
+    1: "shutdown_requested",
+    2: "runtime_draining",
+    3: "backend_detached",
+    4: "safe_to_delete",
+    5: "safe_to_stop_world",
+    6: "finished",
+    7: "faulted",
+}
+
 
 class TeePump(threading.Thread):
     def __init__(self, stream, sink, mirror, line_buffer):
@@ -396,7 +407,11 @@ def _prepare_plugin_shutdown(sink) -> bool:
                 sink.flush()
                 return False
             sink.write(
-                "[harness] prepare shutdown: owner="
+                "[harness] prepare shutdown: contract_version="
+                + str(response.contract_version)
+                + " code="
+                + CONTRACT_CODE.get(response.code, str(response.code))
+                + " owner="
                 + str(response.owner)
                 + " safe_to_delete="
                 + str(response.safe_to_delete)
@@ -417,7 +432,7 @@ def _prepare_plugin_shutdown(sink) -> bool:
                 + "\n"
             )
             sink.flush()
-            if response.accepted and response.safe_to_delete:
+            if response.accepted and response.contract_version == 1 and response.safe_to_delete:
                 return True
             time.sleep(0.25)
         sink.write("[harness] prepare shutdown never reached safe_to_delete\n")

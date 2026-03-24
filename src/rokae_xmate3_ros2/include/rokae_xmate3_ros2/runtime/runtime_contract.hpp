@@ -7,6 +7,8 @@
 
 namespace rokae_xmate3_ros2::runtime {
 
+inline constexpr std::uint32_t kRuntimeContractVersion = 1;
+
 enum class ControlOwner : std::uint8_t {
   none,
   effort,
@@ -30,7 +32,20 @@ enum class ShutdownPhase : std::uint8_t {
   faulted,
 };
 
+enum class RuntimeContractCode : std::uint16_t {
+  ok,
+  shutdown_requested,
+  runtime_draining,
+  backend_detached,
+  safe_to_delete,
+  safe_to_stop_world,
+  finished,
+  faulted,
+};
+
 struct RuntimeContractView {
+  std::uint32_t contract_version = kRuntimeContractVersion;
+  RuntimeContractCode code = RuntimeContractCode::ok;
   ControlOwner owner = ControlOwner::none;
   RuntimePhase runtime_phase = RuntimePhase::idle;
   ShutdownPhase shutdown_phase = ShutdownPhase::running;
@@ -45,6 +60,11 @@ struct RuntimeContractView {
 template <typename Enum>
 constexpr std::uint8_t to_u8(Enum value) noexcept {
   return static_cast<std::uint8_t>(value);
+}
+
+template <typename Enum>
+constexpr std::uint16_t to_u16(Enum value) noexcept {
+  return static_cast<std::uint16_t>(value);
 }
 
 inline const char *to_string(ControlOwner owner) noexcept {
@@ -87,6 +107,27 @@ inline const char *to_string(ShutdownPhase phase) noexcept {
       return "faulted";
     default:
       return "running";
+  }
+}
+
+inline const char *to_string(RuntimeContractCode code) noexcept {
+  switch (code) {
+    case RuntimeContractCode::shutdown_requested:
+      return "shutdown_requested";
+    case RuntimeContractCode::runtime_draining:
+      return "runtime_draining";
+    case RuntimeContractCode::backend_detached:
+      return "backend_detached";
+    case RuntimeContractCode::safe_to_delete:
+      return "safe_to_delete";
+    case RuntimeContractCode::safe_to_stop_world:
+      return "safe_to_stop_world";
+    case RuntimeContractCode::finished:
+      return "finished";
+    case RuntimeContractCode::faulted:
+      return "faulted";
+    default:
+      return "ok";
   }
 }
 

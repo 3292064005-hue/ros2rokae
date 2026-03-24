@@ -47,24 +47,13 @@ class ShutdownCoordinator {
 
   void updateFacts(const RuntimeContractFacts &facts) {
     facts_ = facts;
-
-    if (!requested_) {
-      phase_ = ShutdownPhase::running;
-      last_message_ = facts_.message.empty() ? std::string{"shutdown not requested"} : facts_.message;
-      return;
-    }
-
-    if (facts_.faulted || facts_.runtime_phase == RuntimePhase::faulted) {
-      phase_ = ShutdownPhase::faulted;
-      last_message_ = facts_.message.empty() ? std::string{"shutdown faulted"} : facts_.message;
-      return;
-    }
-
-    advancePhase();
+    stepPhase();
   }
 
   [[nodiscard]] RuntimeContractView currentView() const {
     RuntimeContractView view;
+    view.contract_version = kRuntimeContractVersion;
+    view.code = contractCode();
     view.owner = facts_.owner;
     view.runtime_phase = facts_.runtime_phase;
     view.shutdown_phase = phase_;
@@ -83,6 +72,22 @@ class ShutdownCoordinator {
   }
 
  private:
+  void stepPhase() {
+    if (!requested_) {
+      phase_ = ShutdownPhase::running;
+      last_message_ = facts_.message.empty() ? std::string{"shutdown not requested"} : facts_.message;
+      return;
+    }
+
+    if (facts_.faulted || facts_.runtime_phase == RuntimePhase::faulted) {
+      phase_ = ShutdownPhase::faulted;
+      last_message_ = facts_.message.empty() ? std::string{"shutdown faulted"} : facts_.message;
+      return;
+    }
+
+    advancePhase();
+  }
+
   [[nodiscard]] bool runtimeDrained() const noexcept {
     return facts_.owner == ControlOwner::none &&
            facts_.active_request_count == 0 &&
@@ -100,6 +105,32 @@ class ShutdownCoordinator {
 
   [[nodiscard]] bool safeToStopWorldReady() const noexcept {
     return safeToDeleteReady();
+  }
+
+  [[nodiscard]] RuntimeContractCode contractCode() const noexcept {
+    if (phase_ == ShutdownPhase::faulted || facts_.faulted || facts_.runtime_phase == RuntimePhase::faulted) {
+      return RuntimeContractCode::faulted;
+    }
+    if (!requested_) {
+      return RuntimeContractCode::ok;
+    }
+    switch (phase_) {
+      case ShutdownPhase::running:
+        return RuntimeContractCode::shutdown_requested;
+      case ShutdownPhase::draining:
+        return RuntimeContractCode::runtime_draining;
+      case ShutdownPhase::backend_detached:
+        return RuntimeContractCode::backend_detached;
+      case ShutdownPhase::safe_to_delete:
+        return RuntimeContractCode::safe_to_delete;
+      case ShutdownPhase::safe_to_stop_world:
+        return RuntimeContractCode::safe_to_stop_world;
+      case ShutdownPhase::finished:
+        return RuntimeContractCode::finished;
+      case ShutdownPhase::faulted:
+        return RuntimeContractCode::faulted;
+    }
+    return RuntimeContractCode::ok;
   }
 
   void advancePhase() {

@@ -163,6 +163,7 @@ void createArchiveFixtureTree(const std::filesystem::path &root, bool dirty_arch
     writeTextFile(root / "xmate3_sdk_manual.pdf", "not a real pdf but should still be rejected\n");
     writeTextFile(root / "src/rokae_xmate3_ros2/test/harness/__pycache__/stale.cpython-312.pyc", "pyc");
     writeTextFile(root / "build/generated.cache", "build artifact");
+    writeTextFile(root / "Testing/Temporary/LastTest.log", "workspace snapshot marker\n");
   }
 }
 
@@ -836,6 +837,8 @@ TEST(RuntimeArchiveVerificationTest, PackagingScriptCreatesVerifiedCleanArchiveF
   EXPECT_NE(manifest_text.find("package_version=2.1.0"), std::string::npos);
   EXPECT_NE(manifest_text.find("git_commit="), std::string::npos);
   EXPECT_NE(manifest_text.find("generated_at_utc="), std::string::npos);
+  EXPECT_NE(manifest_text.find("archive_root_mode=package_root+whitelist_sidecars"), std::string::npos);
+  EXPECT_NE(manifest_text.find("source_tree_kind=verified_release_candidate"), std::string::npos);
   EXPECT_NE(manifest_text.find("file_count="), std::string::npos);
   EXPECT_NE(manifest_text.find(".gitignore"), std::string::npos);
   EXPECT_NE(manifest_text.find("colcon_defaults.yaml"), std::string::npos);

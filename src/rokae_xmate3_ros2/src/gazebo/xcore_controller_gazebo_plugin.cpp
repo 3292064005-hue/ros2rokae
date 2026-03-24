@@ -637,6 +637,8 @@ XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
 
     runtime::ShutdownContractView state;
     if (!runtime_context_) {
+        state.contract_version = runtime::kRuntimeContractVersion;
+        state.code = runtime::RuntimeContractCode::faulted;
         state.owner = runtime::ControlOwner::none;
         state.runtime_phase = runtime::RuntimePhase::faulted;
         state.shutdown_phase = runtime::ShutdownPhase::faulted;
@@ -662,13 +664,12 @@ XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
          trajectory_state.canceled || trajectory_state.succeeded);
     facts.plugin_detached = shutting_down_.load() && !static_cast<bool>(update_conn_);
     facts.faulted = facts.faulted || facts.runtime_phase == runtime::RuntimePhase::faulted;
-    facts.message = shutdown_prepared_ ? "shutdown prepared" : "shutdown requested";
+    if (facts.message.empty()) {
+        facts.message = shutdown_prepared_ ? "shutdown prepared" : "shutdown requested";
+    }
 
     shutdown_coordinator_.updateFacts(facts);
     state = shutdown_coordinator_.currentView();
-    if (!shutdown_prepared_ && state.shutdown_phase != runtime::ShutdownPhase::faulted) {
-        state.message = "shutdown not prepared";
-    }
     return state;
 }
 
@@ -885,6 +886,8 @@ void XCoreControllerPlugin::InitROS2() {
           const auto state = collectShutdownContractState(request->request_shutdown);
           response->accepted = runtime_context_ != nullptr &&
                                (request->request_shutdown || shutdown_coordinator_.requested());
+          response->contract_version = state.contract_version;
+          response->code = runtime::to_u16(state.code);
           response->owner = runtime::to_u8(state.owner);
           response->runtime_phase = runtime::to_u8(state.runtime_phase);
           response->shutdown_phase = runtime::to_u8(state.shutdown_phase);
@@ -898,10 +901,12 @@ void XCoreControllerPlugin::InitROS2() {
           response->message = state.message;
           RCLCPP_INFO(
               node_->get_logger(),
-              "prepare_shutdown contract accepted=%s owner=%s runtime_phase=%s shutdown_phase=%s "
+              "prepare_shutdown contract accepted=%s version=%u code=%s owner=%s runtime_phase=%s shutdown_phase=%s "
               "active_request_count=%zu active_goal_count=%zu backend_quiescent=%s "
               "safe_to_delete=%s safe_to_stop_world=%s message=%s",
               response->accepted ? "true" : "false",
+              response->contract_version,
+              runtime::to_string(state.code),
               runtime::to_string(state.owner),
               runtime::to_string(state.runtime_phase),
               runtime::to_string(state.shutdown_phase),

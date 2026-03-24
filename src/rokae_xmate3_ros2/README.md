@@ -148,6 +148,7 @@ source install/setup.bash
 
 release build、`ctest` 与源码归档打包建议统一通过 `src/rokae_xmate3_ros2/tools/clean_build_env.sh` 运行。
 它会固定 `/usr/bin/python3`，并清理 Conda 相关环境变量，避免影子库路径污染构建或发布结果。
+release-grade build/test/package 必须通过这个 wrapper 运行；它只负责清理环境污染，不再向运行时主动注入当前目录或 `build/*`、`install/*` 动态库路径。
 
 ### 3. 启动仿真
 
@@ -220,14 +221,37 @@ cmake -DROKAE_SOURCE_ARCHIVE=/path/to/src.zip /home/chen/ros2_ws0/src/rokae_xmat
 cd ~/ros2_ws0/build/rokae_xmate3_ros2
 cmake -DROKAE_SOURCE_ARCHIVE_OUTPUT=$PWD/rokae_source_candidate.zip /home/chen/ros2_ws0/src/rokae_xmate3_ros2
 ../../src/rokae_xmate3_ros2/tools/clean_build_env.sh \
-  cmake --build . --target package_verified_source_archive
+  cmake --build . --target release_candidate
 ```
 
 禁止直接上传手工打包的 `src.zip`；只允许分发 `package_verified_source_archive` 生成并通过 archive gate 的候选包。
 候选包主体固定为 `src/rokae_xmate3_ros2` 的 package root，工作区根只白名单附带 `.gitignore` 和 `colcon_defaults.yaml`。
-工作区根 PDF、`tmp_*` 日志以及缓存/构建产物都会被 archive gate 拒绝。
+`Testing/`、工作区根 PDF、`tmp_*` 日志以及缓存/构建产物都会被 archive gate 拒绝。
 候选包旁边会同时生成 `.manifest.txt` 与 `.sha256` sidecar，用来核对“外发包就是刚刚验过的那个包”。
 manifest 会额外记录 `package.xml` 版本号、git commit hash 和 UTC 生成时间，方便后续追溯候选包来源。
+
+### Release package rule
+
+Only the archive produced by `release_candidate` / `package_verified_source_archive` may be distributed.
+
+Do not distribute:
+- workspace snapshots
+- manually zipped source trees
+- archives containing `Testing/`, `build/`, `log/`, `__pycache__`, `.pyc`, `.pdf` or `tmp_*`
+
+Recommended release flow:
+
+```bash
+cd ~/ros2_ws0
+src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  cmake -S src/rokae_xmate3_ros2 -B build/rokae_release
+src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  cmake --build build/rokae_release -j
+src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  ctest --test-dir build/rokae_release --output-on-failure
+src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  cmake --build build/rokae_release --target release_candidate
+```
 
 默认 `ctest --output-on-failure` 固定为 12 项轻量门禁：
 - 9 个纯单测

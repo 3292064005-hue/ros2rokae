@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import hashlib
+import os
 import subprocess
 import sys
 import zipfile
@@ -16,6 +17,17 @@ WORKSPACE_SIDECARS = (
     ".gitignore",
     "colcon_defaults.yaml",
 )
+
+
+def _enforce_clean_env_if_requested() -> None:
+    if os.environ.get("ROKAE_ENFORCE_CLEAN_ENV") != "1":
+        return
+    conda_prefix = os.environ.get("CONDA_PREFIX", "").strip()
+    if conda_prefix and os.environ.get("ROKAE_CLEAN_ENV_ACTIVE") != "1":
+        raise RuntimeError(
+            "release archive packaging must run from clean_build_env.sh; "
+            f"active Conda environment detected at {conda_prefix}"
+        )
 
 
 def _tracked_workspace_files(workspace_root: Path) -> list[Path]:
@@ -126,9 +138,11 @@ def _write_archive_sidecars(archive_path: Path,
     manifest_lines = [
         f"archive={archive_path.name}",
         f"sha256={archive_hash}",
+        "archive_root_mode=package_root+whitelist_sidecars",
         f"package_version={package_version}",
         f"git_commit={git_commit}",
         f"generated_at_utc={generated_at_utc}",
+        "source_tree_kind=verified_release_candidate",
         f"file_count={len(normalized_files)}",
         "files:",
     ]
@@ -139,6 +153,7 @@ def _write_archive_sidecars(archive_path: Path,
 
 
 def main() -> int:
+    _enforce_clean_env_if_requested()
     parser = argparse.ArgumentParser()
     parser.add_argument("--package-root", required=True)
     parser.add_argument("--workspace-root", required=True)

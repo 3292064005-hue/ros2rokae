@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -24,6 +25,7 @@ FORBIDDEN_DIR_PARTS = {
     "log",
     ".cache",
     "CMakeFiles",
+    "Testing",
 }
 
 FORBIDDEN_FILE_SUFFIXES = (
@@ -90,10 +92,25 @@ def _verify_archive_cleanliness(archive_path: Path) -> None:
         offenders = [name for name in archive.namelist() if _is_forbidden_archive_entry(name)]
     if offenders:
         preview = ", ".join(sorted(offenders)[:8])
-        raise RuntimeError(f"archive contains forbidden artifacts: {preview}")
+        raise RuntimeError(
+            "archive appears to be a workspace snapshot, not a verified release archive: "
+            f"{preview}"
+        )
+
+
+def _enforce_clean_env_if_requested() -> None:
+    if os.environ.get("ROKAE_ENFORCE_CLEAN_ENV") != "1":
+        return
+    conda_prefix = os.environ.get("CONDA_PREFIX", "").strip()
+    if conda_prefix and os.environ.get("ROKAE_CLEAN_ENV_ACTIVE") != "1":
+        raise RuntimeError(
+            "release archive verification must run from clean_build_env.sh; "
+            f"active Conda environment detected at {conda_prefix}"
+        )
 
 
 def main() -> int:
+    _enforce_clean_env_if_requested()
     parser = argparse.ArgumentParser()
     parser.add_argument("--package-root", required=True)
     parser.add_argument("--workspace-root", required=True)

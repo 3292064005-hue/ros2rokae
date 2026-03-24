@@ -7,8 +7,6 @@ if [ "$#" -eq 0 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-WORKSPACE_ROOT="$(cd "${PACKAGE_ROOT}/../.." && pwd)"
 
 filter_path_list() {
   local raw_value="${1:-}"
@@ -46,28 +44,6 @@ filter_path_list() {
   printf '%s' "${joined}"
 }
 
-append_path_if_dir() {
-  local value="${1:-}"
-  local dir="${2:-}"
-  if [ -z "${dir}" ] || [ ! -d "${dir}" ]; then
-    printf '%s' "${value}"
-    return 0
-  fi
-
-  case ":${value}:" in
-    *":${dir}:"*)
-      printf '%s' "${value}"
-      ;;
-    *)
-      if [ -n "${value}" ]; then
-        printf '%s:%s' "${dir}" "${value}"
-      else
-        printf '%s' "${dir}"
-      fi
-      ;;
-  esac
-}
-
 unset CONDA_PREFIX
 unset CONDA_DEFAULT_ENV
 unset CONDA_PROMPT_MODIFIER
@@ -86,10 +62,6 @@ unset PKG_CONFIG_PATH
 
 export PYTHONPATH="$(filter_path_list "${PYTHONPATH:-}")"
 FILTERED_LD_LIBRARY_PATH="$(filter_path_list "${LD_LIBRARY_PATH:-}")"
-FILTERED_LD_LIBRARY_PATH="$(append_path_if_dir "${FILTERED_LD_LIBRARY_PATH}" "${PWD}")"
-for candidate_dir in "${WORKSPACE_ROOT}/build"/* "${WORKSPACE_ROOT}/install"/*; do
-  FILTERED_LD_LIBRARY_PATH="$(append_path_if_dir "${FILTERED_LD_LIBRARY_PATH}" "${candidate_dir}")"
-done
 export LD_LIBRARY_PATH="${FILTERED_LD_LIBRARY_PATH}"
 
 SYSTEM_PATH="/usr/bin:/bin:/usr/sbin:/sbin"

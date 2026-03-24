@@ -342,6 +342,8 @@ TEST(MotionRuntimeStateTest, ShutdownCoordinatorExposesMonotonicPhaseProgression
 
   coordinator.updateFacts(facts);
   const auto draining = coordinator.currentView();
+  EXPECT_EQ(draining.contract_version, rt::kRuntimeContractVersion);
+  EXPECT_EQ(draining.code, rt::RuntimeContractCode::runtime_draining);
   EXPECT_EQ(draining.owner, rt::ControlOwner::trajectory);
   EXPECT_EQ(draining.runtime_phase, rt::RuntimePhase::executing);
   EXPECT_EQ(draining.shutdown_phase, rt::ShutdownPhase::draining);
@@ -358,18 +360,21 @@ TEST(MotionRuntimeStateTest, ShutdownCoordinatorExposesMonotonicPhaseProgression
 
   coordinator.updateFacts(facts);
   const auto backend_detached = coordinator.currentView();
+  EXPECT_EQ(backend_detached.code, rt::RuntimeContractCode::backend_detached);
   EXPECT_EQ(backend_detached.shutdown_phase, rt::ShutdownPhase::backend_detached);
   EXPECT_TRUE(backend_detached.backend_quiescent);
   EXPECT_FALSE(backend_detached.safe_to_delete);
 
   coordinator.updateFacts(facts);
   const auto safe_to_delete = coordinator.currentView();
+  EXPECT_EQ(safe_to_delete.code, rt::RuntimeContractCode::safe_to_delete);
   EXPECT_EQ(safe_to_delete.shutdown_phase, rt::ShutdownPhase::safe_to_delete);
   EXPECT_TRUE(safe_to_delete.safe_to_delete);
   EXPECT_FALSE(safe_to_delete.safe_to_stop_world);
 
   coordinator.updateFacts(facts);
   const auto safe_to_stop_world = coordinator.currentView();
+  EXPECT_EQ(safe_to_stop_world.code, rt::RuntimeContractCode::safe_to_stop_world);
   EXPECT_EQ(safe_to_stop_world.shutdown_phase, rt::ShutdownPhase::safe_to_stop_world);
   EXPECT_TRUE(safe_to_stop_world.safe_to_delete);
   EXPECT_TRUE(safe_to_stop_world.safe_to_stop_world);

@@ -75,7 +75,9 @@ set(ROKAE_SOURCE_ARCHIVE_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rokae_source_candid
   "Output path for the verified source archive release candidate"
 )
 add_custom_target(verify_source_archive
-  COMMAND "${ROKAE_CLEAN_ENV_WRAPPER}" "${ROKAE_SYSTEM_PYTHON}"
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "ROKAE_ENFORCE_CLEAN_ENV=1"
+          "${ROKAE_CLEAN_ENV_WRAPPER}" "${ROKAE_SYSTEM_PYTHON}"
           "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_source_archive.py"
           --package-root "${ROKAE_SOURCE_PACKAGE_ROOT}"
           --workspace-root "${ROKAE_SOURCE_WORKSPACE_ROOT}"
@@ -85,7 +87,9 @@ add_custom_target(verify_source_archive
   VERBATIM
 )
 add_custom_target(package_verified_source_archive
-  COMMAND "${ROKAE_CLEAN_ENV_WRAPPER}" "${ROKAE_SYSTEM_PYTHON}"
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "ROKAE_ENFORCE_CLEAN_ENV=1"
+          "${ROKAE_CLEAN_ENV_WRAPPER}" "${ROKAE_SYSTEM_PYTHON}"
           "${CMAKE_CURRENT_SOURCE_DIR}/cmake/create_verified_source_archive.py"
           --package-root "${ROKAE_SOURCE_PACKAGE_ROOT}"
           --workspace-root "${ROKAE_SOURCE_WORKSPACE_ROOT}"
@@ -93,6 +97,10 @@ add_custom_target(package_verified_source_archive
   WORKING_DIRECTORY "${ROKAE_SOURCE_WORKSPACE_ROOT}"
   COMMENT "Creating and verifying the single allowed release-candidate source archive"
   VERBATIM
+)
+add_custom_target(release_candidate
+  DEPENDS package_verified_source_archive
+  COMMENT "Produce the only distributable verified source archive"
 )
 if(ROKAE_SOURCE_ARCHIVE)
   add_test(
@@ -494,6 +502,7 @@ if(BUILD_TESTING)
   else()
     set(ROKAE_LAUNCH_TEST_PYTHON "${Python3_EXECUTABLE}")
   endif()
+  set(ROKAE_RUNTIME_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 
   ament_add_gtest(test_motion_planner_core
     test/unit/test_motion_planner_core.cpp
@@ -715,6 +724,7 @@ RESULTS_DIR = r"@GAZEBO_TEST_RESULTS_DIR@"
 PACKAGE_SHARE = r"@CMAKE_CURRENT_SOURCE_DIR@"
 PACKAGE_LIB_DIR = r"$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
 ROSIDL_PY_PATH = r"@CMAKE_CURRENT_BINARY_DIR@/rosidl_generator_py"
+RUNTIME_LIB_DIR = r"@ROKAE_RUNTIME_LIB_DIR@"
 
 
 def generate_test_description():
@@ -744,6 +754,7 @@ def generate_test_description():
         SetEnvironmentVariable("ROKAE_XMATE3_ROS2_LIB_DIR", PACKAGE_LIB_DIR),
         SetEnvironmentVariable("GAZEBO_MASTER_URI", "http://127.0.0.1:11454"),
         SetEnvironmentVariable("PYTHONPATH", [ROSIDL_PY_PATH, ":", EnvironmentVariable("PYTHONPATH", default_value="")]),
+        SetEnvironmentVariable("LD_LIBRARY_PATH", [RUNTIME_LIB_DIR, ":", EnvironmentVariable("LD_LIBRARY_PATH", default_value="")]),
         simulation,
         TimerAction(period=6.0, actions=[runner]),
         shutdown_handler,
@@ -791,6 +802,7 @@ RESULTS_DIR = r"@GAZEBO_TEST_RESULTS_DIR@/strict"
 PACKAGE_SHARE = r"@CMAKE_CURRENT_SOURCE_DIR@"
 PACKAGE_LIB_DIR = r"$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
 ROSIDL_PY_PATH = r"@CMAKE_CURRENT_BINARY_DIR@/rosidl_generator_py"
+RUNTIME_LIB_DIR = r"@ROKAE_RUNTIME_LIB_DIR@"
 
 
 def generate_test_description():
@@ -817,6 +829,7 @@ def generate_test_description():
         SetEnvironmentVariable("ROKAE_XMATE3_ROS2_SHARE_DIR", PACKAGE_SHARE),
         SetEnvironmentVariable("ROKAE_XMATE3_ROS2_LIB_DIR", PACKAGE_LIB_DIR),
         SetEnvironmentVariable("PYTHONPATH", [ROSIDL_PY_PATH, ":", EnvironmentVariable("PYTHONPATH", default_value="")]),
+        SetEnvironmentVariable("LD_LIBRARY_PATH", [RUNTIME_LIB_DIR, ":", EnvironmentVariable("LD_LIBRARY_PATH", default_value="")]),
         simulation,
         runner,
         shutdown_handler,
@@ -867,6 +880,7 @@ EXAMPLE_18 = r"$<TARGET_FILE:example_18_toolset_and_calibration>"
 PACKAGE_SHARE = r"@CMAKE_CURRENT_SOURCE_DIR@"
 PACKAGE_LIB_DIR = r"$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
 ROSIDL_PY_PATH = r"@CMAKE_CURRENT_BINARY_DIR@/rosidl_generator_py"
+RUNTIME_LIB_DIR = r"@ROKAE_RUNTIME_LIB_DIR@"
 
 
 def generate_test_description():
@@ -898,6 +912,7 @@ def generate_test_description():
         SetEnvironmentVariable("ROKAE_XMATE3_ROS2_SHARE_DIR", PACKAGE_SHARE),
         SetEnvironmentVariable("ROKAE_XMATE3_ROS2_LIB_DIR", PACKAGE_LIB_DIR),
         SetEnvironmentVariable("PYTHONPATH", [ROSIDL_PY_PATH, ":", EnvironmentVariable("PYTHONPATH", default_value="")]),
+        SetEnvironmentVariable("LD_LIBRARY_PATH", [RUNTIME_LIB_DIR, ":", EnvironmentVariable("LD_LIBRARY_PATH", default_value="")]),
         simulation,
         runner,
         shutdown_handler,
@@ -932,6 +947,7 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
       "ROKAE_XMATE3_ROS2_SHARE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
       "ROKAE_XMATE3_ROS2_LIB_DIR=$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
       "PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py:$ENV{PYTHONPATH}"
+      "LD_LIBRARY_PATH=${ROKAE_RUNTIME_LIB_DIR}:$ENV{LD_LIBRARY_PATH}"
       "${ROKAE_LAUNCH_TEST_PYTHON}"
       "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/run_gazebo_examples_full_test.py"
       "--simulation-launch" "${CMAKE_CURRENT_SOURCE_DIR}/launch/simulation.launch.py"
@@ -966,6 +982,7 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
         "ROKAE_XMATE3_ROS2_SHARE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
         "ROKAE_XMATE3_ROS2_LIB_DIR=$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
         "PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py:$ENV{PYTHONPATH}"
+        "LD_LIBRARY_PATH=${ROKAE_RUNTIME_LIB_DIR}:$ENV{LD_LIBRARY_PATH}"
         "${ROKAE_LAUNCH_TEST_PYTHON}"
         "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/gazebo_teardown_quality_runner.py"
         "--simulation-launch" "${CMAKE_CURRENT_SOURCE_DIR}/launch/simulation.launch.py"
@@ -989,6 +1006,7 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
         "ROKAE_XMATE3_ROS2_SHARE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
         "ROKAE_XMATE3_ROS2_LIB_DIR=$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
         "PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py:$ENV{PYTHONPATH}"
+        "LD_LIBRARY_PATH=${ROKAE_RUNTIME_LIB_DIR}:$ENV{LD_LIBRARY_PATH}"
         "${ROKAE_LAUNCH_TEST_PYTHON}"
         "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/gazebo_teardown_quality_runner.py"
         "--simulation-launch" "${CMAKE_CURRENT_SOURCE_DIR}/launch/simulation.launch.py"
@@ -1033,6 +1051,7 @@ RUNNER = r"@CMAKE_CURRENT_SOURCE_DIR@/test/harness/gazebo_backend_mode_smoke_run
 PACKAGE_SHARE = r"@CMAKE_CURRENT_SOURCE_DIR@"
 PACKAGE_LIB_DIR = r"$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
 ROSIDL_PY_PATH = r"@CMAKE_CURRENT_BINARY_DIR@/rosidl_generator_py"
+RUNTIME_LIB_DIR = r"@ROKAE_RUNTIME_LIB_DIR@"
 
 
 def generate_test_description():
@@ -1066,6 +1085,7 @@ def generate_test_description():
         SetEnvironmentVariable("ROKAE_XMATE3_ROS2_SHARE_DIR", PACKAGE_SHARE),
         SetEnvironmentVariable("ROKAE_XMATE3_ROS2_LIB_DIR", PACKAGE_LIB_DIR),
         SetEnvironmentVariable("PYTHONPATH", [ROSIDL_PY_PATH, ":", EnvironmentVariable("PYTHONPATH", default_value="")]),
+        SetEnvironmentVariable("LD_LIBRARY_PATH", [RUNTIME_LIB_DIR, ":", EnvironmentVariable("LD_LIBRARY_PATH", default_value="")]),
         simulation,
         runner,
         shutdown_handler,
@@ -1114,6 +1134,7 @@ RUNNER = r"@CMAKE_CURRENT_SOURCE_DIR@/test/harness/gazebo_alias_smoke_runner.py"
 PACKAGE_SHARE = r"@CMAKE_CURRENT_SOURCE_DIR@"
 PACKAGE_LIB_DIR = r"$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
 ROSIDL_PY_PATH = r"@CMAKE_CURRENT_BINARY_DIR@/rosidl_generator_py"
+RUNTIME_LIB_DIR = r"@ROKAE_RUNTIME_LIB_DIR@"
 
 
 def generate_test_description():
@@ -1145,6 +1166,7 @@ def generate_test_description():
         SetEnvironmentVariable("ROKAE_XMATE3_ROS2_SHARE_DIR", PACKAGE_SHARE),
         SetEnvironmentVariable("ROKAE_XMATE3_ROS2_LIB_DIR", PACKAGE_LIB_DIR),
         SetEnvironmentVariable("PYTHONPATH", [ROSIDL_PY_PATH, ":", EnvironmentVariable("PYTHONPATH", default_value="")]),
+        SetEnvironmentVariable("LD_LIBRARY_PATH", [RUNTIME_LIB_DIR, ":", EnvironmentVariable("LD_LIBRARY_PATH", default_value="")]),
         simulation,
         runner,
         shutdown_handler,

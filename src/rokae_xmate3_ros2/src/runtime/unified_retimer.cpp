@@ -80,11 +80,31 @@ struct ReplayVectorSample {
                                             double effective_speed_scale = 1.0,
                                             bool clamped = false,
                                             std::string note = "nominal") {
+  auto normalize_source_family = [](std::string value) {
+    if (value == "joint" || value == "cartesian" || value == "replay" || value == "s_trajectory") {
+      return value;
+    }
+    return std::string("joint");
+  };
+  auto normalize_note = [clamped](std::string value) {
+    if (clamped && (value.empty() || value == "nominal")) {
+      return std::string("limits_clamped");
+    }
+    if (value == "nominal" ||
+        value == "limits_clamped" ||
+        value == "replay_retimed" ||
+        value == "speed_scale_applied" ||
+        value == "cartesian_fallback_to_joint" ||
+        value == "degenerate_path") {
+      return value;
+    }
+    return std::string("nominal");
+  };
   RetimerMetadata metadata;
-  metadata.source_family = std::move(source_family);
+  metadata.source_family = normalize_source_family(std::move(source_family));
   metadata.effective_speed_scale = effective_speed_scale;
   metadata.clamped = clamped;
-  metadata.note = std::move(note);
+  metadata.note = normalize_note(std::move(note));
   return metadata;
 }
 
@@ -484,7 +504,9 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
     const std::array<double, 6> &acceleration_limits,
     const std::string &source_family,
     double effective_speed_scale) {
-  auto result = wrap_trajectory({}, source_family, effective_speed_scale);
+  const auto config = makeUnifiedRetimerConfig(sample_dt);
+  const bool sample_dt_clamped = std::fabs(config.sample_dt - sample_dt) > 1e-9;
+  auto result = wrap_trajectory({}, source_family, effective_speed_scale, sample_dt_clamped);
   auto &trajectory = result.trajectory;
   const auto normalized_waypoints = normalize_joint_waypoints(waypoints);
   if (normalized_waypoints.empty()) {
@@ -504,7 +526,6 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
     return result;
   }
 
-  const auto config = makeUnifiedRetimerConfig(sample_dt);
   const auto cumulative_lengths = cumulative_joint_path_lengths(normalized_waypoints);
   const double total_path_length = cumulative_lengths.empty() ? 0.0 : cumulative_lengths.back();
   if (total_path_length <= 1e-9) {

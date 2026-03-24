@@ -1,6 +1,8 @@
 bool request_shutdown
 ---
 bool accepted
+uint32 contract_version
+uint16 code
 uint8 owner
 uint8 runtime_phase
 uint8 shutdown_phase

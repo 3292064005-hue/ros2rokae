@@ -43,6 +43,17 @@ SHUTDOWN_PHASE = {
     6: "faulted",
 }
 
+CONTRACT_CODE = {
+    0: "ok",
+    1: "shutdown_requested",
+    2: "runtime_draining",
+    3: "backend_detached",
+    4: "safe_to_delete",
+    5: "safe_to_stop_world",
+    6: "finished",
+    7: "faulted",
+}
+
 
 def _wait_for_process_exit(proc: subprocess.Popen[str], timeout_sec: float) -> int | None:
     deadline = time.monotonic() + timeout_sec
@@ -153,9 +164,12 @@ class TeardownQualityProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin, Run
             owner_name = CONTROL_OWNER.get(response.owner, str(response.owner))
             runtime_phase_name = RUNTIME_PHASE.get(response.runtime_phase, str(response.runtime_phase))
             shutdown_phase_name = SHUTDOWN_PHASE.get(response.shutdown_phase, str(response.shutdown_phase))
+            contract_code_name = CONTRACT_CODE.get(response.code, str(response.code))
             shutdown_phases.append(shutdown_phase_name)
             final_detail = (
                 f"accepted={response.accepted} "
+                f"contract_version={response.contract_version} "
+                f"code={contract_code_name} "
                 f"owner={owner_name} "
                 f"backend_quiescent={response.backend_quiescent} "
                 f"safe_to_delete={response.safe_to_delete} safe_to_stop_world={response.safe_to_stop_world} "
@@ -169,6 +183,7 @@ class TeardownQualityProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin, Run
 
             if (
                 response.accepted
+                and response.contract_version == 1
                 and response.shutdown_phase >= 3
                 and response.safe_to_delete
                 and response.safe_to_stop_world
