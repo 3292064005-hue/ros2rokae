@@ -8,10 +8,14 @@ import zipfile
 from pathlib import Path
 
 
-REQUIRED_RELATIVE_PATHS = (
+REQUIRED_WORKSPACE_RELATIVE_PATHS = (
     ".gitignore",
-    "src/rokae_xmate3_ros2/src/runtime/owner_arbiter.hpp",
-    "src/rokae_xmate3_ros2/urdf/xMate3.xacro",
+    "colcon_defaults.yaml",
+)
+
+REQUIRED_PACKAGE_RELATIVE_PATHS = (
+    "src/runtime/owner_arbiter.hpp",
+    "urdf/xMate3.xacro",
 )
 
 FORBIDDEN_DIR_PARTS = {
@@ -24,6 +28,11 @@ FORBIDDEN_DIR_PARTS = {
 
 FORBIDDEN_FILE_SUFFIXES = (
     ".pyc",
+    ".pdf",
+)
+
+FORBIDDEN_NAME_PREFIXES = (
+    "tmp_",
 )
 
 XACRO_MARKERS = (
@@ -38,8 +47,8 @@ def _normalize_relative_path(path: str) -> str:
     return path.replace("\\", "/").strip("/")
 
 
-def _load_tree_file(source_root: Path, relative_path: str) -> str:
-    target = source_root / relative_path
+def _load_tree_file(root: Path, relative_path: str) -> str:
+    target = root / relative_path
     if not target.exists():
         raise FileNotFoundError(f"missing required source file: {target}")
     return target.read_text(encoding="utf-8")
@@ -61,10 +70,17 @@ def _verify_markers(label: str, content: str) -> None:
         raise RuntimeError(f"{label} is missing frame markers: {', '.join(missing)}")
 
 
+def _verify_exact_match(label: str, expected: str, actual: str) -> None:
+    if expected != actual:
+        raise RuntimeError(f"{label} does not match the working tree")
+
+
 def _is_forbidden_archive_entry(path: str) -> bool:
     normalized = _normalize_relative_path(path)
     parts = [part for part in normalized.split("/") if part and part != "."]
     if any(part in FORBIDDEN_DIR_PARTS for part in parts):
+        return True
+    if any(Path(part).name.startswith(prefix) for part in parts for prefix in FORBIDDEN_NAME_PREFIXES):
         return True
     return any(normalized.endswith(suffix) for suffix in FORBIDDEN_FILE_SUFFIXES)
 
@@ -79,24 +95,34 @@ def _verify_archive_cleanliness(archive_path: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source-root", required=True)
+    parser.add_argument("--package-root", required=True)
+    parser.add_argument("--workspace-root", required=True)
     parser.add_argument("--archive", required=True)
     args = parser.parse_args()
 
-    source_root = Path(args.source_root).resolve()
+    package_root = Path(args.package_root).resolve()
+    workspace_root = Path(args.workspace_root).resolve()
     archive_path = Path(args.archive).resolve()
 
-    if not source_root.is_dir():
-        raise FileNotFoundError(f"source root does not exist: {source_root}")
+    if not package_root.is_dir():
+        raise FileNotFoundError(f"package root does not exist: {package_root}")
+    if not workspace_root.is_dir():
+        raise FileNotFoundError(f"workspace root does not exist: {workspace_root}")
     if not archive_path.is_file():
         raise FileNotFoundError(f"archive does not exist: {archive_path}")
 
-    for relative_path in REQUIRED_RELATIVE_PATHS:
-        _load_tree_file(source_root, relative_path)
-        _load_archive_file(archive_path, relative_path)
+    for relative_path in REQUIRED_WORKSPACE_RELATIVE_PATHS:
+        tree_content = _load_tree_file(workspace_root, relative_path)
+        archive_content = _load_archive_file(archive_path, relative_path)
+        _verify_exact_match(f"workspace sidecar {relative_path}", tree_content, archive_content)
 
-    tree_xacro = _load_tree_file(source_root, "src/rokae_xmate3_ros2/urdf/xMate3.xacro")
-    archive_xacro = _load_archive_file(archive_path, "src/rokae_xmate3_ros2/urdf/xMate3.xacro")
+    for relative_path in REQUIRED_PACKAGE_RELATIVE_PATHS:
+        tree_content = _load_tree_file(package_root, relative_path)
+        archive_content = _load_archive_file(archive_path, relative_path)
+        _verify_exact_match(f"package file {relative_path}", tree_content, archive_content)
+
+    tree_xacro = _load_tree_file(package_root, "urdf/xMate3.xacro")
+    archive_xacro = _load_archive_file(archive_path, "urdf/xMate3.xacro")
     _verify_markers("working tree xacro", tree_xacro)
     _verify_markers("archive xacro", archive_xacro)
     print("required content present")

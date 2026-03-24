@@ -199,7 +199,7 @@ cmake --build . -j4
 ctest -R gazebo_teardown_quality_repeat --output-on-failure
 ```
 
-源码归档一致性检查（发布 zip 前，确保归档包含 `owner_arbiter.hpp`、`.gitignore` 与 `flange/tool0/tcp/payload` 终局化 xacro）：
+源码归档一致性检查（发布 zip 前，确保候选包按 `package root + workspace sidecars` 布局，且包含 `owner_arbiter.hpp`、工作区根 `.gitignore` / `colcon_defaults.yaml` 与 `flange/tool0/tcp/payload` 终局化 xacro）：
 ```bash
 cd ~/ros2_ws0/build/rokae_xmate3_ros2
 cmake -DROKAE_SOURCE_ARCHIVE=/path/to/src.zip /home/chen/ros2_ws0/src/rokae_xmate3_ros2
@@ -214,6 +214,8 @@ cmake --build . --target package_verified_source_archive
 ```
 
 禁止直接上传手工打包的 `src.zip`；只允许分发 `package_verified_source_archive` 生成并通过 archive gate 的候选包。
+候选包主体固定为 `src/rokae_xmate3_ros2` 的 package root，工作区根只白名单附带 `.gitignore` 和 `colcon_defaults.yaml`。
+工作区根 PDF、`tmp_*` 日志以及缓存/构建产物都会被 archive gate 拒绝。
 候选包旁边会同时生成 `.manifest.txt` 与 `.sha256` sidecar，用来核对“外发包就是刚刚验过的那个包”。
 
 默认 `ctest --output-on-failure` 固定为 12 项轻量门禁：

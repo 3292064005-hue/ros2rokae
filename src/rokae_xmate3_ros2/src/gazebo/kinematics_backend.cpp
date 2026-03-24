@@ -493,6 +493,117 @@ bool buildCartesianJointTrajectory(const KinematicsBackend &backend,
   return !joint_trajectory.empty();
 }
 
+Vector6d cartesianTwistFromTransforms(const Matrix4d &previous_transform,
+                                      const Matrix4d &next_transform,
+                                      double dt) {
+  Vector6d twist = Vector6d::Zero();
+  if (dt <= 1e-9) {
+    return twist;
+  }
+
+  twist.head<3>() =
+      (next_transform.block<3, 1>(0, 3) - previous_transform.block<3, 1>(0, 3)) / dt;
+
+  const Eigen::Matrix3d rotation_delta =
+      next_transform.block<3, 3>(0, 0) * previous_transform.block<3, 3>(0, 0).transpose();
+  const Eigen::AngleAxisd angle_axis(rotation_delta);
+  Eigen::Vector3d angular_delta = angle_axis.angle() * angle_axis.axis();
+  if (!std::isfinite(angular_delta.norm()) || angle_axis.angle() < 1e-8) {
+    angular_delta << rotation_delta(2, 1) - rotation_delta(1, 2),
+        rotation_delta(0, 2) - rotation_delta(2, 0),
+        rotation_delta(1, 0) - rotation_delta(0, 1);
+    angular_delta *= 0.5;
+  }
+  twist.tail<3>() = angular_delta / dt;
+  return twist;
+}
+
+bool isFiniteVector(const Vector6d &values) {
+  for (Eigen::Index index = 0; index < values.size(); ++index) {
+    if (!std::isfinite(values(index))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool projectCartesianJointDerivatives(const KinematicsBackend &backend,
+                                      const std::vector<Matrix4d> &cartesian_transforms,
+                                      const std::vector<KinematicsBackend::VectorJ> &joint_trajectory,
+                                      double trajectory_dt,
+                                      std::vector<KinematicsBackend::VectorJ> &joint_velocity_trajectory,
+                                      std::vector<KinematicsBackend::VectorJ> &joint_acceleration_trajectory) {
+  joint_velocity_trajectory.clear();
+  joint_acceleration_trajectory.clear();
+
+  if (cartesian_transforms.size() != joint_trajectory.size() || joint_trajectory.empty() || trajectory_dt <= 1e-9) {
+    return false;
+  }
+
+  const std::size_t point_count = joint_trajectory.size();
+  const std::size_t axis_count = joint_trajectory.front().size();
+  joint_velocity_trajectory.assign(point_count, KinematicsBackend::VectorJ(axis_count, 0.0));
+  joint_acceleration_trajectory.assign(point_count, KinematicsBackend::VectorJ(axis_count, 0.0));
+  if (point_count == 1 || axis_count == 0) {
+    return true;
+  }
+
+  for (std::size_t point_index = 0; point_index < point_count; ++point_index) {
+    const Matrix4d *previous_transform = nullptr;
+    const Matrix4d *next_transform = nullptr;
+    double twist_dt = trajectory_dt;
+    if (point_index == 0) {
+      previous_transform = &cartesian_transforms[0];
+      next_transform = &cartesian_transforms[1];
+    } else if (point_index + 1 >= point_count) {
+      previous_transform = &cartesian_transforms[point_index - 1];
+      next_transform = &cartesian_transforms[point_index];
+    } else {
+      previous_transform = &cartesian_transforms[point_index - 1];
+      next_transform = &cartesian_transforms[point_index + 1];
+      twist_dt = 2.0 * trajectory_dt;
+    }
+
+    const auto twist = cartesianTwistFromTransforms(*previous_transform, *next_transform, twist_dt);
+    const auto jacobian = backend.computeJacobian(joint_trajectory[point_index]);
+    const auto request = makeCartesianSeededIkRequest(
+        *next_transform, joint_trajectory[point_index], KinematicsBackend::CartesianIkOptions{});
+    const double singularity = std::clamp(
+        backend.singularityMetric(request, joint_trajectory[point_index]), 0.0, 1.0);
+    const double damping = 1e-4 + 0.05 * singularity;
+    const Matrix6d jj_t =
+        jacobian * jacobian.transpose() + damping * damping * Matrix6d::Identity();
+    const Vector6d qd = jacobian.transpose() * jj_t.ldlt().solve(twist);
+    if (!isFiniteVector(qd)) {
+      joint_velocity_trajectory.clear();
+      joint_acceleration_trajectory.clear();
+      return false;
+    }
+    for (std::size_t axis = 0; axis < axis_count && axis < static_cast<std::size_t>(qd.size()); ++axis) {
+      joint_velocity_trajectory[point_index][axis] = qd(static_cast<Eigen::Index>(axis));
+    }
+  }
+
+  for (std::size_t point_index = 0; point_index < point_count; ++point_index) {
+    for (std::size_t axis = 0; axis < axis_count; ++axis) {
+      if (point_index == 0) {
+        joint_acceleration_trajectory[point_index][axis] =
+            (joint_velocity_trajectory[1][axis] - joint_velocity_trajectory[0][axis]) / trajectory_dt;
+      } else if (point_index + 1 >= point_count) {
+        joint_acceleration_trajectory[point_index][axis] =
+            (joint_velocity_trajectory[point_index][axis] - joint_velocity_trajectory[point_index - 1][axis]) /
+            trajectory_dt;
+      } else {
+        joint_acceleration_trajectory[point_index][axis] =
+            (joint_velocity_trajectory[point_index + 1][axis] - joint_velocity_trajectory[point_index - 1][axis]) /
+            (2.0 * trajectory_dt);
+      }
+    }
+  }
+
+  return true;
+}
+
 bool nudgeAwayFromSingularity(const KinematicsBackend::SeededIkRequest &request, std::vector<double> &joints) {
   if (joints.size() < 6 || request.joint_limits_min.size() < 6 || request.joint_limits_max.size() < 6) {
     return false;
@@ -872,6 +983,17 @@ class LegacyKinematicsBackend final : public KinematicsBackend {
     return gazebo::detail::buildCartesianJointTrajectory(
         *this, cartesian_transforms, initial_seed, options, joint_trajectory, last_joints, error_message);
   }
+
+  [[nodiscard]] bool projectCartesianJointDerivatives(
+      const std::vector<Matrix4d> &cartesian_transforms,
+      const std::vector<VectorJ> &joint_trajectory,
+      double trajectory_dt,
+      std::vector<VectorJ> &joint_velocity_trajectory,
+      std::vector<VectorJ> &joint_acceleration_trajectory) const override {
+    return gazebo::detail::projectCartesianJointDerivatives(
+        *this, cartesian_transforms, joint_trajectory, trajectory_dt, joint_velocity_trajectory,
+        joint_acceleration_trajectory);
+  }
 };
 
 class KdlKinematicsBackend final : public KinematicsBackend {
@@ -987,6 +1109,22 @@ class KdlKinematicsBackend final : public KinematicsBackend {
     }
     return gazebo::detail::buildCartesianJointTrajectory(
         *this, cartesian_transforms, initial_seed, options, joint_trajectory, last_joints, error_message);
+  }
+
+  [[nodiscard]] bool projectCartesianJointDerivatives(
+      const std::vector<Matrix4d> &cartesian_transforms,
+      const std::vector<VectorJ> &joint_trajectory,
+      double trajectory_dt,
+      std::vector<VectorJ> &joint_velocity_trajectory,
+      std::vector<VectorJ> &joint_acceleration_trajectory) const override {
+    if (!valid_) {
+      return LegacyKinematicsBackend{}.projectCartesianJointDerivatives(
+          cartesian_transforms, joint_trajectory, trajectory_dt, joint_velocity_trajectory,
+          joint_acceleration_trajectory);
+    }
+    return gazebo::detail::projectCartesianJointDerivatives(
+        *this, cartesian_transforms, joint_trajectory, trajectory_dt, joint_velocity_trajectory,
+        joint_acceleration_trajectory);
   }
 
  private:

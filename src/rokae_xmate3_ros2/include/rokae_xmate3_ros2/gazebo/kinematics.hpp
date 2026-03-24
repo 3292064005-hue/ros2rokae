@@ -141,6 +141,12 @@ public:
         std::vector<std::vector<double>>& joint_trajectory,
         std::vector<double>& last_joints,
         std::string& error_message);
+    [[nodiscard]] bool projectCartesianJointDerivatives(
+        const std::vector<std::vector<double>>& cartesian_trajectory,
+        const std::vector<std::vector<double>>& joint_trajectory,
+        double trajectory_dt,
+        std::vector<std::vector<double>>& joint_velocity_trajectory,
+        std::vector<std::vector<double>>& joint_acceleration_trajectory);
 
     void resetDebugCounters();
     [[nodiscard]] DebugCounters debugCounters() const;

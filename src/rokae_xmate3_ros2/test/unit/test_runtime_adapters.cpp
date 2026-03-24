@@ -129,6 +129,15 @@ std::string readTextFile(const std::filesystem::path &path) {
 
 void createArchiveFixtureTree(const std::filesystem::path &root, bool dirty_archive) {
   writeTextFile(root / ".gitignore", "build/\nlog/\n__pycache__/\n*.pyc\n");
+  writeTextFile(root / "colcon_defaults.yaml",
+                "build:\n"
+                "  merge-install: true\n"
+                "  cmake-args:\n"
+                "    - -DROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS=OFF\n");
+  writeTextFile(root / "src/rokae_xmate3_ros2/CMakeLists.txt",
+                "cmake_minimum_required(VERSION 3.16)\nproject(rokae_xmate3_ros2)\n");
+  writeTextFile(root / "src/rokae_xmate3_ros2/package.xml",
+                "<package format=\"3\"><name>rokae_xmate3_ros2</name></package>\n");
   writeTextFile(root / "src/rokae_xmate3_ros2/src/runtime/owner_arbiter.hpp",
                 "#pragma once\n// archive fixture\n");
   writeTextFile(root / "src/rokae_xmate3_ros2/urdf/xMate3.xacro",
@@ -140,9 +149,31 @@ void createArchiveFixtureTree(const std::filesystem::path &root, bool dirty_arch
 </robot>
 )");
   if (dirty_archive) {
+    writeTextFile(root / "tmp_launch_probe.log", "temporary launch probe log\n");
+    writeTextFile(root / "xmate3_sdk_manual.pdf", "not a real pdf but should still be rejected\n");
     writeTextFile(root / "src/rokae_xmate3_ros2/test/harness/__pycache__/stale.cpython-312.pyc", "pyc");
     writeTextFile(root / "build/generated.cache", "build artifact");
   }
+}
+
+std::string packageLayoutArchiveScript() {
+  return
+      "import pathlib, sys, zipfile\n"
+      "workspace_root = pathlib.Path(sys.argv[1])\n"
+      "archive = pathlib.Path(sys.argv[2])\n"
+      "package_root = workspace_root / 'src' / 'rokae_xmate3_ros2'\n"
+      "with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zf:\n"
+      "  for sidecar in ('.gitignore', 'colcon_defaults.yaml'):\n"
+      "    path = workspace_root / sidecar\n"
+      "    if path.is_file():\n"
+      "      zf.write(path, sidecar)\n"
+      "  for path in sorted(package_root.rglob('*')):\n"
+      "    if path.is_file():\n"
+      "      zf.write(path, path.relative_to(package_root))\n"
+      "  for extra in ('tmp_launch_probe.log', 'xmate3_sdk_manual.pdf'):\n"
+      "    path = workspace_root / extra\n"
+      "    if path.is_file():\n"
+      "      zf.write(path, path.name)\n";
 }
 
 int runShellCommand(const std::string &command) {
@@ -503,31 +534,24 @@ TEST(RuntimeArchiveVerificationTest, RejectsForbiddenArtifactsInSourceArchive) {
   createArchiveFixtureTree(clean_tree, false);
   createArchiveFixtureTree(dirty_tree, true);
 
-  const std::string zipper_script =
-      "import pathlib, sys, zipfile\n"
-      "root = pathlib.Path(sys.argv[1])\n"
-      "archive = pathlib.Path(sys.argv[2])\n"
-      "with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zf:\n"
-      "  for path in sorted(root.rglob('*')):\n"
-      "    if path.is_file():\n"
-      "      zf.write(path, path.relative_to(root))\n";
-
   const auto make_clean_archive =
-      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " -c " + shellQuote(zipper_script) + " " +
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " -c " + shellQuote(packageLayoutArchiveScript()) + " " +
       shellQuote(clean_tree.string()) + " " + shellQuote(clean_archive.string());
   const auto make_dirty_archive =
-      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " -c " + shellQuote(zipper_script) + " " +
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " -c " + shellQuote(packageLayoutArchiveScript()) + " " +
       shellQuote(dirty_tree.string()) + " " + shellQuote(dirty_archive.string());
   ASSERT_EQ(runShellCommand(make_clean_archive), 0);
   ASSERT_EQ(runShellCommand(make_dirty_archive), 0);
 
   const auto verify_clean =
       shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " " +
-      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --source-root " +
+      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --package-root " +
+      shellQuote((source_tree / "src/rokae_xmate3_ros2").string()) + " --workspace-root " +
       shellQuote(source_tree.string()) + " --archive " + shellQuote(clean_archive.string());
   const auto verify_dirty =
       shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " " +
-      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --source-root " +
+      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --package-root " +
+      shellQuote((source_tree / "src/rokae_xmate3_ros2").string()) + " --workspace-root " +
       shellQuote(source_tree.string()) + " --archive " + shellQuote(dirty_archive.string());
 
   EXPECT_EQ(runShellCommand(verify_clean), 0);
@@ -554,24 +578,49 @@ TEST(RuntimeArchiveVerificationTest, RejectsArchiveMissingWorkspaceRootGitignore
   std::filesystem::remove(nested_only_tree / ".gitignore");
   writeTextFile(nested_only_tree / "src/rokae_xmate3_ros2/.gitignore", "__pycache__/\n*.pyc\n");
 
-  const std::string zipper_script =
-      "import pathlib, sys, zipfile\n"
-      "root = pathlib.Path(sys.argv[1])\n"
-      "archive = pathlib.Path(sys.argv[2])\n"
-      "with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zf:\n"
-      "  for path in sorted(root.rglob('*')):\n"
-      "    if path.is_file():\n"
-      "      zf.write(path, path.relative_to(root))\n";
   const auto make_archive =
-      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " -c " + shellQuote(zipper_script) + " " +
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " -c " + shellQuote(packageLayoutArchiveScript()) + " " +
       shellQuote(nested_only_tree.string()) + " " + shellQuote(nested_only_archive.string());
   ASSERT_EQ(runShellCommand(make_archive), 0);
 
   const auto verify_nested_only =
       shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " " +
-      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --source-root " +
+      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --package-root " +
+      shellQuote((source_tree / "src/rokae_xmate3_ros2").string()) + " --workspace-root " +
       shellQuote(source_tree.string()) + " --archive " + shellQuote(nested_only_archive.string());
   EXPECT_NE(runShellCommand(verify_nested_only), 0);
+
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(temp_root, cleanup_error);
+}
+
+TEST(RuntimeArchiveVerificationTest, RejectsArchiveMissingWorkspaceRootColconDefaults) {
+  const auto temp_root = std::filesystem::temp_directory_path() /
+                         ("rokae_archive_root_colcon_defaults_" +
+                          std::to_string(static_cast<long long>(
+                              std::chrono::steady_clock::now().time_since_epoch().count())));
+  const auto source_tree = temp_root / "source_tree";
+  const auto missing_defaults_tree = temp_root / "missing_defaults_tree";
+  const auto missing_defaults_archive = temp_root / "missing_defaults.zip";
+
+  std::filesystem::create_directories(source_tree);
+  std::filesystem::create_directories(missing_defaults_tree);
+
+  createArchiveFixtureTree(source_tree, false);
+  createArchiveFixtureTree(missing_defaults_tree, false);
+  std::filesystem::remove(missing_defaults_tree / "colcon_defaults.yaml");
+
+  const auto make_archive =
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " -c " + shellQuote(packageLayoutArchiveScript()) + " " +
+      shellQuote(missing_defaults_tree.string()) + " " + shellQuote(missing_defaults_archive.string());
+  ASSERT_EQ(runShellCommand(make_archive), 0);
+
+  const auto verify_missing_defaults =
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " " +
+      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --package-root " +
+      shellQuote((source_tree / "src/rokae_xmate3_ros2").string()) + " --workspace-root " +
+      shellQuote(source_tree.string()) + " --archive " + shellQuote(missing_defaults_archive.string());
+  EXPECT_NE(runShellCommand(verify_missing_defaults), 0);
 
   std::error_code cleanup_error;
   std::filesystem::remove_all(temp_root, cleanup_error);
@@ -589,6 +638,8 @@ TEST(RuntimeArchiveVerificationTest, PackagingScriptCreatesVerifiedCleanArchiveF
 
   std::filesystem::create_directories(source_tree);
   createArchiveFixtureTree(source_tree, false);
+  writeTextFile(source_tree / "tmp_launch_probe.log", "workspace tmp log should not be packaged\n");
+  writeTextFile(source_tree / "xmate3_sdk_manual.pdf", "workspace pdf should not be packaged\n");
   writeTextFile(source_tree / "src/rokae_xmate3_ros2/test/harness/__pycache__/stale.cpython-312.pyc", "pyc");
 
   const auto git_init = "git -C " + shellQuote(source_tree.string()) + " init --quiet";
@@ -598,13 +649,15 @@ TEST(RuntimeArchiveVerificationTest, PackagingScriptCreatesVerifiedCleanArchiveF
 
   const auto package_archive =
       shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " " +
-      shellQuote(std::string(ROKAE_TEST_CREATE_VERIFIED_SOURCE_ARCHIVE_PY)) + " --source-root " +
+      shellQuote(std::string(ROKAE_TEST_CREATE_VERIFIED_SOURCE_ARCHIVE_PY)) + " --package-root " +
+      shellQuote((source_tree / "src/rokae_xmate3_ros2").string()) + " --workspace-root " +
       shellQuote(source_tree.string()) + " --archive " + shellQuote(output_archive.string());
   ASSERT_EQ(runShellCommand(package_archive), 0);
 
   const auto verify_packaged =
       shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " " +
-      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --source-root " +
+      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --package-root " +
+      shellQuote((source_tree / "src/rokae_xmate3_ros2").string()) + " --workspace-root " +
       shellQuote(source_tree.string()) + " --archive " + shellQuote(output_archive.string());
   EXPECT_EQ(runShellCommand(verify_packaged), 0);
   ASSERT_TRUE(std::filesystem::exists(manifest_path));
@@ -615,6 +668,12 @@ TEST(RuntimeArchiveVerificationTest, PackagingScriptCreatesVerifiedCleanArchiveF
   EXPECT_NE(manifest_text.find("archive=candidate.zip"), std::string::npos);
   EXPECT_NE(manifest_text.find("file_count="), std::string::npos);
   EXPECT_NE(manifest_text.find(".gitignore"), std::string::npos);
+  EXPECT_NE(manifest_text.find("colcon_defaults.yaml"), std::string::npos);
+  EXPECT_NE(manifest_text.find("src/runtime/owner_arbiter.hpp"), std::string::npos);
+  EXPECT_NE(manifest_text.find("urdf/xMate3.xacro"), std::string::npos);
+  EXPECT_EQ(manifest_text.find("src/rokae_xmate3_ros2"), std::string::npos);
+  EXPECT_EQ(manifest_text.find("tmp_launch_probe.log"), std::string::npos);
+  EXPECT_EQ(manifest_text.find("xmate3_sdk_manual.pdf"), std::string::npos);
   EXPECT_NE(sha256_text.find("candidate.zip"), std::string::npos);
 
   std::error_code cleanup_error;

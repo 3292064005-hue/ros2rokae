@@ -180,6 +180,7 @@ ctest -L gazebo_integration_modes --output-on-failure
 5. `gazebo_teardown_quality_repeat`：非默认，连续跑 10 次 teardown 路径，专门收 shutdown 竞态
 
 源码归档发布建议只走经过 `package_verified_source_archive` 校验的候选 zip，不要直接上传未验证的源码包。
+候选包默认只包含 package root 内容，并从工作区根附带 `.gitignore` 与 `colcon_defaults.yaml` 两个 sidecar。
 5. strict Gazebo 集：非默认，覆盖长路径、长时间、blend/lookahead、replay fidelity 与 ownership stability
 
 发布源码归档前，建议执行：

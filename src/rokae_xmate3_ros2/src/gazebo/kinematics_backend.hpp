@@ -113,6 +113,12 @@ class KinematicsBackend {
       std::vector<VectorJ> &joint_trajectory,
       VectorJ &last_joints,
       std::string &error_message) const = 0;
+  [[nodiscard]] virtual bool projectCartesianJointDerivatives(
+      const std::vector<Matrix4d> &cartesian_transforms,
+      const std::vector<VectorJ> &joint_trajectory,
+      double trajectory_dt,
+      std::vector<VectorJ> &joint_velocity_trajectory,
+      std::vector<VectorJ> &joint_acceleration_trajectory) const = 0;
 };
 
 [[nodiscard]] std::shared_ptr<KinematicsBackend> makePreferredKinematicsBackend();

@@ -196,6 +196,15 @@ QuinticRetimerResult retimeJointWithUnifiedConfig(const std::vector<double> &sta
       start, target, config, limits.velocity_limits, limits.acceleration_limits);
 }
 
+QuinticRetimerResult retimeJointWithUnifiedLimits(const std::vector<double> &start,
+                                                  const std::vector<double> &target,
+                                                  double sample_dt,
+                                                  const std::array<double, 6> &velocity_limits,
+                                                  const std::array<double, 6> &acceleration_limits) {
+  const auto config = makeUnifiedRetimerConfig(sample_dt);
+  return retimeJointQuintic(start, target, config, velocity_limits, acceleration_limits);
+}
+
 ApproximateCartesianRetimerResult buildApproximateCartesianSTrajectory(
     ::gazebo::xMate3Kinematics &kinematics,
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &request,

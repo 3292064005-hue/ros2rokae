@@ -339,8 +339,8 @@ TEST(MotionRuntimeStateTest, ShutdownCoordinatorExposesMonotonicPhaseProgression
   inputs.runtime.runtime_phase = rt::RuntimePhase::executing;
   inputs.runtime.active_request_count = 1;
   inputs.runtime.active_goal_count = 1;
-  inputs.update_loop_detached = false;
-  inputs.backend_quiescent = false;
+  inputs.backend.update_loop_detached = false;
+  inputs.backend.backend_quiescent = false;
 
   const auto draining = coordinator.observe(inputs);
   EXPECT_TRUE(draining.accepted);
@@ -354,8 +354,10 @@ TEST(MotionRuntimeStateTest, ShutdownCoordinatorExposesMonotonicPhaseProgression
   inputs.runtime.runtime_phase = rt::RuntimePhase::idle;
   inputs.runtime.active_request_count = 0;
   inputs.runtime.active_goal_count = 0;
-  inputs.update_loop_detached = true;
-  inputs.backend_quiescent = true;
+  inputs.backend.update_loop_detached = true;
+  inputs.backend.backend_quiescent = true;
+  inputs.backend.safe_to_delete_ready = true;
+  inputs.backend.safe_to_stop_world_ready = true;
 
   const auto backend_detached = coordinator.observe(inputs);
   EXPECT_EQ(backend_detached.shutdown_phase, rt::ShutdownPhase::backend_detached);

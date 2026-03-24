@@ -221,12 +221,10 @@ TrajectorySamples TrajectoryPlanner::planJointMove(
     }
 
     const auto config = current_config();
-    auto retimer_config = rokae_xmate3_ros2::runtime::makeUnifiedRetimerConfig(dt);
-
-    const auto retimed = rokae_xmate3_ros2::runtime::retimeJointQuintic(
+    const auto retimed = rokae_xmate3_ros2::runtime::retimeJointWithUnifiedLimits(
         start,
         end,
-        retimer_config,
+        dt,
         scaled_joint_speed_limits(speed_mm_per_s, config),
         scaled_joint_acc_limits(speed_mm_per_s, config));
     return rokae_xmate3_ros2::runtime::toTrajectorySamples(retimed);

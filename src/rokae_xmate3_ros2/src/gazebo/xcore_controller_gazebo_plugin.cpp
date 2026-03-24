@@ -659,13 +659,21 @@ XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
     const auto trajectory_state =
         motion_backend_ ? motion_backend_->readTrajectoryExecutionState() : runtime::TrajectoryExecutionState{};
     runtime::ShutdownCoordinator::Inputs inputs;
-    inputs.runtime = runtime_contract;
-    inputs.update_loop_detached = !static_cast<bool>(update_conn_);
-    inputs.backend_quiescent =
+    inputs.faulted = runtime_contract.runtime_phase == runtime::RuntimePhase::faulted;
+    inputs.runtime.owner = runtime_contract.owner;
+    inputs.runtime.runtime_phase = runtime_contract.runtime_phase;
+    inputs.runtime.active_request_count = runtime_contract.active_request_count;
+    inputs.runtime.active_goal_count = runtime_contract.active_goal_count;
+    inputs.runtime.message = runtime_contract.message;
+    inputs.backend.update_loop_detached = !static_cast<bool>(update_conn_);
+    inputs.backend.backend_quiescent =
         backend_owner == runtime::ControlOwner::none &&
         (!trajectory_state.active || trajectory_state.completed || trajectory_state.failed ||
          trajectory_state.canceled || trajectory_state.succeeded);
-    inputs.faulted = runtime_contract.runtime_phase == runtime::RuntimePhase::faulted;
+    inputs.backend.safe_to_delete_ready =
+        inputs.backend.update_loop_detached && inputs.backend.backend_quiescent;
+    inputs.backend.safe_to_stop_world_ready = inputs.backend.safe_to_delete_ready;
+    inputs.backend.message = shutdown_prepared_ ? "shutdown prepared" : "shutdown requested";
 
     state = shutdown_coordinator_.observe(inputs);
     state.accepted = state.accepted && shutdown_prepared_;

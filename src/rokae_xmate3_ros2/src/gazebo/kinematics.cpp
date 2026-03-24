@@ -621,6 +621,35 @@ bool xMate3Kinematics::buildCartesianJointTrajectory(
         cartesian_transforms, initial_seed, backend_options, joint_trajectory, last_joints, error_message);
 }
 
+bool xMate3Kinematics::projectCartesianJointDerivatives(
+        const std::vector<std::vector<double>>& cartesian_trajectory,
+        const std::vector<std::vector<double>>& joint_trajectory,
+        double trajectory_dt,
+        std::vector<std::vector<double>>& joint_velocity_trajectory,
+        std::vector<std::vector<double>>& joint_acceleration_trajectory) {
+    joint_velocity_trajectory.clear();
+    joint_acceleration_trajectory.clear();
+    if (!backend_) {
+        return false;
+    }
+
+    std::vector<Matrix4d> cartesian_transforms;
+    cartesian_transforms.reserve(cartesian_trajectory.size());
+    for (const auto &pose : cartesian_trajectory) {
+        cartesian_transforms.push_back(rpyToTransform(pose));
+    }
+
+    debug_counters_.jacobian_calls += joint_trajectory.size();
+    debug_counters_.svd_calls += joint_trajectory.size();
+
+    return backend_->projectCartesianJointDerivatives(
+        cartesian_transforms,
+        joint_trajectory,
+        trajectory_dt,
+        joint_velocity_trajectory,
+        joint_acceleration_trajectory);
+}
+
 void xMate3Kinematics::resetDebugCounters() {
     debug_counters_ = DebugCounters{};
 }

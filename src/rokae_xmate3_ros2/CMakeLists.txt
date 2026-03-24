@@ -57,26 +57,29 @@ add_custom_target(${PROJECT_NAME}_generated_urdf ALL
 set(ROKAE_SOURCE_ARCHIVE "" CACHE FILEPATH
   "Optional source archive (.zip) to verify against the current working tree"
 )
-get_filename_component(ROKAE_SOURCE_TREE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+get_filename_component(ROKAE_SOURCE_PACKAGE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
+get_filename_component(ROKAE_SOURCE_WORKSPACE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(ROKAE_SOURCE_ARCHIVE_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rokae_source_candidate.zip" CACHE FILEPATH
   "Output path for the verified source archive release candidate"
 )
 add_custom_target(verify_source_archive
   COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_source_archive.py"
-          --source-root "${ROKAE_SOURCE_TREE_ROOT}"
+          --package-root "${ROKAE_SOURCE_PACKAGE_ROOT}"
+          --workspace-root "${ROKAE_SOURCE_WORKSPACE_ROOT}"
           --archive "${ROKAE_SOURCE_ARCHIVE}"
-  WORKING_DIRECTORY "${ROKAE_SOURCE_TREE_ROOT}"
-  COMMENT "Verifying packaged source archive matches required SDK closeout files"
+  WORKING_DIRECTORY "${ROKAE_SOURCE_WORKSPACE_ROOT}"
+  COMMENT "Verifying packaged source archive matches the package-root release layout"
   VERBATIM
 )
 add_custom_target(package_verified_source_archive
   COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/cmake/create_verified_source_archive.py"
-          --source-root "${ROKAE_SOURCE_TREE_ROOT}"
+          --package-root "${ROKAE_SOURCE_PACKAGE_ROOT}"
+          --workspace-root "${ROKAE_SOURCE_WORKSPACE_ROOT}"
           --archive "${ROKAE_SOURCE_ARCHIVE_OUTPUT}"
-  WORKING_DIRECTORY "${ROKAE_SOURCE_TREE_ROOT}"
-  COMMENT "Creating and verifying a single release-candidate source archive"
+  WORKING_DIRECTORY "${ROKAE_SOURCE_WORKSPACE_ROOT}"
+  COMMENT "Creating and verifying the single allowed release-candidate source archive"
   VERBATIM
 )
 if(ROKAE_SOURCE_ARCHIVE)
@@ -84,7 +87,8 @@ if(ROKAE_SOURCE_ARCHIVE)
     NAME verify_source_archive
     COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_source_archive.py"
-            --source-root "${ROKAE_SOURCE_TREE_ROOT}"
+            --package-root "${ROKAE_SOURCE_PACKAGE_ROOT}"
+            --workspace-root "${ROKAE_SOURCE_WORKSPACE_ROOT}"
             --archive "${ROKAE_SOURCE_ARCHIVE}"
   )
   set_tests_properties(verify_source_archive PROPERTIES
