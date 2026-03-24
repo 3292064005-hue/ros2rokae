@@ -60,77 +60,6 @@ xMate3Kinematics::IkCandidateMetrics toPublicMetrics(
     return result;
 }
 
-constexpr double kConfAngleStrictToleranceDeg = 45.0;
-constexpr double kJointBranchJumpThreshold = 0.75;
-
-struct ConfScore {
-    double penalty = 0.0;
-    bool strict_match = true;
-    bool has_request = false;
-};
-
-double normalize_degree(double value) {
-    while (value > 180.0) {
-        value -= 180.0 * 2.0;
-    }
-    while (value < -180.0) {
-        value += 180.0 * 2.0;
-    }
-    return value;
-}
-
-double shortest_degree_distance(double lhs, double rhs) {
-    return std::fabs(normalize_degree(lhs - rhs));
-}
-
-bool violatesSoftLimit(const std::vector<double> &joints,
-                       const std::array<std::array<double, 2>, 6> &soft_limits) {
-    for (std::size_t index = 0; index < 6 && index < joints.size(); ++index) {
-        if (joints[index] < soft_limits[index][0] || joints[index] > soft_limits[index][1]) {
-            return true;
-        }
-    }
-    return false;
-}
-
-ConfScore scoreRequestedConf(const std::vector<double> &candidate,
-                             const std::vector<int> &requested_conf) {
-    ConfScore score;
-    for (std::size_t index = 0; index < 6 && index < candidate.size() && index < requested_conf.size(); ++index) {
-        const int requested = requested_conf[index];
-        if (requested == 0) {
-            continue;
-        }
-
-        score.has_request = true;
-        if (std::abs(requested) <= 2) {
-            const int sign = std::fabs(candidate[index]) < 1e-6 ? 0 : (candidate[index] > 0.0 ? 1 : -1);
-            if (sign != requested) {
-                score.penalty += 180.0;
-                score.strict_match = false;
-            }
-            continue;
-        }
-
-        const double candidate_deg = candidate[index] * 180.0 / M_PI;
-        const double delta_deg = shortest_degree_distance(candidate_deg, static_cast<double>(requested));
-        score.penalty += delta_deg;
-        if (delta_deg > kConfAngleStrictToleranceDeg) {
-            score.strict_match = false;
-        }
-    }
-    return score;
-}
-
-double cartesianErrorScore(const Matrix4d &target_transform, const Matrix4d &candidate_transform) {
-    const Eigen::Vector3d position_error =
-        candidate_transform.block<3, 1>(0, 3) - target_transform.block<3, 1>(0, 3);
-    const Eigen::Quaterniond q_target(target_transform.block<3, 3>(0, 0));
-    const Eigen::Quaterniond q_candidate(candidate_transform.block<3, 3>(0, 0));
-    const double orientation_error = q_target.angularDistance(q_candidate);
-    return position_error.norm() * 1000.0 + orientation_error * 100.0;
-}
-
 }  // namespace
 
 xMate3Kinematics::xMate3Kinematics() {
@@ -635,65 +564,28 @@ xMate3Kinematics::IkSelectionResult xMate3Kinematics::selectBestIkSolution(
         const std::vector<double>& target_pose,
         const std::vector<double>& seed_joints,
         const CartesianIkOptions& options) {
-    IkSelectionResult best;
-    IkSelectionResult fallback_singular;
-    double best_score = std::numeric_limits<double>::infinity();
-    double fallback_singular_score = std::numeric_limits<double>::infinity();
+    IkSelectionResult result;
+    if (!backend_) {
+        result.message = "kinematics backend unavailable";
+        return result;
+    }
+
+    detail::KinematicsBackend::CartesianIkOptions backend_options;
+    backend_options.requested_conf = options.requested_conf;
+    backend_options.strict_conf = options.strict_conf;
+    backend_options.avoid_singularity = options.avoid_singularity;
+    backend_options.soft_limit_enabled = options.soft_limit_enabled;
+    backend_options.soft_limits = options.soft_limits;
+    backend_options.joint_limits_min = joint_limits_min_;
+    backend_options.joint_limits_max = joint_limits_max_;
+
     const auto target_transform = rpyToTransform(target_pose);
-
-    for (const auto &candidate : candidates) {
-        if (candidate.size() < 6) {
-            continue;
-        }
-        if (options.soft_limit_enabled && violatesSoftLimit(candidate, options.soft_limits)) {
-            continue;
-        }
-
-        const auto conf_score = scoreRequestedConf(candidate, options.requested_conf);
-        if (conf_score.has_request && options.strict_conf && !conf_score.strict_match) {
-            continue;
-        }
-
-        const auto candidate_metrics = evaluateIkCandidate(candidate, seed_joints);
-        if (!candidate_metrics.valid) {
-            continue;
-        }
-
-        const auto fk_transform = forwardKinematics(candidate);
-        const double score = cartesianErrorScore(target_transform, fk_transform) +
-                             candidate_metrics.branch_distance * 2.0 +
-                             conf_score.penalty +
-                             candidate_metrics.singularity_metric * 40.0 +
-                             candidate_metrics.joint_limit_penalty * 10.0;
-
-        if (options.avoid_singularity && candidate_metrics.near_singularity) {
-            if (score < fallback_singular_score) {
-                fallback_singular.success = true;
-                fallback_singular.joints = candidate;
-                fallback_singular_score = score;
-            }
-            continue;
-        }
-
-        if (score < best_score) {
-            best.success = true;
-            best.joints = candidate;
-            best_score = score;
-        }
-    }
-
-    if (!best.success && fallback_singular.success) {
-        fallback_singular.message =
-            "selected a near-singular IK branch because no better branch was available";
-        return fallback_singular;
-    }
-
-    if (!best.success) {
-        best.message = (!options.requested_conf.empty() && options.strict_conf)
-                           ? "no IK solution matches requested confData"
-                           : "no valid IK solution";
-    }
-    return best;
+    const auto selected =
+        backend_->selectBestCartesianIkSolution(candidates, target_transform, seed_joints, backend_options);
+    result.success = selected.success;
+    result.joints = selected.joints;
+    result.message = selected.message;
+    return result;
 }
 
 bool xMate3Kinematics::buildCartesianJointTrajectory(
@@ -705,69 +597,28 @@ bool xMate3Kinematics::buildCartesianJointTrajectory(
         std::string& error_message) {
     joint_trajectory.clear();
     last_joints = initial_seed;
-
-    auto fast_solution_acceptable = [&](const std::vector<double> &candidate) {
-        if (candidate.empty()) {
-            return false;
-        }
-        const auto conf_score = scoreRequestedConf(candidate, options.requested_conf);
-        const bool conf_ok = !conf_score.has_request || !options.strict_conf || conf_score.strict_match;
-        const bool soft_limit_ok = !options.soft_limit_enabled || !violatesSoftLimit(candidate, options.soft_limits);
-        const auto candidate_metrics = evaluateIkCandidate(candidate, last_joints);
-        const bool singularity_ok = !options.avoid_singularity || !candidate_metrics.near_singularity;
-        const bool continuity_ok =
-            joint_trajectory.empty() || branchDistance(last_joints, candidate) <= kJointBranchJumpThreshold;
-        return conf_ok && soft_limit_ok && singularity_ok && continuity_ok;
-    };
-
-    for (const auto &pose : cartesian_trajectory) {
-        std::vector<double> resolved_joints;
-
-        const auto fast_solution = inverseKinematicsSeededFast(pose, last_joints);
-        if (fast_solution_acceptable(fast_solution)) {
-            resolved_joints = fast_solution;
-        }
-
-        if (resolved_joints.empty()) {
-            auto singularity_retry_seed = last_joints;
-            if (avoidSingularity(singularity_retry_seed)) {
-                const auto singularity_retry = inverseKinematicsSeededFast(pose, singularity_retry_seed);
-                if (fast_solution_acceptable(singularity_retry)) {
-                    resolved_joints = singularity_retry;
-                }
-            }
-        }
-
-        if (resolved_joints.empty()) {
-            const auto candidates = inverseKinematicsMultiSolution(pose, last_joints);
-            const auto selected = selectBestIkSolution(candidates, pose, last_joints, options);
-            if (!selected.success) {
-                error_message = selected.message;
-                return false;
-            }
-            resolved_joints = selected.joints;
-        }
-
-        if (!joint_trajectory.empty() &&
-            branchDistance(last_joints, resolved_joints) > kJointBranchJumpThreshold) {
-            auto local_retry_seed = last_joints;
-            if (avoidSingularity(local_retry_seed)) {
-                const auto local_retry = inverseKinematicsSeededFast(pose, local_retry_seed);
-                if (fast_solution_acceptable(local_retry)) {
-                    resolved_joints = local_retry;
-                }
-            }
-            if (branchDistance(last_joints, resolved_joints) > kJointBranchJumpThreshold) {
-                error_message = "IK branch changed discontinuously along Cartesian path";
-                return false;
-            }
-        }
-
-        joint_trajectory.push_back(resolved_joints);
-        last_joints = resolved_joints;
+    if (!backend_) {
+        error_message = "kinematics backend unavailable";
+        return false;
     }
 
-    return !joint_trajectory.empty();
+    detail::KinematicsBackend::CartesianIkOptions backend_options;
+    backend_options.requested_conf = options.requested_conf;
+    backend_options.strict_conf = options.strict_conf;
+    backend_options.avoid_singularity = options.avoid_singularity;
+    backend_options.soft_limit_enabled = options.soft_limit_enabled;
+    backend_options.soft_limits = options.soft_limits;
+    backend_options.joint_limits_min = joint_limits_min_;
+    backend_options.joint_limits_max = joint_limits_max_;
+
+    std::vector<Matrix4d> cartesian_transforms;
+    cartesian_transforms.reserve(cartesian_trajectory.size());
+    for (const auto &pose : cartesian_trajectory) {
+        cartesian_transforms.push_back(rpyToTransform(pose));
+    }
+
+    return backend_->buildCartesianJointTrajectory(
+        cartesian_transforms, initial_seed, backend_options, joint_trajectory, last_joints, error_message);
 }
 
 void xMate3Kinematics::resetDebugCounters() {

@@ -15,8 +15,6 @@ struct IkSelection {
   std::string message;
 };
 
-[[nodiscard]] double joint_branch_jump_threshold() noexcept;
-
 [[nodiscard]] double max_joint_step(const std::vector<double> &lhs,
                                     const std::vector<double> &rhs);
 

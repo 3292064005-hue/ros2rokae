@@ -6,10 +6,9 @@ import argparse
 import sys
 import zipfile
 from pathlib import Path
-from typing import Iterable
 
 
-REQUIRED_SUFFIXES = (
+REQUIRED_RELATIVE_PATHS = (
     ".gitignore",
     "src/rokae_xmate3_ros2/src/runtime/owner_arbiter.hpp",
     "src/rokae_xmate3_ros2/urdf/xMate3.xacro",
@@ -35,27 +34,24 @@ XACRO_MARKERS = (
 )
 
 
-def _find_by_suffix(paths: Iterable[str], suffix: str) -> str | None:
-    normalized_suffix = suffix.replace("\\", "/").lstrip("/")
-    for candidate in paths:
-        normalized_candidate = candidate.replace("\\", "/")
-        if normalized_candidate.endswith(normalized_suffix):
-            return candidate
-    return None
+def _normalize_relative_path(path: str) -> str:
+    return path.replace("\\", "/").strip("/")
 
 
-def _load_tree_file(source_root: Path, suffix: str) -> str:
-    target = source_root / suffix
+def _load_tree_file(source_root: Path, relative_path: str) -> str:
+    target = source_root / relative_path
     if not target.exists():
         raise FileNotFoundError(f"missing required source file: {target}")
     return target.read_text(encoding="utf-8")
 
 
-def _load_archive_file(archive_path: Path, suffix: str) -> str:
+def _load_archive_file(archive_path: Path, relative_path: str) -> str:
+    normalized_target = _normalize_relative_path(relative_path)
     with zipfile.ZipFile(archive_path) as archive:
-        matched = _find_by_suffix(archive.namelist(), suffix)
+        archive_entries = {_normalize_relative_path(name): name for name in archive.namelist()}
+        matched = archive_entries.get(normalized_target)
         if matched is None:
-            raise FileNotFoundError(f"archive is missing required file: {suffix}")
+            raise FileNotFoundError(f"archive is missing required file: {relative_path}")
         return archive.read(matched).decode("utf-8")
 
 
@@ -66,7 +62,7 @@ def _verify_markers(label: str, content: str) -> None:
 
 
 def _is_forbidden_archive_entry(path: str) -> bool:
-    normalized = path.replace("\\", "/").strip("/")
+    normalized = _normalize_relative_path(path)
     parts = [part for part in normalized.split("/") if part and part != "."]
     if any(part in FORBIDDEN_DIR_PARTS for part in parts):
         return True
@@ -95,9 +91,9 @@ def main() -> int:
     if not archive_path.is_file():
         raise FileNotFoundError(f"archive does not exist: {archive_path}")
 
-    for suffix in REQUIRED_SUFFIXES:
-        _load_tree_file(source_root, suffix)
-        _load_archive_file(archive_path, suffix)
+    for relative_path in REQUIRED_RELATIVE_PATHS:
+        _load_tree_file(source_root, relative_path)
+        _load_archive_file(archive_path, relative_path)
 
     tree_xacro = _load_tree_file(source_root, "src/rokae_xmate3_ros2/urdf/xMate3.xacro")
     archive_xacro = _load_archive_file(archive_path, "src/rokae_xmate3_ros2/urdf/xMate3.xacro")

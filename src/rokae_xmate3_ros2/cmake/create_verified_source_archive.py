@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import subprocess
 import sys
 import zipfile
@@ -44,6 +45,24 @@ def _verify_archive(source_root: Path, archive_path: Path) -> None:
     )
 
 
+def _write_archive_sidecars(archive_path: Path, source_files: list[Path]) -> tuple[Path, Path]:
+    manifest_path = archive_path.with_suffix(archive_path.suffix + ".manifest.txt")
+    sha256_path = archive_path.with_suffix(archive_path.suffix + ".sha256")
+
+    normalized_files = sorted(path.as_posix() for path in source_files)
+    archive_hash = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    manifest_lines = [
+        f"archive={archive_path.name}",
+        f"sha256={archive_hash}",
+        f"file_count={len(normalized_files)}",
+        "files:",
+    ]
+    manifest_lines.extend(f"  {relative_path}" for relative_path in normalized_files)
+    manifest_path.write_text("\n".join(manifest_lines) + "\n", encoding="utf-8")
+    sha256_path.write_text(f"{archive_hash}  {archive_path.name}\n", encoding="utf-8")
+    return manifest_path, sha256_path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-root", required=True)
@@ -66,7 +85,10 @@ def main() -> int:
             archive.write(source_root / relative_path, relative_path.as_posix())
 
     _verify_archive(source_root, archive_path)
+    manifest_path, sha256_path = _write_archive_sidecars(archive_path, source_files)
     print(f"verified source archive created: {archive_path}")
+    print(f"archive manifest written: {manifest_path}")
+    print(f"archive sha256 written: {sha256_path}")
     return 0
 
 

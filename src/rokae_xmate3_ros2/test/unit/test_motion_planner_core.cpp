@@ -334,9 +334,10 @@ TEST(MotionPlannerCoreTest, MoveSpUsesCartesianLookaheadPipelineAndDerivativeMet
   }
   EXPECT_GT(max_velocity, 1e-6);
   EXPECT_GT(max_acceleration, 1e-6);
+  constexpr double kNoBranchJumpUpperBound = 0.75;
   for (std::size_t i = 1; i < segment.joint_trajectory.size(); ++i) {
     EXPECT_LE(rt::max_joint_step(segment.joint_trajectory[i - 1], segment.joint_trajectory[i]),
-              rt::joint_branch_jump_threshold());
+              kNoBranchJumpUpperBound);
   }
 }
 

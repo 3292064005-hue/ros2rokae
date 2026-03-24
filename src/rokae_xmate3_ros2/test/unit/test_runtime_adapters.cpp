@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -118,6 +119,12 @@ void writeTextFile(const std::filesystem::path &path, const std::string &content
   ASSERT_TRUE(stream.good()) << "failed to open " << path;
   stream << content;
   ASSERT_TRUE(stream.good()) << "failed to write " << path;
+}
+
+std::string readTextFile(const std::filesystem::path &path) {
+  std::ifstream stream(path);
+  EXPECT_TRUE(stream.good()) << "failed to open " << path;
+  return std::string(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
 }
 
 void createArchiveFixtureTree(const std::filesystem::path &root, bool dirty_archive) {
@@ -371,6 +378,10 @@ TEST(RuntimeSdkShimModelTest, ModelFacadeUnifiesToolPoseLoadAndExpectedTorqueCha
   const auto cart_pose = facade.cartPose(q);
   const auto expected_pose = rokae_xmate3_ros2::gazebo_model::cartesianPose(
       q, kinematics, {0.0, 0.0, 0.08, 0.0, 0.0, 0.0});
+  const auto mass_matrix = facade.massMatrix(q);
+  const auto gravity = facade.gravity(q);
+  const auto coriolis = facade.coriolis(q, qd);
+  const auto inverse_dynamics = facade.inverseDynamics(q, qd, qdd, wrench);
   const auto dynamics = facade.dynamics(q, qd, qdd, wrench);
   const auto expected = rokae_xmate3_ros2::gazebo_model::computeApproximateDynamics(
       kinematics, q, qd, qdd, wrench, {0.6, {0.0, 0.0, 0.05}});
@@ -380,6 +391,10 @@ TEST(RuntimeSdkShimModelTest, ModelFacadeUnifiesToolPoseLoadAndExpectedTorqueCha
     EXPECT_NEAR(cart_pose[i], expected_pose[i], 1e-9);
     EXPECT_NEAR(dynamics.full[i], expected.full[i], 1e-9);
     EXPECT_NEAR(dynamics.gravity[i], expected.gravity[i], 1e-9);
+    EXPECT_NEAR(gravity[i], expected.gravity[i], 1e-9);
+    EXPECT_NEAR(coriolis[i], expected.coriolis[i], 1e-9);
+    EXPECT_NEAR(inverse_dynamics[i], expected.full[i], 1e-9);
+    EXPECT_GT(mass_matrix(static_cast<Eigen::Index>(i), static_cast<Eigen::Index>(i)), 0.0);
   }
   double torque_norm = 0.0;
   for (double value : expected_torque) {
@@ -522,6 +537,46 @@ TEST(RuntimeArchiveVerificationTest, RejectsForbiddenArtifactsInSourceArchive) {
   std::filesystem::remove_all(temp_root, cleanup_error);
 }
 
+TEST(RuntimeArchiveVerificationTest, RejectsArchiveMissingWorkspaceRootGitignoreEvenIfNestedGitignoreExists) {
+  const auto temp_root = std::filesystem::temp_directory_path() /
+                         ("rokae_archive_root_gitignore_" +
+                          std::to_string(static_cast<long long>(
+                              std::chrono::steady_clock::now().time_since_epoch().count())));
+  const auto source_tree = temp_root / "source_tree";
+  const auto nested_only_tree = temp_root / "nested_only_tree";
+  const auto nested_only_archive = temp_root / "nested_only.zip";
+
+  std::filesystem::create_directories(source_tree);
+  std::filesystem::create_directories(nested_only_tree);
+
+  createArchiveFixtureTree(source_tree, false);
+  createArchiveFixtureTree(nested_only_tree, false);
+  std::filesystem::remove(nested_only_tree / ".gitignore");
+  writeTextFile(nested_only_tree / "src/rokae_xmate3_ros2/.gitignore", "__pycache__/\n*.pyc\n");
+
+  const std::string zipper_script =
+      "import pathlib, sys, zipfile\n"
+      "root = pathlib.Path(sys.argv[1])\n"
+      "archive = pathlib.Path(sys.argv[2])\n"
+      "with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zf:\n"
+      "  for path in sorted(root.rglob('*')):\n"
+      "    if path.is_file():\n"
+      "      zf.write(path, path.relative_to(root))\n";
+  const auto make_archive =
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " -c " + shellQuote(zipper_script) + " " +
+      shellQuote(nested_only_tree.string()) + " " + shellQuote(nested_only_archive.string());
+  ASSERT_EQ(runShellCommand(make_archive), 0);
+
+  const auto verify_nested_only =
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " " +
+      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --source-root " +
+      shellQuote(source_tree.string()) + " --archive " + shellQuote(nested_only_archive.string());
+  EXPECT_NE(runShellCommand(verify_nested_only), 0);
+
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(temp_root, cleanup_error);
+}
+
 TEST(RuntimeArchiveVerificationTest, PackagingScriptCreatesVerifiedCleanArchiveFromTrackedFiles) {
   const auto temp_root = std::filesystem::temp_directory_path() /
                          ("rokae_archive_package_" +
@@ -529,6 +584,8 @@ TEST(RuntimeArchiveVerificationTest, PackagingScriptCreatesVerifiedCleanArchiveF
                               std::chrono::steady_clock::now().time_since_epoch().count())));
   const auto source_tree = temp_root / "source_tree";
   const auto output_archive = temp_root / "candidate.zip";
+  const auto manifest_path = temp_root / "candidate.zip.manifest.txt";
+  const auto sha256_path = temp_root / "candidate.zip.sha256";
 
   std::filesystem::create_directories(source_tree);
   createArchiveFixtureTree(source_tree, false);
@@ -550,6 +607,15 @@ TEST(RuntimeArchiveVerificationTest, PackagingScriptCreatesVerifiedCleanArchiveF
       shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --source-root " +
       shellQuote(source_tree.string()) + " --archive " + shellQuote(output_archive.string());
   EXPECT_EQ(runShellCommand(verify_packaged), 0);
+  ASSERT_TRUE(std::filesystem::exists(manifest_path));
+  ASSERT_TRUE(std::filesystem::exists(sha256_path));
+
+  const auto manifest_text = readTextFile(manifest_path);
+  const auto sha256_text = readTextFile(sha256_path);
+  EXPECT_NE(manifest_text.find("archive=candidate.zip"), std::string::npos);
+  EXPECT_NE(manifest_text.find("file_count="), std::string::npos);
+  EXPECT_NE(manifest_text.find(".gitignore"), std::string::npos);
+  EXPECT_NE(sha256_text.find("candidate.zip"), std::string::npos);
 
   std::error_code cleanup_error;
   std::filesystem::remove_all(temp_root, cleanup_error);

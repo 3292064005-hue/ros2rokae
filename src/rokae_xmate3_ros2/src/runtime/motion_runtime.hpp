@@ -33,7 +33,6 @@ class MotionRuntime {
 
   void stop(const std::string &message = "stopped");
   void reset();
-  void setRuntimePhaseForShutdown(RuntimePhase phase, const std::string &message = {});
 
   [[nodiscard]] RuntimeStatus status() const;
   [[nodiscard]] RuntimeStatus status(const std::string &request_id) const;

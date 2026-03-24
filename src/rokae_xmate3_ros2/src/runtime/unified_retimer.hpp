@@ -19,6 +19,9 @@ struct UnifiedRetimerLimits {
 
 struct ApproximateCartesianRetimerResult {
   std::vector<std::vector<double>> joint_trajectory;
+  std::vector<std::vector<double>> joint_velocity_trajectory;
+  std::vector<std::vector<double>> joint_acceleration_trajectory;
+  double sample_dt = 0.0;
   double total_time = 0.0;
   std::string error_message;
 
@@ -42,6 +45,11 @@ struct ApproximateCartesianRetimerResult {
 [[nodiscard]] ApproximateCartesianRetimerResult buildApproximateCartesianSTrajectory(
     ::gazebo::xMate3Kinematics &kinematics,
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &request,
+    double sample_dt);
+
+[[nodiscard]] QuinticRetimerResult retimeReplayWithUnifiedConfig(
+    const ReplayPathAsset &asset,
+    double rate,
     double sample_dt);
 
 }  // namespace rokae_xmate3_ros2::runtime

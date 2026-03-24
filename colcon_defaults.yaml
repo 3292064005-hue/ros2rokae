@@ -2,5 +2,10 @@ build:
   base-paths:
     - src
   cmake-args:
+    - -DPython3_EXECUTABLE=/usr/bin/python3
+    - -DPYTHON_EXECUTABLE=/usr/bin/python3
+    - -DPython_EXECUTABLE=/usr/bin/python3
+    - -DAMENT_PYTHON_EXECUTABLE=/usr/bin/python3
     - -DROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS=OFF
     - -DROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS=OFF
+    - -DROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS=OFF

@@ -37,10 +37,19 @@ constexpr std::array<double, 6> kDhAlpha{
 };
 constexpr std::array<double, 6> kDhD{0.3415, 0.0, 0.0, 0.366, 0.0, 0.2503};
 constexpr std::array<double, 6> kJointOffset{0.0, -M_PI / 2.0, M_PI / 2.0, 0.0, 0.0, 0.0};
+constexpr std::array<double, 6> kJointLimitsMin{-3.0527, -2.0933, -2.0933, -3.0527, -2.0933, -6.1082};
+constexpr std::array<double, 6> kJointLimitsMax{3.0527, 2.0933, 2.0933, 3.0527, 2.0933, 6.1082};
 constexpr std::array<double, 6> kSmokeReferenceJoints{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
 constexpr const char *kPackageName = "rokae_xmate3_ros2";
 constexpr const char *kModelRoot = "xMate3_base";
 constexpr const char *kModelTip = "flange";
+constexpr double kConfAngleStrictToleranceDeg = 45.0;
+
+struct ConfScore {
+  double penalty = 0.0;
+  bool strict_match = true;
+  bool has_request = false;
+};
 
 Matrix4d legacyDhTransform(std::size_t index, double theta) {
   Matrix4d transform = Matrix4d::Identity();
@@ -96,6 +105,95 @@ Vector6d poseError(const Matrix4d &target, const Matrix4d &current) {
   }
   error.tail<3>() = orientation_error;
   return error;
+}
+
+double normalizeDegree(double value) {
+  while (value > 180.0) {
+    value -= 360.0;
+  }
+  while (value < -180.0) {
+    value += 360.0;
+  }
+  return value;
+}
+
+double shortestDegreeDistance(double lhs, double rhs) {
+  return std::fabs(normalizeDegree(lhs - rhs));
+}
+
+bool violatesSoftLimit(const std::vector<double> &joints,
+                       const std::array<std::array<double, 2>, 6> &soft_limits) {
+  for (std::size_t index = 0; index < 6 && index < joints.size(); ++index) {
+    if (joints[index] < soft_limits[index][0] || joints[index] > soft_limits[index][1]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+ConfScore scoreRequestedConf(const std::vector<double> &candidate, const std::vector<int> &requested_conf) {
+  ConfScore score;
+  for (std::size_t index = 0; index < 6 && index < candidate.size() && index < requested_conf.size(); ++index) {
+    const int requested = requested_conf[index];
+    if (requested == 0) {
+      continue;
+    }
+
+    score.has_request = true;
+    if (std::abs(requested) <= 2) {
+      const int sign = std::fabs(candidate[index]) < 1e-6 ? 0 : (candidate[index] > 0.0 ? 1 : -1);
+      if (sign != requested) {
+        score.penalty += 180.0;
+        score.strict_match = false;
+      }
+      continue;
+    }
+
+    const double candidate_deg = candidate[index] * 180.0 / M_PI;
+    const double delta_deg = shortestDegreeDistance(candidate_deg, static_cast<double>(requested));
+    score.penalty += delta_deg;
+    if (delta_deg > kConfAngleStrictToleranceDeg) {
+      score.strict_match = false;
+    }
+  }
+  return score;
+}
+
+double cartesianErrorScore(const Matrix4d &target_transform, const Matrix4d &candidate_transform) {
+  const Eigen::Vector3d position_error =
+      candidate_transform.block<3, 1>(0, 3) - target_transform.block<3, 1>(0, 3);
+  const Eigen::Quaterniond q_target(target_transform.block<3, 3>(0, 0));
+  const Eigen::Quaterniond q_candidate(candidate_transform.block<3, 3>(0, 0));
+  const double orientation_error = q_target.angularDistance(q_candidate);
+  return position_error.norm() * 1000.0 + orientation_error * 100.0;
+}
+
+KinematicsBackend::VectorJ defaultJointLimitVector(const std::vector<double> &candidate,
+                                                   const std::array<double, 6> &fallback) {
+  if (candidate.size() >= 6) {
+    return candidate;
+  }
+  return KinematicsBackend::VectorJ(fallback.begin(), fallback.end());
+}
+
+KinematicsBackend::SeededIkRequest makeCartesianSeededIkRequest(
+    const Matrix4d &target_transform,
+    const KinematicsBackend::VectorJ &seed_joints,
+    const KinematicsBackend::CartesianIkOptions &options) {
+  KinematicsBackend::SeededIkRequest request;
+  request.target_transform = target_transform;
+  request.seed_joints = seed_joints;
+  request.joint_limits_min = defaultJointLimitVector(options.joint_limits_min, kJointLimitsMin);
+  request.joint_limits_max = defaultJointLimitVector(options.joint_limits_max, kJointLimitsMax);
+  request.max_iter = 16;
+  request.position_tolerance = 1e-5;
+  request.orientation_tolerance = 1e-3;
+  request.orientation_weight = 0.8;
+  request.max_joint_step = 0.05;
+  request.min_lambda = 0.02;
+  request.max_lambda = 0.5;
+  request.solution_valid_threshold = 5e-3;
+  return request;
 }
 
 double jointLimitPenalty(const std::vector<double> &joints,
@@ -241,6 +339,158 @@ KinematicsBackend::SeededIkCandidateMetrics evaluateSeededIkCandidate(const Kine
   metrics.near_singularity = singularity.near_singularity;
   metrics.valid = true;
   return metrics;
+}
+
+bool nudgeAwayFromSingularity(const KinematicsBackend::SeededIkRequest &request, std::vector<double> &joints);
+
+KinematicsBackend::CartesianIkSelectionResult selectBestCartesianIkSolution(
+    const KinematicsBackend &backend,
+    const std::vector<KinematicsBackend::VectorJ> &candidates,
+    const Matrix4d &target_transform,
+    const KinematicsBackend::VectorJ &seed_joints,
+    const KinematicsBackend::CartesianIkOptions &options) {
+  KinematicsBackend::CartesianIkSelectionResult best;
+  KinematicsBackend::CartesianIkSelectionResult fallback_singular;
+  double best_score = std::numeric_limits<double>::infinity();
+  double fallback_singular_score = std::numeric_limits<double>::infinity();
+  const auto request = makeCartesianSeededIkRequest(target_transform, seed_joints, options);
+
+  for (const auto &candidate : candidates) {
+    if (candidate.size() < 6) {
+      continue;
+    }
+    if (options.soft_limit_enabled && violatesSoftLimit(candidate, options.soft_limits)) {
+      continue;
+    }
+
+    const auto conf_score = scoreRequestedConf(candidate, options.requested_conf);
+    if (conf_score.has_request && options.strict_conf && !conf_score.strict_match) {
+      continue;
+    }
+
+    const auto candidate_metrics = backend.evaluateSeededIkCandidate(request, candidate);
+    if (!candidate_metrics.valid) {
+      continue;
+    }
+
+    const auto fk_transform = backend.computeForwardTransform(candidate);
+    const double score = cartesianErrorScore(target_transform, fk_transform) +
+                         candidate_metrics.branch_distance * 2.0 + conf_score.penalty +
+                         candidate_metrics.singularity_metric * 40.0 + candidate_metrics.joint_limit_penalty * 10.0;
+
+    if (options.avoid_singularity && candidate_metrics.near_singularity) {
+      if (score < fallback_singular_score) {
+        fallback_singular.success = true;
+        fallback_singular.joints = candidate;
+        fallback_singular_score = score;
+      }
+      continue;
+    }
+
+    if (score < best_score) {
+      best.success = true;
+      best.joints = candidate;
+      best_score = score;
+    }
+  }
+
+  if (!best.success && fallback_singular.success) {
+    fallback_singular.message = "selected a near-singular IK branch because no better branch was available";
+    return fallback_singular;
+  }
+
+  if (!best.success) {
+    best.message = (!options.requested_conf.empty() && options.strict_conf) ? "no IK solution matches requested confData"
+                                                                            : "no valid IK solution";
+  }
+  return best;
+}
+
+bool isFastCartesianSolutionAcceptable(const KinematicsBackend &backend,
+                                       const std::vector<double> &candidate,
+                                       const Matrix4d &target_transform,
+                                       const std::vector<double> &seed_joints,
+                                       const KinematicsBackend::CartesianIkOptions &options,
+                                       bool is_first_point) {
+  if (candidate.empty()) {
+    return false;
+  }
+
+  const auto conf_score = scoreRequestedConf(candidate, options.requested_conf);
+  const bool conf_ok = !conf_score.has_request || !options.strict_conf || conf_score.strict_match;
+  const bool soft_limit_ok = !options.soft_limit_enabled || !violatesSoftLimit(candidate, options.soft_limits);
+  const auto request = makeCartesianSeededIkRequest(target_transform, seed_joints, options);
+  const auto candidate_metrics = backend.evaluateSeededIkCandidate(request, candidate);
+  const bool singularity_ok = !options.avoid_singularity || !candidate_metrics.near_singularity;
+  const bool continuity_ok = is_first_point || backend.branchDistance(seed_joints, candidate) <= options.branch_jump_threshold;
+  return conf_ok && soft_limit_ok && singularity_ok && continuity_ok;
+}
+
+bool buildCartesianJointTrajectory(const KinematicsBackend &backend,
+                                   const std::vector<Matrix4d> &cartesian_transforms,
+                                   const KinematicsBackend::VectorJ &initial_seed,
+                                   const KinematicsBackend::CartesianIkOptions &options,
+                                   std::vector<KinematicsBackend::VectorJ> &joint_trajectory,
+                                   KinematicsBackend::VectorJ &last_joints,
+                                   std::string &error_message) {
+  joint_trajectory.clear();
+  last_joints = initial_seed;
+
+  for (const auto &target_transform : cartesian_transforms) {
+    KinematicsBackend::VectorJ resolved_joints;
+    const auto fast_request = makeCartesianSeededIkRequest(target_transform, last_joints, options);
+    const auto fast_solution = backend.inverseKinematicsSeeded(fast_request);
+    if (isFastCartesianSolutionAcceptable(
+            backend, fast_solution, target_transform, last_joints, options, joint_trajectory.empty())) {
+      resolved_joints = fast_solution;
+    }
+
+    if (resolved_joints.empty() && options.avoid_singularity) {
+      auto singularity_retry_seed = last_joints;
+      if (nudgeAwayFromSingularity(fast_request, singularity_retry_seed)) {
+        auto singularity_retry_request = fast_request;
+        singularity_retry_request.seed_joints = singularity_retry_seed;
+        const auto singularity_retry = backend.inverseKinematicsSeeded(singularity_retry_request);
+        if (isFastCartesianSolutionAcceptable(
+                backend, singularity_retry, target_transform, last_joints, options, joint_trajectory.empty())) {
+          resolved_joints = singularity_retry;
+        }
+      }
+    }
+
+    if (resolved_joints.empty()) {
+      const auto candidates = backend.inverseKinematicsMultiBranch(fast_request);
+      const auto selected =
+          selectBestCartesianIkSolution(backend, candidates, target_transform, last_joints, options);
+      if (!selected.success) {
+        error_message = selected.message;
+        return false;
+      }
+      resolved_joints = selected.joints;
+    }
+
+    if (!joint_trajectory.empty() && backend.branchDistance(last_joints, resolved_joints) > options.branch_jump_threshold) {
+      auto local_retry_seed = last_joints;
+      if (nudgeAwayFromSingularity(fast_request, local_retry_seed)) {
+        auto local_retry_request = fast_request;
+        local_retry_request.seed_joints = local_retry_seed;
+        const auto local_retry = backend.inverseKinematicsSeeded(local_retry_request);
+        if (isFastCartesianSolutionAcceptable(
+                backend, local_retry, target_transform, last_joints, options, false)) {
+          resolved_joints = local_retry;
+        }
+      }
+      if (backend.branchDistance(last_joints, resolved_joints) > options.branch_jump_threshold) {
+        error_message = "IK branch changed discontinuously along Cartesian path";
+        return false;
+      }
+    }
+
+    joint_trajectory.push_back(resolved_joints);
+    last_joints = resolved_joints;
+  }
+
+  return !joint_trajectory.empty();
 }
 
 bool nudgeAwayFromSingularity(const KinematicsBackend::SeededIkRequest &request, std::vector<double> &joints) {
@@ -604,6 +854,24 @@ class LegacyKinematicsBackend final : public KinematicsBackend {
   [[nodiscard]] std::vector<VectorJ> inverseKinematicsMultiBranch(const SeededIkRequest &request) const override {
     return solveMultiBranchIk(*this, request);
   }
+
+  [[nodiscard]] CartesianIkSelectionResult selectBestCartesianIkSolution(
+      const std::vector<VectorJ> &candidates,
+      const Matrix4d &target_transform,
+      const VectorJ &seed_joints,
+      const CartesianIkOptions &options) const override {
+    return gazebo::detail::selectBestCartesianIkSolution(*this, candidates, target_transform, seed_joints, options);
+  }
+
+  [[nodiscard]] bool buildCartesianJointTrajectory(const std::vector<Matrix4d> &cartesian_transforms,
+                                                   const VectorJ &initial_seed,
+                                                   const CartesianIkOptions &options,
+                                                   std::vector<VectorJ> &joint_trajectory,
+                                                   VectorJ &last_joints,
+                                                   std::string &error_message) const override {
+    return gazebo::detail::buildCartesianJointTrajectory(
+        *this, cartesian_transforms, initial_seed, options, joint_trajectory, last_joints, error_message);
+  }
 };
 
 class KdlKinematicsBackend final : public KinematicsBackend {
@@ -694,6 +962,31 @@ class KdlKinematicsBackend final : public KinematicsBackend {
       return LegacyKinematicsBackend{}.inverseKinematicsMultiBranch(request);
     }
     return solveMultiBranchIk(*this, request);
+  }
+
+  [[nodiscard]] CartesianIkSelectionResult selectBestCartesianIkSolution(
+      const std::vector<VectorJ> &candidates,
+      const Matrix4d &target_transform,
+      const VectorJ &seed_joints,
+      const CartesianIkOptions &options) const override {
+    if (!valid_) {
+      return LegacyKinematicsBackend{}.selectBestCartesianIkSolution(candidates, target_transform, seed_joints, options);
+    }
+    return gazebo::detail::selectBestCartesianIkSolution(*this, candidates, target_transform, seed_joints, options);
+  }
+
+  [[nodiscard]] bool buildCartesianJointTrajectory(const std::vector<Matrix4d> &cartesian_transforms,
+                                                   const VectorJ &initial_seed,
+                                                   const CartesianIkOptions &options,
+                                                   std::vector<VectorJ> &joint_trajectory,
+                                                   VectorJ &last_joints,
+                                                   std::string &error_message) const override {
+    if (!valid_) {
+      return LegacyKinematicsBackend{}.buildCartesianJointTrajectory(
+          cartesian_transforms, initial_seed, options, joint_trajectory, last_joints, error_message);
+    }
+    return gazebo::detail::buildCartesianJointTrajectory(
+        *this, cartesian_transforms, initial_seed, options, joint_trajectory, last_joints, error_message);
   }
 
  private:

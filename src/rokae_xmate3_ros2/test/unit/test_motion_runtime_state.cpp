@@ -217,7 +217,7 @@ TEST(MotionRuntimeStateTest, ActiveSpeedScaleChangesTrajectoryProgressRate) {
   EXPECT_NE(fast_status.state, rt::ExecutionState::executing);
 }
 
-TEST(MotionRuntimeStateTest, RuntimePhaseTracksPlanningExecutionAndShutdownPreparation) {
+TEST(MotionRuntimeStateTest, RuntimePhaseTracksPlanningExecutionAndResetToIdle) {
   rt::MotionRuntime runtime;
   StaticBackend backend;
 
@@ -270,17 +270,24 @@ TEST(MotionRuntimeStateTest, RuntimePhaseTracksPlanningExecutionAndShutdownPrepa
   ASSERT_TRUE(saw_executing);
   EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::executing);
 
-  runtime.setRuntimePhaseForShutdown(rt::RuntimePhase::draining, "prepare shutdown");
-  EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::draining);
-  EXPECT_EQ(runtime.status(request.request_id).runtime_phase, rt::RuntimePhase::draining);
-
   runtime.stop("shutdown stop");
-  EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::draining);
+  EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::idle);
+  EXPECT_EQ(runtime.status(request.request_id).runtime_phase, rt::RuntimePhase::idle);
+  const auto stopped_contract = runtime.contractView();
+  EXPECT_EQ(stopped_contract.runtime_phase, rt::RuntimePhase::idle);
+  EXPECT_EQ(stopped_contract.shutdown_phase, rt::ShutdownPhase::running);
+  EXPECT_FALSE(stopped_contract.safe_to_delete);
+  EXPECT_FALSE(stopped_contract.safe_to_stop_world);
+  EXPECT_EQ(stopped_contract.message, "shutdown stop");
 
-  runtime.setRuntimePhaseForShutdown(rt::RuntimePhase::shutdown_prepared, "safe to delete");
   runtime.reset();
-  EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::shutdown_prepared);
-  EXPECT_EQ(runtime.view().status.runtime_phase, rt::RuntimePhase::shutdown_prepared);
+  EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::idle);
+  EXPECT_EQ(runtime.view().status.runtime_phase, rt::RuntimePhase::idle);
+  const auto reset_contract = runtime.contractView();
+  EXPECT_EQ(reset_contract.runtime_phase, rt::RuntimePhase::idle);
+  EXPECT_EQ(reset_contract.shutdown_phase, rt::ShutdownPhase::running);
+  EXPECT_FALSE(reset_contract.safe_to_delete);
+  EXPECT_FALSE(reset_contract.safe_to_stop_world);
 }
 
 TEST(MotionRuntimeStateTest, OwnerArbiterRejectsDirectTrajectoryToEffortTransition) {
@@ -329,7 +336,7 @@ TEST(MotionRuntimeStateTest, ShutdownCoordinatorExposesMonotonicPhaseProgression
 
   rt::ShutdownCoordinator::Inputs inputs;
   inputs.runtime.owner = rt::ControlOwner::trajectory;
-  inputs.runtime.phase = rt::RuntimePhase::executing;
+  inputs.runtime.runtime_phase = rt::RuntimePhase::executing;
   inputs.runtime.active_request_count = 1;
   inputs.runtime.active_goal_count = 1;
   inputs.update_loop_detached = false;
@@ -337,32 +344,30 @@ TEST(MotionRuntimeStateTest, ShutdownCoordinatorExposesMonotonicPhaseProgression
 
   const auto draining = coordinator.observe(inputs);
   EXPECT_TRUE(draining.accepted);
-  EXPECT_EQ(draining.phase, rt::RuntimePhase::draining);
+  EXPECT_EQ(draining.owner, rt::ControlOwner::trajectory);
+  EXPECT_EQ(draining.runtime_phase, rt::RuntimePhase::executing);
+  EXPECT_EQ(draining.shutdown_phase, rt::ShutdownPhase::draining);
   EXPECT_FALSE(draining.safe_to_delete);
   EXPECT_FALSE(draining.safe_to_stop_world);
 
   inputs.runtime.owner = rt::ControlOwner::none;
-  inputs.runtime.phase = rt::RuntimePhase::draining;
+  inputs.runtime.runtime_phase = rt::RuntimePhase::idle;
   inputs.runtime.active_request_count = 0;
   inputs.runtime.active_goal_count = 0;
   inputs.update_loop_detached = true;
   inputs.backend_quiescent = true;
 
   const auto backend_detached = coordinator.observe(inputs);
-  EXPECT_EQ(backend_detached.phase, rt::RuntimePhase::backend_detached);
+  EXPECT_EQ(backend_detached.shutdown_phase, rt::ShutdownPhase::backend_detached);
   EXPECT_FALSE(backend_detached.safe_to_delete);
 
-  const auto shutdown_prepared = coordinator.observe(inputs);
-  EXPECT_EQ(shutdown_prepared.phase, rt::RuntimePhase::shutdown_prepared);
-  EXPECT_FALSE(shutdown_prepared.safe_to_delete);
-
   const auto safe_to_delete = coordinator.observe(inputs);
-  EXPECT_EQ(safe_to_delete.phase, rt::RuntimePhase::safe_to_delete);
+  EXPECT_EQ(safe_to_delete.shutdown_phase, rt::ShutdownPhase::safe_to_delete);
   EXPECT_TRUE(safe_to_delete.safe_to_delete);
   EXPECT_FALSE(safe_to_delete.safe_to_stop_world);
 
   const auto safe_to_stop_world = coordinator.observe(inputs);
-  EXPECT_EQ(safe_to_stop_world.phase, rt::RuntimePhase::safe_to_stop_world);
+  EXPECT_EQ(safe_to_stop_world.shutdown_phase, rt::ShutdownPhase::safe_to_stop_world);
   EXPECT_TRUE(safe_to_stop_world.safe_to_delete);
   EXPECT_TRUE(safe_to_stop_world.safe_to_stop_world);
 }

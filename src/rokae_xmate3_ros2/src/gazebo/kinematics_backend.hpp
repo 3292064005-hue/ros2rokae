@@ -1,6 +1,7 @@
 #ifndef ROKAE_XMATE3_ROS2_GAZEBO_KINEMATICS_BACKEND_HPP
 #define ROKAE_XMATE3_ROS2_GAZEBO_KINEMATICS_BACKEND_HPP
 
+#include <array>
 #include <limits>
 #include <memory>
 #include <string>
@@ -55,6 +56,30 @@ class KinematicsBackend {
     }
   };
 
+  struct CartesianIkOptions {
+    std::vector<int> requested_conf;
+    bool strict_conf = false;
+    bool avoid_singularity = true;
+    bool soft_limit_enabled = false;
+    std::array<std::array<double, 2>, 6> soft_limits{{
+        {{-3.14, 3.14}},
+        {{-3.14, 3.14}},
+        {{-3.14, 3.14}},
+        {{-3.14, 3.14}},
+        {{-3.14, 3.14}},
+        {{-3.14, 3.14}},
+    }};
+    VectorJ joint_limits_min;
+    VectorJ joint_limits_max;
+    double branch_jump_threshold = 0.75;
+  };
+
+  struct CartesianIkSelectionResult {
+    bool success = false;
+    VectorJ joints;
+    std::string message;
+  };
+
   virtual ~KinematicsBackend() = default;
 
   [[nodiscard]] virtual std::string name() const = 0;
@@ -76,6 +101,18 @@ class KinematicsBackend {
                                                                            const VectorJ &candidate) const = 0;
   [[nodiscard]] virtual VectorJ inverseKinematicsSeeded(const SeededIkRequest &request) const = 0;
   [[nodiscard]] virtual std::vector<VectorJ> inverseKinematicsMultiBranch(const SeededIkRequest &request) const = 0;
+  [[nodiscard]] virtual CartesianIkSelectionResult selectBestCartesianIkSolution(
+      const std::vector<VectorJ> &candidates,
+      const Matrix4d &target_transform,
+      const VectorJ &seed_joints,
+      const CartesianIkOptions &options) const = 0;
+  [[nodiscard]] virtual bool buildCartesianJointTrajectory(
+      const std::vector<Matrix4d> &cartesian_transforms,
+      const VectorJ &initial_seed,
+      const CartesianIkOptions &options,
+      std::vector<VectorJ> &joint_trajectory,
+      VectorJ &last_joints,
+      std::string &error_message) const = 0;
 };
 
 [[nodiscard]] std::shared_ptr<KinematicsBackend> makePreferredKinematicsBackend();

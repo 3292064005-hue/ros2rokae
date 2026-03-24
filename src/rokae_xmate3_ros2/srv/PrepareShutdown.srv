@@ -7,5 +7,7 @@ bool safe_to_delete
 bool safe_to_stop_world
 uint32 active_request_count
 uint32 active_goal_count
-string phase
+string owner
+string runtime_phase
+string shutdown_phase
 string message

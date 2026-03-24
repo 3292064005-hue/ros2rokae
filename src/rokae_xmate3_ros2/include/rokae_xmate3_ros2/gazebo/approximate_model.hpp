@@ -245,6 +245,18 @@ inline std::array<double, 6> expectedTorqueProxy(::gazebo::xMate3Kinematics &kin
       .full;
 }
 
+inline Matrix6d massMatrixProxy(const std::array<double, 6> &joint_position,
+                                const LoadContext &load) {
+  Matrix6d matrix = Matrix6d::Zero();
+  const double com_norm = comNorm(load);
+  for (std::size_t axis = 0; axis < 6; ++axis) {
+    matrix(static_cast<Eigen::Index>(axis), static_cast<Eigen::Index>(axis)) =
+        0.02 + 0.005 * static_cast<double>(axis) + load.mass * 0.004 +
+        0.001 * std::fabs(std::sin(joint_position[axis])) + com_norm * 0.002;
+  }
+  return matrix;
+}
+
 class ModelFacade {
  public:
   class ModelBackend {
@@ -264,6 +276,17 @@ class ModelFacade {
         const std::array<double, 6> &cartesian_acceleration,
         const std::array<double, 6> &joint_position) const = 0;
     [[nodiscard]] virtual Matrix6d jacobian(const std::array<double, 6> &joint_position) const = 0;
+    [[nodiscard]] virtual Matrix6d massMatrix(const std::array<double, 6> &joint_position) const = 0;
+    [[nodiscard]] virtual std::array<double, 6> coriolis(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity) const = 0;
+    [[nodiscard]] virtual std::array<double, 6> gravity(
+        const std::array<double, 6> &joint_position) const = 0;
+    [[nodiscard]] virtual std::array<double, 6> inverseDynamics(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity,
+        const std::array<double, 6> &joint_acceleration,
+        const std::array<double, 6> &external_force) const = 0;
     [[nodiscard]] virtual DynamicsBreakdown dynamics(
         const std::array<double, 6> &joint_position,
         const std::array<double, 6> &joint_velocity,
@@ -310,6 +333,40 @@ class ModelFacade {
 
     [[nodiscard]] Matrix6d jacobian(const std::array<double, 6> &joint_position) const override {
       return gazebo_model::jacobian(*kinematics_, joint_position);
+    }
+
+    [[nodiscard]] Matrix6d massMatrix(const std::array<double, 6> &joint_position) const override {
+      return gazebo_model::massMatrixProxy(joint_position, load_);
+    }
+
+    [[nodiscard]] std::array<double, 6> coriolis(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity) const override {
+      const std::array<double, 6> zero_joint_acc{};
+      const std::array<double, 6> zero_external_force{};
+      return gazebo_model::computeApproximateDynamics(
+                 *kinematics_, joint_position, joint_velocity, zero_joint_acc, zero_external_force, load_)
+          .coriolis;
+    }
+
+    [[nodiscard]] std::array<double, 6> gravity(
+        const std::array<double, 6> &joint_position) const override {
+      const std::array<double, 6> zero_joint_velocity{};
+      const std::array<double, 6> zero_joint_acc{};
+      const std::array<double, 6> zero_external_force{};
+      return gazebo_model::computeApproximateDynamics(
+                 *kinematics_, joint_position, zero_joint_velocity, zero_joint_acc, zero_external_force, load_)
+          .gravity;
+    }
+
+    [[nodiscard]] std::array<double, 6> inverseDynamics(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity,
+        const std::array<double, 6> &joint_acceleration,
+        const std::array<double, 6> &external_force) const override {
+      return gazebo_model::computeApproximateDynamics(
+                 *kinematics_, joint_position, joint_velocity, joint_acceleration, external_force, load_)
+          .full;
     }
 
     [[nodiscard]] DynamicsBreakdown dynamics(
@@ -393,6 +450,34 @@ class ModelFacade {
   template <std::size_t DoF>
   [[nodiscard]] Matrix6d jacobian(const std::array<double, DoF> &joint_position) const {
     return backend_->jacobian(toJointArray<6>(toVector6(joint_position)));
+  }
+
+  template <std::size_t DoF>
+  [[nodiscard]] Matrix6d massMatrix(const std::array<double, DoF> &joint_position) const {
+    return backend_->massMatrix(toJointArray<6>(toVector6(joint_position)));
+  }
+
+  template <std::size_t DoF>
+  [[nodiscard]] std::array<double, 6> coriolis(const std::array<double, DoF> &joint_position,
+                                               const std::array<double, DoF> &joint_velocity) const {
+    return backend_->coriolis(toJointArray<6>(toVector6(joint_position)),
+                              toJointArray<6>(toVector6(joint_velocity)));
+  }
+
+  template <std::size_t DoF>
+  [[nodiscard]] std::array<double, 6> gravity(const std::array<double, DoF> &joint_position) const {
+    return backend_->gravity(toJointArray<6>(toVector6(joint_position)));
+  }
+
+  template <std::size_t DoF>
+  [[nodiscard]] std::array<double, 6> inverseDynamics(const std::array<double, DoF> &joint_position,
+                                                      const std::array<double, DoF> &joint_velocity,
+                                                      const std::array<double, DoF> &joint_acceleration,
+                                                      const std::array<double, 6> &external_force = {}) const {
+    return backend_->inverseDynamics(toJointArray<6>(toVector6(joint_position)),
+                                     toJointArray<6>(toVector6(joint_velocity)),
+                                     toJointArray<6>(toVector6(joint_acceleration)),
+                                     external_force);
   }
 
   template <std::size_t DoF>

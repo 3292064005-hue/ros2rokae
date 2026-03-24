@@ -385,6 +385,8 @@ def _prepare_plugin_shutdown(sink) -> bool:
             sink.write(
                 "[harness] prepare shutdown: accepted="
                 + str(response.accepted)
+                + " owner="
+                + str(response.owner)
                 + " owner_none="
                 + str(response.owner_none)
                 + " runtime_idle="
@@ -399,8 +401,10 @@ def _prepare_plugin_shutdown(sink) -> bool:
                 + str(response.active_request_count)
                 + " active_goal_count="
                 + str(response.active_goal_count)
-                + " phase="
-                + response.phase
+                + " runtime_phase="
+                + response.runtime_phase
+                + " shutdown_phase="
+                + response.shutdown_phase
                 + " message="
                 + getattr(response, "message", "")
                 + "\n"

@@ -213,6 +213,9 @@ cmake -DROKAE_SOURCE_ARCHIVE_OUTPUT=$PWD/rokae_source_candidate.zip /home/chen/r
 cmake --build . --target package_verified_source_archive
 ```
 
+禁止直接上传手工打包的 `src.zip`；只允许分发 `package_verified_source_archive` 生成并通过 archive gate 的候选包。
+候选包旁边会同时生成 `.manifest.txt` 与 `.sha256` sidecar，用来核对“外发包就是刚刚验过的那个包”。
+
 默认 `ctest --output-on-failure` 固定为 12 项轻量门禁：
 - 9 个纯单测
 - `gazebo_sdk_regression`
@@ -221,7 +224,7 @@ cmake --build . --target package_verified_source_archive
 
 teardown 质量与 full examples 业务回归已经拆成两个质量信号：
 - `gazebo_examples_full` 只关注 `27/27` examples 业务通过
-- `gazebo_teardown_quality` 单独关注 `prepare_shutdown` / `safe_to_delete` / 优雅停机路径
+- `gazebo_teardown_quality` 单独关注 `prepare_shutdown` 返回的统一 contract：`owner / runtime_phase / shutdown_phase / safe_to_delete / safe_to_stop_world`
 - `gazebo_teardown_quality_repeat` 单独关注 teardown 路径的重复稳定性
 
 当前 JTC 主链定义为 `position trajectory backend`，不是完整闭环伺服替身。

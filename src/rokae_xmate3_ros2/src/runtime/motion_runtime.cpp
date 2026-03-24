@@ -11,12 +11,6 @@ constexpr double kExecutionGoalMinDt = 1e-3;
 constexpr double kExecutionGoalRetimingEps = 1e-6;
 constexpr double kTrajectoryCompletionJointToleranceRad = 0.03;
 
-bool is_shutdown_phase(RuntimePhase phase) {
-  return phase == RuntimePhase::draining || phase == RuntimePhase::backend_detached ||
-         phase == RuntimePhase::shutdown_prepared || phase == RuntimePhase::safe_to_delete ||
-         phase == RuntimePhase::safe_to_stop_world;
-}
-
 double clamp_active_speed_scale(double scale) {
   return std::clamp(scale, 0.05, 2.0);
 }
@@ -331,16 +325,6 @@ void MotionRuntime::setRuntimePhaseLocked(RuntimePhase phase, const std::string 
   }
 }
 
-void MotionRuntime::setRuntimePhaseForShutdown(RuntimePhase phase, const std::string &message) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  setRuntimePhaseLocked(phase, message);
-  if (!active_status_.request_id.empty()) {
-    rememberStatus(active_status_);
-  } else {
-    status_cv_.notify_all();
-  }
-}
-
 void MotionRuntime::setActiveSpeedScale(double scale) {
   std::lock_guard<std::mutex> lock(mutex_);
   active_speed_scale_ = clamp_active_speed_scale(scale);
@@ -389,9 +373,13 @@ RuntimeContractView MotionRuntime::contractView() const {
   std::lock_guard<std::mutex> lock(mutex_);
   RuntimeContractView view;
   view.owner = owner_arbiter_.current();
-  view.phase = runtime_phase_;
+  view.runtime_phase = runtime_phase_;
+  view.shutdown_phase = ShutdownPhase::running;
   view.active_request_count = active_request_id_.empty() ? 0u : 1u;
   view.active_goal_count = (using_backend_trajectory_ && active_trajectory_goal_.has_value()) ? 1u : 0u;
+  view.safe_to_delete = false;
+  view.safe_to_stop_world = false;
+  view.message = active_status_.message;
   return view;
 }
 
@@ -541,11 +529,7 @@ void MotionRuntime::stop(const std::string &message) {
   active_status_.state = ExecutionState::stopped;
   active_status_.message = message;
   active_status_.terminal_success = false;
-  if (!is_shutdown_phase(runtime_phase_)) {
-    setRuntimePhaseLocked(RuntimePhase::idle);
-  } else {
-    active_status_.runtime_phase = runtime_phase_;
-  }
+  setRuntimePhaseLocked(RuntimePhase::idle);
   (void)setOwnerLocked(ControlOwner::none, message.empty() ? "stopped" : message);
   if (!using_backend_trajectory_ && executor_.hasActivePlan()) {
     active_status_.execution_backend = ExecutionBackend::effort;
@@ -568,9 +552,7 @@ void MotionRuntime::reset() {
   queued_plan_.reset();
   active_request_id_.clear();
   active_status_ = RuntimeStatus{};
-  if (!is_shutdown_phase(runtime_phase_)) {
-    runtime_phase_ = RuntimePhase::idle;
-  }
+  runtime_phase_ = RuntimePhase::idle;
   active_status_.runtime_phase = runtime_phase_;
   (void)owner_arbiter_.clear("reset");
   executor_.reset();

@@ -56,11 +56,16 @@ enum class RuntimePhase {
   idle,
   planning,
   executing,
+  faulted,
+};
+
+enum class ShutdownPhase {
+  running,
   draining,
   backend_detached,
-  shutdown_prepared,
   safe_to_delete,
   safe_to_stop_world,
+  finished,
   faulted,
 };
 
@@ -215,9 +220,13 @@ struct RuntimeView {
 
 struct RuntimeContractView {
   ControlOwner owner = ControlOwner::none;
-  RuntimePhase phase = RuntimePhase::idle;
+  RuntimePhase runtime_phase = RuntimePhase::idle;
+  ShutdownPhase shutdown_phase = ShutdownPhase::running;
   std::size_t active_request_count = 0;
   std::size_t active_goal_count = 0;
+  bool safe_to_delete = false;
+  bool safe_to_stop_world = false;
+  std::string message;
 };
 
 class BackendInterface {
@@ -331,20 +340,29 @@ inline const char *to_string(RuntimePhase phase) noexcept {
       return "planning";
     case RuntimePhase::executing:
       return "executing";
-    case RuntimePhase::draining:
-      return "draining";
-    case RuntimePhase::backend_detached:
-      return "backend_detached";
-    case RuntimePhase::shutdown_prepared:
-      return "shutdown_prepared";
-    case RuntimePhase::safe_to_delete:
-      return "safe_to_delete";
-    case RuntimePhase::safe_to_stop_world:
-      return "safe_to_stop_world";
     case RuntimePhase::faulted:
       return "faulted";
     default:
       return "idle";
+  }
+}
+
+inline const char *to_string(ShutdownPhase phase) noexcept {
+  switch (phase) {
+    case ShutdownPhase::draining:
+      return "draining";
+    case ShutdownPhase::backend_detached:
+      return "backend_detached";
+    case ShutdownPhase::safe_to_delete:
+      return "safe_to_delete";
+    case ShutdownPhase::safe_to_stop_world:
+      return "safe_to_stop_world";
+    case ShutdownPhase::finished:
+      return "finished";
+    case ShutdownPhase::faulted:
+      return "faulted";
+    default:
+      return "running";
   }
 }
 

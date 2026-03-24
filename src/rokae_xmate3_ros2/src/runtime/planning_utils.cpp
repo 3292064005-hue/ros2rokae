@@ -8,8 +8,6 @@
 namespace rokae_xmate3_ros2::runtime {
 namespace {
 
-constexpr double kJointBranchJumpThreshold = 0.75;
-
 Eigen::Matrix<double, 6, 1> cartesian_twist_from_samples(const std::vector<double> &previous_pose,
                                                          const std::vector<double> &next_pose,
                                                          double dt) {
@@ -45,8 +43,6 @@ bool is_finite_vector(const Eigen::Matrix<double, 6, 1> &vector) {
 }
 
 }  // namespace
-
-double joint_branch_jump_threshold() noexcept { return kJointBranchJumpThreshold; }
 
 double max_joint_step(const std::vector<double> &lhs, const std::vector<double> &rhs) {
   double max_step = 0.0;

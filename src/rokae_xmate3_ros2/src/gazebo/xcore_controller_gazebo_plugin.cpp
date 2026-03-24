@@ -610,10 +610,6 @@ void XCoreControllerPlugin::prepareForShutdown(const std::string &reason) {
     }
 
     shutting_down_.store(true);
-    if (runtime_context_) {
-        runtime_context_->motionRuntime().setRuntimePhaseForShutdown(
-            runtime::RuntimePhase::draining, reason.empty() ? "shutdown draining" : reason);
-    }
     update_conn_.reset();
 
     {
@@ -642,7 +638,9 @@ XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
     runtime::ShutdownContractView state;
     state.accepted = runtime_context_ != nullptr;
     if (!runtime_context_) {
-        state.phase = runtime::RuntimePhase::faulted;
+        state.owner = runtime::ControlOwner::none;
+        state.runtime_phase = runtime::RuntimePhase::faulted;
+        state.shutdown_phase = runtime::ShutdownPhase::faulted;
         state.message = "runtime context unavailable";
         state.owner_none = true;
         state.runtime_idle = true;
@@ -667,11 +665,10 @@ XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
         backend_owner == runtime::ControlOwner::none &&
         (!trajectory_state.active || trajectory_state.completed || trajectory_state.failed ||
          trajectory_state.canceled || trajectory_state.succeeded);
-    inputs.faulted = runtime_contract.phase == runtime::RuntimePhase::faulted;
+    inputs.faulted = runtime_contract.runtime_phase == runtime::RuntimePhase::faulted;
 
     state = shutdown_coordinator_.observe(inputs);
     state.accepted = state.accepted && shutdown_prepared_;
-    motion_runtime.setRuntimePhaseForShutdown(state.phase, state.message);
     return state;
 }
 
@@ -896,8 +893,22 @@ void XCoreControllerPlugin::InitROS2() {
               static_cast<decltype(response->active_request_count)>(state.active_request_count);
           response->active_goal_count =
               static_cast<decltype(response->active_goal_count)>(state.active_goal_count);
-          response->phase = runtime::to_string(state.phase);
+          response->owner = runtime::to_string(state.owner);
+          response->runtime_phase = runtime::to_string(state.runtime_phase);
+          response->shutdown_phase = runtime::to_string(state.shutdown_phase);
           response->message = state.message;
+          RCLCPP_INFO(
+              node_->get_logger(),
+              "prepare_shutdown contract owner=%s runtime_phase=%s shutdown_phase=%s active_request_count=%zu "
+              "active_goal_count=%zu safe_to_delete=%s safe_to_stop_world=%s message=%s",
+              response->owner.c_str(),
+              response->runtime_phase.c_str(),
+              response->shutdown_phase.c_str(),
+              state.active_request_count,
+              state.active_goal_count,
+              state.safe_to_delete ? "true" : "false",
+              state.safe_to_stop_world ? "true" : "false",
+              response->message.c_str());
         });
 
     executor_thread_ = std::thread([this]() {

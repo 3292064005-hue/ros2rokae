@@ -110,7 +110,7 @@ class TeardownQualityProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin, Run
         return self.wait_for_joint_heartbeat(timeout_sec)
 
     def prepare_shutdown_until_safe(self, timeout_sec: float) -> tuple[bool, list[str], str]:
-        phases: list[str] = []
+        shutdown_phases: list[str] = []
         final_detail = ""
         deadline = time.monotonic() + timeout_sec
         while time.monotonic() < deadline:
@@ -122,16 +122,17 @@ class TeardownQualityProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin, Run
                     response = future.result()
                     break
             if response is None:
-                return False, phases, "timed out waiting for prepare_shutdown response"
+                return False, shutdown_phases, "timed out waiting for prepare_shutdown response"
 
-            phases.append(response.phase)
+            shutdown_phases.append(response.shutdown_phase)
             final_detail = (
-                f"accepted={response.accepted} owner_none={response.owner_none} "
+                f"accepted={response.accepted} owner={response.owner} owner_none={response.owner_none} "
                 f"runtime_idle={response.runtime_idle} backend_quiescent={response.backend_quiescent} "
                 f"safe_to_delete={response.safe_to_delete} safe_to_stop_world={response.safe_to_stop_world} "
                 f"active_request_count={response.active_request_count} "
                 f"active_goal_count={response.active_goal_count} "
-                f"phase={response.phase} message={response.message}"
+                f"runtime_phase={response.runtime_phase} "
+                f"shutdown_phase={response.shutdown_phase} message={response.message}"
             )
             sys.stdout.write(f"[teardown-quality] {final_detail}\n")
             sys.stdout.flush()
@@ -145,11 +146,13 @@ class TeardownQualityProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin, Run
                 and response.safe_to_stop_world
                 and response.active_request_count == 0
                 and response.active_goal_count == 0
-                and response.phase == "safe_to_stop_world"
+                and response.owner == "none"
+                and response.runtime_phase == "idle"
+                and response.shutdown_phase == "safe_to_stop_world"
             ):
-                return True, phases, final_detail
+                return True, shutdown_phases, final_detail
             time.sleep(0.25)
-        return False, phases, final_detail or "timed out waiting for safe_to_stop_world"
+        return False, shutdown_phases, final_detail or "timed out waiting for safe_to_stop_world"
 
 
 def _run_single_iteration(args: argparse.Namespace, iteration: int, total_iterations: int) -> int:
@@ -219,18 +222,17 @@ def _run_single_iteration(args: argparse.Namespace, iteration: int, total_iterat
             if not probe.wait_for_runtime_ready(args.ready_timeout):
                 return 1
 
-            ok, phases, detail = probe.prepare_shutdown_until_safe(20.0)
+            ok, shutdown_phases, detail = probe.prepare_shutdown_until_safe(20.0)
             if not ok:
                 sys.stderr.write(f"prepare_shutdown did not reach safe contract state: {detail}\n")
                 return 1
             required_phases = {
                 "draining",
                 "backend_detached",
-                "shutdown_prepared",
                 "safe_to_delete",
                 "safe_to_stop_world",
             }
-            missing_phases = sorted(required_phases.difference(phases))
+            missing_phases = sorted(required_phases.difference(shutdown_phases))
             if missing_phases:
                 sys.stderr.write(
                     "prepare_shutdown did not expose full phase progression: "
@@ -238,6 +240,8 @@ def _run_single_iteration(args: argparse.Namespace, iteration: int, total_iterat
                     + "\n"
                 )
                 return 1
+            sys.stdout.write(f"[teardown-quality] final contract: {detail}\n")
+            sys.stdout.flush()
 
             deleted = probe.delete_robot_entity()
             sys.stdout.write(f"[teardown-quality] delete_robot_entity={deleted}\n")

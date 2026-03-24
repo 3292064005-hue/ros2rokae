@@ -607,16 +607,15 @@ void QueryFacade::handleCalcJointTorque(
     }
   }
   const auto toolset = tooling_state_.toolset();
-  const auto breakdown =
+  const auto model_facade =
       rokae_xmate3_ros2::gazebo_model::configuredModelFacade(
           kinematics_,
           {toolset.tool_pose[0], toolset.tool_pose[1], toolset.tool_pose[2],
            toolset.tool_pose[3], toolset.tool_pose[4], toolset.tool_pose[5]},
-          {toolset.tool_mass, toolset.tool_com})
-          .dynamics(req.joint_pos, req.joint_vel, req.joint_acc, req.external_force);
-  res.joint_torque = breakdown.full;
-  res.gravity_torque = breakdown.gravity;
-  res.coriolis_torque = breakdown.coriolis;
+          {toolset.tool_mass, toolset.tool_com});
+  res.joint_torque = model_facade.inverseDynamics(req.joint_pos, req.joint_vel, req.joint_acc, req.external_force);
+  res.gravity_torque = model_facade.gravity(req.joint_pos);
+  res.coriolis_torque = model_facade.coriolis(req.joint_pos, req.joint_vel);
   res.success = true;
   res.error_code = 0;
   res.error_msg.clear();

@@ -83,7 +83,7 @@ public:
         }
         const std::array<double, 6> qdd{};
         const std::array<double, 6> wrench{};
-        return facade().dynamics(q, dq, qdd, wrench).full;
+        return facade().inverseDynamics(q, dq, qdd, wrench);
     }
 
     Eigen::MatrixXd jacobian(std::error_code& ec) {
