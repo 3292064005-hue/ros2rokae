@@ -20,6 +20,30 @@ from rokae_xmate3_ros2.srv import Connect, PrepareShutdown, SetMotionControlMode
 from common import RuntimeCleanupMixin, RuntimeReadinessMixin, RuntimeTelemetryMixin, ensure_harness_import_path
 
 
+CONTROL_OWNER = {
+    0: "none",
+    1: "effort",
+    2: "trajectory",
+}
+
+RUNTIME_PHASE = {
+    0: "idle",
+    1: "planning",
+    2: "executing",
+    3: "faulted",
+}
+
+SHUTDOWN_PHASE = {
+    0: "running",
+    1: "draining",
+    2: "backend_detached",
+    3: "safe_to_delete",
+    4: "safe_to_stop_world",
+    5: "finished",
+    6: "faulted",
+}
+
+
 def _wait_for_process_exit(proc: subprocess.Popen[str], timeout_sec: float) -> int | None:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
@@ -114,7 +138,9 @@ class TeardownQualityProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin, Run
         final_detail = ""
         deadline = time.monotonic() + timeout_sec
         while time.monotonic() < deadline:
-            future = self._prepare_shutdown_client.call_async(PrepareShutdown.Request())
+            request = PrepareShutdown.Request()
+            request.request_shutdown = True
+            future = self._prepare_shutdown_client.call_async(request)
             response = None
             while time.monotonic() < deadline:
                 rclpy.spin_once(self, timeout_sec=0.1)
@@ -124,26 +150,28 @@ class TeardownQualityProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin, Run
             if response is None:
                 return False, shutdown_phases, "timed out waiting for prepare_shutdown response"
 
-            shutdown_phases.append(response.shutdown_phase)
+            owner_name = CONTROL_OWNER.get(response.owner, str(response.owner))
+            runtime_phase_name = RUNTIME_PHASE.get(response.runtime_phase, str(response.runtime_phase))
+            shutdown_phase_name = SHUTDOWN_PHASE.get(response.shutdown_phase, str(response.shutdown_phase))
+            shutdown_phases.append(shutdown_phase_name)
             final_detail = (
-                f"owner={response.owner} "
+                f"accepted={response.accepted} "
+                f"owner={owner_name} "
+                f"backend_quiescent={response.backend_quiescent} "
                 f"safe_to_delete={response.safe_to_delete} safe_to_stop_world={response.safe_to_stop_world} "
                 f"active_request_count={response.active_request_count} "
                 f"active_goal_count={response.active_goal_count} "
-                f"runtime_phase={response.runtime_phase} "
-                f"shutdown_phase={response.shutdown_phase} message={response.message}"
+                f"runtime_phase={runtime_phase_name} "
+                f"shutdown_phase={shutdown_phase_name} message={response.message}"
             )
             sys.stdout.write(f"[teardown-quality] {final_detail}\n")
             sys.stdout.flush()
 
             if (
-                response.safe_to_delete
+                response.accepted
+                and response.shutdown_phase >= 3
+                and response.safe_to_delete
                 and response.safe_to_stop_world
-                and response.active_request_count == 0
-                and response.active_goal_count == 0
-                and response.owner == "none"
-                and response.runtime_phase == "idle"
-                and response.shutdown_phase == "safe_to_stop_world"
             ):
                 return True, shutdown_phases, final_detail
             time.sleep(0.25)

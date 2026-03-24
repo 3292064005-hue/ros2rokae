@@ -369,18 +369,17 @@ RuntimePhase MotionRuntime::runtimePhase() const {
   return runtime_phase_;
 }
 
-RuntimeContractView MotionRuntime::contractView() const {
+RuntimeContractFacts MotionRuntime::contractFacts() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  RuntimeContractView view;
-  view.owner = owner_arbiter_.current();
-  view.runtime_phase = runtime_phase_;
-  view.shutdown_phase = ShutdownPhase::running;
-  view.active_request_count = active_request_id_.empty() ? 0u : 1u;
-  view.active_goal_count = (using_backend_trajectory_ && active_trajectory_goal_.has_value()) ? 1u : 0u;
-  view.safe_to_delete = false;
-  view.safe_to_stop_world = false;
-  view.message = active_status_.message;
-  return view;
+  RuntimeContractFacts facts;
+  facts.owner = owner_arbiter_.current();
+  facts.runtime_phase = runtime_phase_;
+  facts.active_request_count = active_request_id_.empty() ? 0u : 1u;
+  facts.active_goal_count = (using_backend_trajectory_ && active_trajectory_goal_.has_value()) ? 1u : 0u;
+  facts.backend_quiescent = facts.active_goal_count == 0;
+  facts.faulted = runtime_phase_ == RuntimePhase::faulted;
+  facts.message = active_status_.message;
+  return facts;
 }
 
 std::size_t MotionRuntime::activeRequestCount() const {

@@ -227,7 +227,7 @@ TrajectorySamples TrajectoryPlanner::planJointMove(
         dt,
         scaled_joint_speed_limits(speed_mm_per_s, config),
         scaled_joint_acc_limits(speed_mm_per_s, config));
-    return rokae_xmate3_ros2::runtime::toTrajectorySamples(retimed);
+    return rokae_xmate3_ros2::runtime::toTrajectorySamples(retimed.trajectory);
 }
 
 TrajectorySamples TrajectoryPlanner::planCartesianLine(

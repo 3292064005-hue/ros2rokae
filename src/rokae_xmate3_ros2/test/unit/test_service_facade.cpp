@@ -318,10 +318,10 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   std::vector<double> target_joint(traj_req.target_joint_pos.begin(), traj_req.target_joint_pos.end());
   const auto retimed = rt::retimeJointPathWithUnifiedConfig(
       {start_joint, target_joint}, 0.01, traj_req.max_velocity, traj_req.max_acceleration, traj_req.blend_radius);
-  EXPECT_NEAR(traj_res.total_time, retimed.total_time, 1e-9);
-  EXPECT_EQ(traj_res.trajectory_points.size(), retimed.positions.size());
-  EXPECT_DOUBLE_EQ(traj_res.trajectory_points.front().pos[0], retimed.positions.front()[0]);
-  EXPECT_DOUBLE_EQ(traj_res.trajectory_points.back().pos[0], retimed.positions.back()[0]);
+  EXPECT_NEAR(traj_res.total_time, retimed.trajectory.total_time, 1e-9);
+  EXPECT_EQ(traj_res.trajectory_points.size(), retimed.trajectory.positions.size());
+  EXPECT_DOUBLE_EQ(traj_res.trajectory_points.front().pos[0], retimed.trajectory.positions.front()[0]);
+  EXPECT_DOUBLE_EQ(traj_res.trajectory_points.back().pos[0], retimed.trajectory.positions.back()[0]);
   traj_req.is_cartesian = true;
   traj_req.max_velocity = 0.6;
   traj_req.max_acceleration = 1.5;

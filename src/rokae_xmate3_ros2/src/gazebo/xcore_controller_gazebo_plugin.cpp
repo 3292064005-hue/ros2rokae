@@ -604,7 +604,6 @@ XCoreControllerPlugin::~XCoreControllerPlugin() {
 
 void XCoreControllerPlugin::prepareForShutdown(const std::string &reason) {
     std::lock_guard<std::mutex> shutdown_lock(shutdown_prepare_mutex_);
-    shutdown_coordinator_.begin(reason.empty() ? "shutdown requested" : reason);
     if (shutdown_prepared_) {
         return;
     }
@@ -632,6 +631,7 @@ void XCoreControllerPlugin::prepareForShutdown(const std::string &reason) {
 runtime::ShutdownContractView
 XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
     if (request_prepare) {
+        shutdown_coordinator_.beginShutdown("internal prepare shutdown");
         prepareForShutdown("internal prepare shutdown");
     }
 
@@ -640,6 +640,7 @@ XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
         state.owner = runtime::ControlOwner::none;
         state.runtime_phase = runtime::RuntimePhase::faulted;
         state.shutdown_phase = runtime::ShutdownPhase::faulted;
+        state.backend_quiescent = false;
         state.message = "runtime context unavailable";
         state.safe_to_delete = false;
         state.safe_to_stop_world = false;
@@ -647,31 +648,24 @@ XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
     }
 
     auto &motion_runtime = runtime_context_->motionRuntime();
-    const auto runtime_contract = motion_runtime.contractView();
+    auto facts = motion_runtime.contractFacts();
 
     const auto backend_owner =
         motion_backend_ ? motion_backend_->controlOwner() : runtime::ControlOwner::none;
 
     const auto trajectory_state =
         motion_backend_ ? motion_backend_->readTrajectoryExecutionState() : runtime::TrajectoryExecutionState{};
-    runtime::ShutdownCoordinator::Inputs inputs;
-    inputs.faulted = runtime_contract.runtime_phase == runtime::RuntimePhase::faulted;
-    inputs.runtime.owner = runtime_contract.owner;
-    inputs.runtime.runtime_phase = runtime_contract.runtime_phase;
-    inputs.runtime.active_request_count = runtime_contract.active_request_count;
-    inputs.runtime.active_goal_count = runtime_contract.active_goal_count;
-    inputs.runtime.message = runtime_contract.message;
-    inputs.backend.update_loop_detached = !static_cast<bool>(update_conn_);
-    inputs.backend.backend_quiescent =
+    facts.backend_quiescent =
+        facts.backend_quiescent &&
         backend_owner == runtime::ControlOwner::none &&
         (!trajectory_state.active || trajectory_state.completed || trajectory_state.failed ||
          trajectory_state.canceled || trajectory_state.succeeded);
-    inputs.backend.safe_to_delete_ready =
-        inputs.backend.update_loop_detached && inputs.backend.backend_quiescent;
-    inputs.backend.safe_to_stop_world_ready = inputs.backend.safe_to_delete_ready;
-    inputs.backend.message = shutdown_prepared_ ? "shutdown prepared" : "shutdown requested";
+    facts.plugin_detached = shutting_down_.load() && !static_cast<bool>(update_conn_);
+    facts.faulted = facts.faulted || facts.runtime_phase == runtime::RuntimePhase::faulted;
+    facts.message = shutdown_prepared_ ? "shutdown prepared" : "shutdown requested";
 
-    state = shutdown_coordinator_.observe(inputs);
+    shutdown_coordinator_.updateFacts(facts);
+    state = shutdown_coordinator_.currentView();
     if (!shutdown_prepared_ && state.shutdown_phase != runtime::ShutdownPhase::faulted) {
         state.message = "shutdown not prepared";
     }
@@ -886,28 +880,34 @@ void XCoreControllerPlugin::InitROS2() {
 
     prepare_shutdown_service_ = node_->create_service<rokae_xmate3_ros2::srv::PrepareShutdown>(
         "/xmate3/internal/prepare_shutdown",
-        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::PrepareShutdown::Request>,
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::PrepareShutdown::Request> request,
                std::shared_ptr<rokae_xmate3_ros2::srv::PrepareShutdown::Response> response) {
-          const auto state = collectShutdownContractState(true);
-          response->owner = runtime::to_string(state.owner);
-          response->runtime_phase = runtime::to_string(state.runtime_phase);
-          response->shutdown_phase = runtime::to_string(state.shutdown_phase);
+          const auto state = collectShutdownContractState(request->request_shutdown);
+          response->accepted = runtime_context_ != nullptr &&
+                               (request->request_shutdown || shutdown_coordinator_.requested());
+          response->owner = runtime::to_u8(state.owner);
+          response->runtime_phase = runtime::to_u8(state.runtime_phase);
+          response->shutdown_phase = runtime::to_u8(state.shutdown_phase);
           response->active_request_count =
               static_cast<decltype(response->active_request_count)>(state.active_request_count);
           response->active_goal_count =
               static_cast<decltype(response->active_goal_count)>(state.active_goal_count);
+          response->backend_quiescent = state.backend_quiescent;
           response->safe_to_delete = state.safe_to_delete;
           response->safe_to_stop_world = state.safe_to_stop_world;
           response->message = state.message;
           RCLCPP_INFO(
               node_->get_logger(),
-              "prepare_shutdown contract owner=%s runtime_phase=%s shutdown_phase=%s active_request_count=%zu "
-              "active_goal_count=%zu safe_to_delete=%s safe_to_stop_world=%s message=%s",
-              response->owner.c_str(),
-              response->runtime_phase.c_str(),
-              response->shutdown_phase.c_str(),
+              "prepare_shutdown contract accepted=%s owner=%s runtime_phase=%s shutdown_phase=%s "
+              "active_request_count=%zu active_goal_count=%zu backend_quiescent=%s "
+              "safe_to_delete=%s safe_to_stop_world=%s message=%s",
+              response->accepted ? "true" : "false",
+              runtime::to_string(state.owner),
+              runtime::to_string(state.runtime_phase),
+              runtime::to_string(state.shutdown_phase),
               state.active_request_count,
               state.active_goal_count,
+              state.backend_quiescent ? "true" : "false",
               state.safe_to_delete ? "true" : "false",
               state.safe_to_stop_world ? "true" : "false",
               response->message.c_str());

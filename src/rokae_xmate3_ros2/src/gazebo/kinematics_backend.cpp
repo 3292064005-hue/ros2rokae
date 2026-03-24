@@ -51,6 +51,29 @@ struct ConfScore {
   bool has_request = false;
 };
 
+struct IKBackendConfig {
+  double weight_pose = 1.0;
+  double weight_continuity = 2.0;
+  double weight_singularity = 1.5;
+  double weight_limit = 1.0;
+  double weight_preference = 0.5;
+
+  double singularity_hard_reject = 1e-4;
+  double wrist_singularity_soft_threshold = 0.15;
+  double jacobian_singularity_soft_threshold = 0.08;
+  double wrist_singularity_hard_threshold = 0.02;
+  double jacobian_singularity_hard_threshold = 0.005;
+  double joint_branch_jump_threshold = 0.75;
+  double shoulder_elbow_branch_switch_penalty = 2.0;
+  double wrist_flip_branch_switch_penalty = 4.0;
+  std::size_t max_candidates_per_point = 6;
+};
+
+[[nodiscard]] const IKBackendConfig &backendConfig() {
+  static const IKBackendConfig config{};
+  return config;
+}
+
 Matrix4d legacyDhTransform(std::size_t index, double theta) {
   Matrix4d transform = Matrix4d::Identity();
   const double ct = std::cos(theta);
@@ -90,20 +113,28 @@ std::vector<Matrix4d> legacyAllTransforms(const std::vector<double> &joints) {
   return transforms;
 }
 
+Eigen::Vector3d so3LogError(const Eigen::Matrix3d &target, const Eigen::Matrix3d &current) {
+  Eigen::Quaterniond q_target(target);
+  Eigen::Quaterniond q_current(current);
+  q_target.normalize();
+  q_current.normalize();
+  Eigen::Quaterniond delta = q_target * q_current.conjugate();
+  if (delta.w() < 0.0) {
+    delta.coeffs() *= -1.0;
+  }
+  const Eigen::Vector3d vec = delta.vec();
+  const double vec_norm = vec.norm();
+  if (vec_norm < 1e-12) {
+    return Eigen::Vector3d::Zero();
+  }
+  const double angle = 2.0 * std::atan2(vec_norm, std::max(delta.w(), 1e-12));
+  return (angle / vec_norm) * vec;
+}
+
 Vector6d poseError(const Matrix4d &target, const Matrix4d &current) {
   Vector6d error = Vector6d::Zero();
   error.head<3>() = target.block<3, 1>(0, 3) - current.block<3, 1>(0, 3);
-
-  const Eigen::Matrix3d rotation_delta = target.block<3, 3>(0, 0) * current.block<3, 3>(0, 0).transpose();
-  const Eigen::AngleAxisd angle_axis(rotation_delta);
-  Eigen::Vector3d orientation_error = angle_axis.angle() * angle_axis.axis();
-  if (!std::isfinite(orientation_error.norm()) || angle_axis.angle() < 1e-6) {
-    orientation_error << rotation_delta(2, 1) - rotation_delta(1, 2),
-        rotation_delta(0, 2) - rotation_delta(2, 0),
-        rotation_delta(1, 0) - rotation_delta(0, 1);
-    orientation_error *= 0.5;
-  }
-  error.tail<3>() = orientation_error;
+  error.tail<3>() = so3LogError(target.block<3, 3>(0, 0), current.block<3, 3>(0, 0));
   return error;
 }
 
@@ -162,9 +193,8 @@ ConfScore scoreRequestedConf(const std::vector<double> &candidate, const std::ve
 double cartesianErrorScore(const Matrix4d &target_transform, const Matrix4d &candidate_transform) {
   const Eigen::Vector3d position_error =
       candidate_transform.block<3, 1>(0, 3) - target_transform.block<3, 1>(0, 3);
-  const Eigen::Quaterniond q_target(target_transform.block<3, 3>(0, 0));
-  const Eigen::Quaterniond q_candidate(candidate_transform.block<3, 3>(0, 0));
-  const double orientation_error = q_target.angularDistance(q_candidate);
+  const double orientation_error =
+      so3LogError(target_transform.block<3, 3>(0, 0), candidate_transform.block<3, 3>(0, 0)).norm();
   return position_error.norm() * 1000.0 + orientation_error * 100.0;
 }
 
@@ -180,6 +210,7 @@ KinematicsBackend::SeededIkRequest makeCartesianSeededIkRequest(
     const Matrix4d &target_transform,
     const KinematicsBackend::VectorJ &seed_joints,
     const KinematicsBackend::CartesianIkOptions &options) {
+  const auto &config = backendConfig();
   KinematicsBackend::SeededIkRequest request;
   request.target_transform = target_transform;
   request.seed_joints = seed_joints;
@@ -193,6 +224,8 @@ KinematicsBackend::SeededIkRequest makeCartesianSeededIkRequest(
   request.min_lambda = 0.02;
   request.max_lambda = 0.5;
   request.solution_valid_threshold = 5e-3;
+  request.wrist_singularity_threshold = config.wrist_singularity_soft_threshold;
+  request.jacobian_singularity_threshold = config.jacobian_singularity_soft_threshold;
   return request;
 }
 
@@ -258,20 +291,20 @@ std::string classifyBranchId(const KinematicsBackend::VectorJ &joints) {
 
 double branchSwitchPenalty(const std::string &lhs,
                            const std::string &rhs,
-                           const KinematicsBackend::IkScoringConfig &config) {
+                           const IKBackendConfig &config) {
   if (lhs.empty() || rhs.empty() || lhs == rhs) {
     return 0.0;
   }
   double penalty = 0.0;
   if (lhs.size() >= 8 && rhs.size() >= 8) {
     if (lhs[1] != rhs[1]) {
-      penalty += config.branch_switch_penalty;
+      penalty += config.shoulder_elbow_branch_switch_penalty;
     }
     if (lhs[4] != rhs[4]) {
-      penalty += config.branch_switch_penalty;
+      penalty += config.shoulder_elbow_branch_switch_penalty;
     }
     if (lhs[7] != rhs[7]) {
-      penalty += config.wrist_flip_penalty;
+      penalty += config.wrist_flip_branch_switch_penalty;
     }
   }
   return penalty;
@@ -377,10 +410,9 @@ double continuityCost(const KinematicsBackend::SeededIkRequest &request, const s
   if (candidate.size() < 6 || request.seed_joints.size() < 6) {
     return std::numeric_limits<double>::infinity();
   }
-  return request.continuity_weight *
-         (Eigen::Map<const Eigen::VectorXd>(candidate.data(), 6) -
+  return (Eigen::Map<const Eigen::VectorXd>(candidate.data(), 6) -
           Eigen::Map<const Eigen::VectorXd>(request.seed_joints.data(), 6))
-             .norm();
+      .norm();
 }
 
 KinematicsBackend::SeededIkCandidateMetrics evaluateSeededIkCandidate(const KinematicsBackend &backend,
@@ -394,10 +426,9 @@ KinematicsBackend::SeededIkCandidateMetrics evaluateSeededIkCandidate(const Kine
   const auto singularity = analyzeSeededIk(backend, request, candidate);
   metrics.branch_distance = branchDistance(candidate, request.seed_joints);
   metrics.continuity_cost = continuityCost(request, candidate);
-  metrics.joint_limit_penalty =
-      request.joint_limit_weight * jointLimitPenalty(candidate, request.joint_limits_min, request.joint_limits_max);
+  metrics.joint_limit_penalty = jointLimitPenalty(candidate, request.joint_limits_min, request.joint_limits_max);
   metrics.singularity_metric = singularity.singularity_measure;
-  metrics.singularity_cost = request.singularity_weight * singularity.singularity_measure;
+  metrics.singularity_cost = singularity.singularity_measure;
   metrics.near_singularity = singularity.near_singularity;
   metrics.valid = true;
   return metrics;
@@ -408,67 +439,59 @@ bool nudgeAwayFromSingularity(const KinematicsBackend::SeededIkRequest &request,
 std::vector<double> solveSeededIk(const KinematicsBackend &backend,
                                   const KinematicsBackend::SeededIkRequest &request);
 
-KinematicsBackend::IkScoringConfig defaultIkScoringConfig() {
-  return {};
-}
-
 KinematicsBackend::CartesianIkOptions optionsFromRequest(const KinematicsBackend::SeededIkRequest &request) {
   KinematicsBackend::CartesianIkOptions options;
   options.avoid_singularity = true;
   options.joint_limits_min = request.joint_limits_min;
   options.joint_limits_max = request.joint_limits_max;
+  options.branch_jump_threshold = backendConfig().joint_branch_jump_threshold;
   return options;
 }
 
 KinematicsBackend::IKCandidate scoreCartesianCandidate(const KinematicsBackend &backend,
                                                        const KinematicsBackend::SeededIkRequest &request,
                                                        const KinematicsBackend::CartesianIkOptions &options,
-                                                       const KinematicsBackend::IkScoringConfig &scoring,
+                                                       const IKBackendConfig &config,
                                                        const KinematicsBackend::VectorJ &candidate) {
   KinematicsBackend::IKCandidate scored;
-  scored.joints = candidate;
+  scored.q = candidate;
   scored.branch_id = classifyBranchId(candidate);
   if (candidate.size() < 6) {
-    scored.message = "candidate is incomplete";
     return scored;
   }
   if (options.soft_limit_enabled && violatesSoftLimit(candidate, options.soft_limits)) {
-    scored.message = "candidate violates soft limits";
     return scored;
   }
 
   const auto conf_score = scoreRequestedConf(candidate, options.requested_conf);
   if (conf_score.has_request && options.strict_conf && !conf_score.strict_match) {
-    scored.message = "candidate does not match requested confData";
     return scored;
   }
 
   const auto metrics = backend.evaluateSeededIkCandidate(request, candidate);
   if (!metrics.valid) {
-    scored.message = "candidate metrics are invalid";
     return scored;
   }
 
   const auto singularity = analyzeSeededIk(backend, request, candidate);
   if (options.avoid_singularity &&
-      (std::fabs(candidate[4]) < scoring.hard_wrist_singularity_threshold ||
-       singularity.min_sigma < scoring.hard_jacobian_singularity_threshold)) {
-    scored.message = "candidate rejected by hard singularity guard";
+      (singularity.min_sigma < config.singularity_hard_reject ||
+       std::fabs(candidate[4]) < config.wrist_singularity_hard_threshold ||
+       singularity.min_sigma < config.jacobian_singularity_hard_threshold)) {
     return scored;
   }
 
   const auto fk_transform = backend.computeForwardTransform(candidate);
-  scored.pose_error_score = cartesianErrorScore(request.target_transform, fk_transform);
-  scored.branch_distance = metrics.branch_distance;
+  scored.pose_error = cartesianErrorScore(request.target_transform, fk_transform);
   scored.continuity_cost = metrics.continuity_cost;
-  scored.singularity_metric = metrics.singularity_metric;
-  scored.joint_limit_penalty = metrics.joint_limit_penalty;
-  scored.conf_penalty = conf_score.penalty;
-  scored.total_cost = scoring.pose_error_weight * scored.pose_error_score +
-                      scoring.branch_distance_weight * scored.branch_distance +
-                      scoring.conf_penalty_weight * scored.conf_penalty +
-                      scoring.singularity_weight * scored.singularity_metric +
-                      scoring.joint_limit_weight * scored.joint_limit_penalty;
+  scored.singularity_cost = metrics.singularity_cost;
+  scored.limit_cost = metrics.joint_limit_penalty;
+  scored.preference_cost = conf_score.penalty;
+  scored.total_cost = config.weight_pose * scored.pose_error +
+                      config.weight_continuity * metrics.branch_distance +
+                      config.weight_singularity * scored.singularity_cost +
+                      config.weight_limit * scored.limit_cost +
+                      config.weight_preference * scored.preference_cost;
   scored.valid = true;
   return scored;
 }
@@ -477,18 +500,23 @@ double transitionCost(const KinematicsBackend &backend,
                       const KinematicsBackend::SeededIkRequest &request,
                       const KinematicsBackend::IKCandidate &previous,
                       const KinematicsBackend::IKCandidate &candidate,
-                      const KinematicsBackend::IkScoringConfig &scoring) {
+                      const IKBackendConfig &config) {
   auto continuity_request = request;
-  continuity_request.seed_joints = previous.joints;
-  return backend.continuityCost(continuity_request, candidate.joints) +
-         branchSwitchPenalty(previous.branch_id, candidate.branch_id, scoring);
+  continuity_request.seed_joints = previous.q;
+  const double branch_distance = backend.branchDistance(previous.q, candidate.q);
+  double cost = config.weight_continuity * backend.continuityCost(continuity_request, candidate.q);
+  if (branch_distance > config.joint_branch_jump_threshold) {
+    cost += config.weight_continuity * (branch_distance - config.joint_branch_jump_threshold);
+  }
+  cost += branchSwitchPenalty(previous.branch_id, candidate.branch_id, config);
+  return cost;
 }
 
 bool dedupeCandidate(const KinematicsBackend::IKCandidate &candidate,
                      const std::vector<KinematicsBackend::IKCandidate> &accepted) {
   constexpr double kDuplicateThreshold = 0.05;
   for (const auto &existing : accepted) {
-    if (branchDistance(candidate.joints, existing.joints) < kDuplicateThreshold) {
+    if (branchDistance(candidate.q, existing.q) < kDuplicateThreshold) {
       return true;
     }
   }
@@ -501,7 +529,7 @@ std::vector<KinematicsBackend::IKCandidate> generateScoredMultiBranchCandidates(
     const KinematicsBackend::CartesianIkOptions &options,
     const std::vector<KinematicsBackend::IKCandidate> *previous_point_candidates,
     std::size_t max_candidates) {
-  const auto scoring = defaultIkScoringConfig();
+  const auto &config = backendConfig();
   std::vector<KinematicsBackend::IKCandidate> accepted;
   accepted.reserve(std::min<std::size_t>(kCanonicalBranches.size(), max_candidates));
 
@@ -515,7 +543,7 @@ std::vector<KinematicsBackend::IKCandidate> generateScoredMultiBranchCandidates(
     }
   }
   if (!seed_solution.empty()) {
-    auto seed_candidate = scoreCartesianCandidate(backend, seed_request, options, scoring, seed_solution);
+    auto seed_candidate = scoreCartesianCandidate(backend, seed_request, options, config, seed_solution);
     if (seed_candidate.valid) {
       accepted.push_back(std::move(seed_candidate));
     }
@@ -529,7 +557,7 @@ std::vector<KinematicsBackend::IKCandidate> generateScoredMultiBranchCandidates(
           previous_point_candidates->begin(), previous_point_candidates->end(),
           [&](const KinematicsBackend::IKCandidate &candidate) { return candidate.branch_id == analytic_branch_id; });
       if (previous_it != previous_point_candidates->end()) {
-        trial_seeds.insert(trial_seeds.begin(), previous_it->joints);
+        trial_seeds.insert(trial_seeds.begin(), previous_it->q);
       }
     }
 
@@ -548,7 +576,7 @@ std::vector<KinematicsBackend::IKCandidate> generateScoredMultiBranchCandidates(
       if (solved.empty()) {
         continue;
       }
-      auto candidate = scoreCartesianCandidate(backend, local_request, options, scoring, solved);
+      auto candidate = scoreCartesianCandidate(backend, local_request, options, config, solved);
       if (!candidate.valid) {
         continue;
       }
@@ -568,12 +596,13 @@ std::vector<KinematicsBackend::IKCandidate> generateScoredMultiBranchCandidates(
 
   std::sort(accepted.begin(), accepted.end(), [](const auto &lhs, const auto &rhs) {
     if (lhs.total_cost == rhs.total_cost) {
-      return lhs.branch_distance < rhs.branch_distance;
+      return lhs.continuity_cost < rhs.continuity_cost;
     }
     return lhs.total_cost < rhs.total_cost;
   });
-  if (accepted.size() > max_candidates) {
-    accepted.resize(max_candidates);
+  const auto capped_max = std::min(max_candidates, config.max_candidates_per_point);
+  if (accepted.size() > capped_max) {
+    accepted.resize(capped_max);
   }
   return accepted;
 }
@@ -590,14 +619,14 @@ KinematicsBackend::IKTrajectoryResult solveTrajectoryIk(const KinematicsBackend 
     return result;
   }
 
-  const auto scoring = defaultIkScoringConfig();
+  const auto &config = backendConfig();
   std::vector<std::vector<KinematicsBackend::IKCandidate>> candidate_layers;
   candidate_layers.reserve(request.target_transforms.size());
 
   for (std::size_t point_index = 0; point_index < request.target_transforms.size(); ++point_index) {
     auto point_request = makeCartesianSeededIkRequest(
         request.target_transforms[point_index],
-        point_index == 0 ? request.initial_seed : candidate_layers.back().front().joints,
+        point_index == 0 ? request.initial_seed : candidate_layers.back().front().q,
         request.options);
     const auto *previous_candidates = candidate_layers.empty() ? nullptr : &candidate_layers.back();
     auto point_candidates = generateScoredMultiBranchCandidates(
@@ -605,7 +634,7 @@ KinematicsBackend::IKTrajectoryResult solveTrajectoryIk(const KinematicsBackend 
         point_request,
         request.options,
         previous_candidates,
-        std::max<std::size_t>(1, request.max_candidates_per_point));
+        std::max<std::size_t>(1, std::min(request.max_candidates_per_point, config.max_candidates_per_point)));
     if (point_candidates.empty()) {
       result.failed_index = point_index;
       result.message = "no valid IK candidate at cartesian point " + std::to_string(point_index);
@@ -628,7 +657,7 @@ KinematicsBackend::IKTrajectoryResult solveTrajectoryIk(const KinematicsBackend 
     continuity_request.seed_joints = request.initial_seed;
     dp_costs.front()[candidate_index] =
         candidate_layers.front()[candidate_index].total_cost +
-        backend.continuityCost(continuity_request, candidate_layers.front()[candidate_index].joints);
+        config.weight_continuity * backend.continuityCost(continuity_request, candidate_layers.front()[candidate_index].q);
   }
 
   for (std::size_t point_index = 1; point_index < candidate_layers.size(); ++point_index) {
@@ -638,7 +667,7 @@ KinematicsBackend::IKTrajectoryResult solveTrajectoryIk(const KinematicsBackend 
       const auto &candidate = candidate_layers[point_index][candidate_index];
       for (std::size_t previous_index = 0; previous_index < candidate_layers[point_index - 1].size(); ++previous_index) {
         const auto transition = transitionCost(
-            backend, point_request, candidate_layers[point_index - 1][previous_index], candidate, scoring);
+            backend, point_request, candidate_layers[point_index - 1][previous_index], candidate, config);
         const double total_cost =
             dp_costs[point_index - 1][previous_index] + candidate.total_cost + transition;
         if (total_cost < dp_costs[point_index][candidate_index]) {
@@ -679,8 +708,11 @@ KinematicsBackend::IKTrajectoryResult solveTrajectoryIk(const KinematicsBackend 
       return result;
     }
     const auto &candidate = candidate_layers[static_cast<std::size_t>(point_index)][static_cast<std::size_t>(current_index)];
-    result.q_path[static_cast<std::size_t>(point_index)] = candidate.joints;
-    result.singularity_metric_path[static_cast<std::size_t>(point_index)] = candidate.singularity_metric;
+    result.q_path[static_cast<std::size_t>(point_index)] = candidate.q;
+    result.singularity_metric_path[static_cast<std::size_t>(point_index)] =
+        evaluateSeededIkCandidate(backend, makeCartesianSeededIkRequest(
+            request.target_transforms[static_cast<std::size_t>(point_index)], candidate.q, request.options),
+            candidate.q).singularity_metric;
     result.chosen_branch_path[static_cast<std::size_t>(point_index)] = candidate.branch_id;
     current_index = predecessor[static_cast<std::size_t>(point_index)][static_cast<std::size_t>(current_index)];
   }
@@ -698,11 +730,11 @@ KinematicsBackend::CartesianIkSelectionResult selectBestCartesianIkSolution(
     const KinematicsBackend::CartesianIkOptions &options) {
   KinematicsBackend::CartesianIkSelectionResult best;
   const auto request = makeCartesianSeededIkRequest(target_transform, seed_joints, options);
-  const auto scoring = defaultIkScoringConfig();
+  const auto &config = backendConfig();
   std::vector<KinematicsBackend::IKCandidate> scored_candidates;
   scored_candidates.reserve(candidates.size());
   for (const auto &candidate : candidates) {
-    auto scored = scoreCartesianCandidate(backend, request, options, scoring, candidate);
+    auto scored = scoreCartesianCandidate(backend, request, options, config, candidate);
     if (scored.valid) {
       scored_candidates.push_back(std::move(scored));
     }
@@ -716,7 +748,7 @@ KinematicsBackend::CartesianIkSelectionResult selectBestCartesianIkSolution(
     return lhs.total_cost < rhs.total_cost;
   });
   best.success = true;
-  best.joints = scored_candidates.front().joints;
+  best.q = scored_candidates.front().q;
   best.message.clear();
   return best;
 }
@@ -903,7 +935,10 @@ std::vector<double> solveSeededIk(const KinematicsBackend &backend,
     const double pos_err = error.head<3>().norm();
     const double ori_err = error.tail<3>().norm();
     const double current_score =
-        pos_err + request.orientation_weight * ori_err + candidate_metrics.totalCost();
+        pos_err + request.orientation_weight * ori_err +
+        request.continuity_weight * candidate_metrics.continuity_cost +
+        request.joint_limit_weight * candidate_metrics.joint_limit_penalty +
+        request.singularity_weight * candidate_metrics.singularity_cost;
     if (current_score < best_score) {
       best_score = current_score;
       best_joints = joints;
@@ -958,13 +993,13 @@ KinematicsBackend::IKResult solveSeededIkResult(const KinematicsBackend &backend
   }
 
   const auto scored = scoreCartesianCandidate(
-      backend, request, optionsFromRequest(request), defaultIkScoringConfig(), solved);
+      backend, request, optionsFromRequest(request), backendConfig(), solved);
   result.success = scored.valid;
-  result.joints = solved;
+  result.q = solved;
   result.candidates = {scored};
   result.chosen_branch = scored.branch_id;
-  result.singularity_metric = scored.singularity_metric;
-  result.message = scored.valid ? std::string{} : scored.message;
+  result.singularity_metric = evaluateSeededIkCandidate(backend, request, solved).singularity_metric;
+  result.message = scored.valid ? std::string{} : "seeded IK candidate rejected";
   return result;
 }
 
@@ -978,9 +1013,9 @@ KinematicsBackend::IKResult solveMultiBranchIkResult(const KinematicsBackend &ba
     return result;
   }
   result.success = true;
-  result.joints = candidates.front().joints;
+  result.q = candidates.front().q;
   result.chosen_branch = candidates.front().branch_id;
-  result.singularity_metric = candidates.front().singularity_metric;
+  result.singularity_metric = evaluateSeededIkCandidate(backend, request, candidates.front().q).singularity_metric;
   result.candidates = std::move(candidates);
   return result;
 }
@@ -992,7 +1027,7 @@ std::vector<KinematicsBackend::VectorJ> solveMultiBranchIk(
   std::vector<KinematicsBackend::VectorJ> candidates;
   candidates.reserve(multi_result.candidates.size());
   for (const auto &candidate : multi_result.candidates) {
-    candidates.push_back(candidate.joints);
+    candidates.push_back(candidate.q);
   }
   return candidates;
 }
@@ -1239,7 +1274,7 @@ class LegacyKinematicsBackend final : public KinematicsBackend {
   }
 
   [[nodiscard]] VectorJ inverseKinematicsSeeded(const SeededIkRequest &request) const override {
-    return solveSeeded(request).joints;
+    return solveSeeded(request).q;
   }
 
   [[nodiscard]] std::vector<VectorJ> inverseKinematicsMultiBranch(const SeededIkRequest &request) const override {
@@ -1377,7 +1412,7 @@ class KdlKinematicsBackend final : public KinematicsBackend {
     if (!valid_) {
       return LegacyKinematicsBackend{}.inverseKinematicsSeeded(request);
     }
-    return solveSeeded(request).joints;
+    return solveSeeded(request).q;
   }
 
   [[nodiscard]] std::vector<VectorJ> inverseKinematicsMultiBranch(const SeededIkRequest &request) const override {

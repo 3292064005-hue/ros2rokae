@@ -2,24 +2,25 @@
 #define ROKAE_XMATE3_ROS2_RUNTIME_RUNTIME_CONTRACT_HPP
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 namespace rokae_xmate3_ros2::runtime {
 
-enum class ControlOwner {
+enum class ControlOwner : std::uint8_t {
   none,
   effort,
   trajectory,
 };
 
-enum class RuntimePhase {
+enum class RuntimePhase : std::uint8_t {
   idle,
   planning,
   executing,
   faulted,
 };
 
-enum class ShutdownPhase {
+enum class ShutdownPhase : std::uint8_t {
   running,
   draining,
   backend_detached,
@@ -35,10 +36,16 @@ struct RuntimeContractView {
   ShutdownPhase shutdown_phase = ShutdownPhase::running;
   std::size_t active_request_count = 0;
   std::size_t active_goal_count = 0;
+  bool backend_quiescent = false;
   bool safe_to_delete = false;
   bool safe_to_stop_world = false;
   std::string message;
 };
+
+template <typename Enum>
+constexpr std::uint8_t to_u8(Enum value) noexcept {
+  return static_cast<std::uint8_t>(value);
+}
 
 inline const char *to_string(ControlOwner owner) noexcept {
   switch (owner) {

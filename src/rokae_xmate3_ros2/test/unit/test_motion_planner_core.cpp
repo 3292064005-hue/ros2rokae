@@ -84,17 +84,21 @@ TEST(MotionPlannerCoreTest, UnifiedPathRetimerKeepsIntermediatePathMotionContinu
   };
 
   const auto retimed = rt::retimeJointPathWithUnifiedSpeed(waypoints, 0.01, 220.0);
-  ASSERT_FALSE(retimed.empty()) << retimed.error_message;
-  ASSERT_GT(retimed.positions.size(), waypoints.size());
-  EXPECT_EQ(retimed.positions.front(), waypoints.front());
-  EXPECT_EQ(retimed.positions.back(), waypoints.back());
-  EXPECT_EQ(retimed.velocities.size(), retimed.positions.size());
-  EXPECT_EQ(retimed.accelerations.size(), retimed.positions.size());
+  ASSERT_FALSE(retimed.empty()) << retimed.trajectory.error_message;
+  ASSERT_GT(retimed.trajectory.positions.size(), waypoints.size());
+  EXPECT_EQ(retimed.trajectory.positions.front(), waypoints.front());
+  EXPECT_EQ(retimed.trajectory.positions.back(), waypoints.back());
+  EXPECT_EQ(retimed.trajectory.velocities.size(), retimed.trajectory.positions.size());
+  EXPECT_EQ(retimed.trajectory.accelerations.size(), retimed.trajectory.positions.size());
+  EXPECT_EQ(retimed.metadata.source_family, "joint");
+  EXPECT_EQ(retimed.metadata.note, "nominal");
+  EXPECT_DOUBLE_EQ(retimed.metadata.sample_dt, retimed.trajectory.sample_dt);
+  EXPECT_DOUBLE_EQ(retimed.metadata.total_duration, retimed.trajectory.total_time);
 
   double peak_mid_velocity = 0.0;
-  for (std::size_t point_index = 1; point_index + 1 < retimed.velocities.size(); ++point_index) {
+  for (std::size_t point_index = 1; point_index + 1 < retimed.trajectory.velocities.size(); ++point_index) {
     double point_norm = 0.0;
-    for (double value : retimed.velocities[point_index]) {
+    for (double value : retimed.trajectory.velocities[point_index]) {
       point_norm += std::fabs(value);
     }
     peak_mid_velocity = std::max(peak_mid_velocity, point_norm);
@@ -109,13 +113,17 @@ TEST(MotionPlannerCoreTest, UnifiedSingleJointWrapperMatchesCanonicalPathRetimer
   const auto wrapped = rt::retimeJointWithUnifiedConfig(start, target, 0.01, 1.0, 2.0, 0.1);
   const auto canonical = rt::retimeJointPathWithUnifiedConfig({start, target}, 0.01, 1.0, 2.0, 0.1);
 
-  ASSERT_FALSE(wrapped.empty()) << wrapped.error_message;
-  ASSERT_FALSE(canonical.empty()) << canonical.error_message;
-  EXPECT_EQ(wrapped.positions, canonical.positions);
-  EXPECT_EQ(wrapped.velocities, canonical.velocities);
-  EXPECT_EQ(wrapped.accelerations, canonical.accelerations);
-  EXPECT_DOUBLE_EQ(wrapped.sample_dt, canonical.sample_dt);
-  EXPECT_DOUBLE_EQ(wrapped.total_time, canonical.total_time);
+  ASSERT_FALSE(wrapped.empty()) << wrapped.trajectory.error_message;
+  ASSERT_FALSE(canonical.empty()) << canonical.trajectory.error_message;
+  EXPECT_EQ(wrapped.trajectory.positions, canonical.trajectory.positions);
+  EXPECT_EQ(wrapped.trajectory.velocities, canonical.trajectory.velocities);
+  EXPECT_EQ(wrapped.trajectory.accelerations, canonical.trajectory.accelerations);
+  EXPECT_DOUBLE_EQ(wrapped.trajectory.sample_dt, canonical.trajectory.sample_dt);
+  EXPECT_DOUBLE_EQ(wrapped.trajectory.total_time, canonical.trajectory.total_time);
+  EXPECT_EQ(wrapped.metadata.source_family, "joint");
+  EXPECT_EQ(canonical.metadata.source_family, "joint");
+  EXPECT_EQ(wrapped.metadata.note, "nominal");
+  EXPECT_EQ(canonical.metadata.note, "nominal");
 }
 
 

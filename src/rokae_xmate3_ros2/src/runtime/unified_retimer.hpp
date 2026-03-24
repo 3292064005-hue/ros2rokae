@@ -17,7 +17,21 @@ struct UnifiedRetimerLimits {
   std::array<double, 6> acceleration_limits{};
 };
 
-using UnifiedTrajectoryResult = QuinticRetimerResult;
+struct RetimerMetadata {
+  std::string source_family{"joint"};
+  double total_duration{0.0};
+  double sample_dt{0.0};
+  double effective_speed_scale{1.0};
+  bool clamped{false};
+  std::string note{"nominal"};
+};
+
+struct UnifiedTrajectoryResult {
+  QuinticRetimerResult trajectory;
+  RetimerMetadata metadata;
+
+  [[nodiscard]] bool empty() const noexcept { return trajectory.empty(); }
+};
 
 [[nodiscard]] JointRetimerConfig makeUnifiedRetimerConfig(double sample_dt);
 
@@ -25,20 +39,22 @@ using UnifiedTrajectoryResult = QuinticRetimerResult;
                                                             double max_acceleration,
                                                             double blend_radius);
 
-[[nodiscard]] QuinticRetimerResult retimeJointWithUnifiedConfig(
+[[nodiscard]] UnifiedTrajectoryResult retimeJointWithUnifiedConfig(
     const std::vector<double> &start,
     const std::vector<double> &target,
     double sample_dt,
     double max_velocity,
     double max_acceleration,
-    double blend_radius);
+    double blend_radius,
+    const std::string &source_family = "joint");
 
-[[nodiscard]] QuinticRetimerResult retimeJointWithUnifiedLimits(
+[[nodiscard]] UnifiedTrajectoryResult retimeJointWithUnifiedLimits(
     const std::vector<double> &start,
     const std::vector<double> &target,
     double sample_dt,
     const std::array<double, 6> &velocity_limits,
-    const std::array<double, 6> &acceleration_limits);
+    const std::array<double, 6> &acceleration_limits,
+    const std::string &source_family = "joint");
 
 [[nodiscard]] std::array<double, 6> scaledUnifiedVelocityLimits(double speed_mm_per_s);
 
@@ -48,19 +64,25 @@ using UnifiedTrajectoryResult = QuinticRetimerResult;
     const std::vector<std::vector<double>> &waypoints,
     double sample_dt,
     const std::array<double, 6> &velocity_limits,
-    const std::array<double, 6> &acceleration_limits);
+    const std::array<double, 6> &acceleration_limits,
+    const std::string &source_family = "joint",
+    double effective_speed_scale = 1.0);
 
 [[nodiscard]] UnifiedTrajectoryResult retimeJointPathWithUnifiedConfig(
     const std::vector<std::vector<double>> &waypoints,
     double sample_dt,
     double max_velocity,
     double max_acceleration,
-    double blend_radius);
+    double blend_radius,
+    const std::string &source_family = "joint",
+    double effective_speed_scale = 1.0);
 
 [[nodiscard]] UnifiedTrajectoryResult retimeJointPathWithUnifiedSpeed(
     const std::vector<std::vector<double>> &waypoints,
     double sample_dt,
-    double speed_mm_per_s);
+    double speed_mm_per_s,
+    const std::string &source_family = "joint",
+    double effective_speed_scale = 1.0);
 
 [[nodiscard]] std::vector<std::vector<double>> resampleCartesianPosePath(
     const std::vector<std::vector<double>> &poses,

@@ -58,17 +58,15 @@ class KinematicsBackend {
   };
 
   struct IKCandidate {
-    VectorJ joints;
-    double pose_error_score = std::numeric_limits<double>::infinity();
-    double branch_distance = std::numeric_limits<double>::infinity();
+    VectorJ q;
+    double pose_error = std::numeric_limits<double>::infinity();
     double continuity_cost = std::numeric_limits<double>::infinity();
-    double singularity_metric = 1.0;
-    double joint_limit_penalty = std::numeric_limits<double>::infinity();
-    double conf_penalty = 0.0;
+    double singularity_cost = std::numeric_limits<double>::infinity();
+    double limit_cost = std::numeric_limits<double>::infinity();
+    double preference_cost = 0.0;
     double total_cost = std::numeric_limits<double>::infinity();
     bool valid = false;
     std::string branch_id;
-    std::string message;
   };
 
   struct CartesianIkOptions {
@@ -89,27 +87,15 @@ class KinematicsBackend {
     double branch_jump_threshold = 0.75;
   };
 
-  struct IkScoringConfig {
-    double pose_error_weight = 1.0;
-    double branch_distance_weight = 2.0;
-    double conf_penalty_weight = 1.0;
-    double singularity_weight = 40.0;
-    double joint_limit_weight = 10.0;
-    double branch_switch_penalty = 2.0;
-    double wrist_flip_penalty = 4.0;
-    double hard_wrist_singularity_threshold = 0.075;
-    double hard_jacobian_singularity_threshold = 0.04;
-  };
-
   struct CartesianIkSelectionResult {
     bool success = false;
-    VectorJ joints;
+    VectorJ q;
     std::string message;
   };
 
   struct IKResult {
     bool success = false;
-    VectorJ joints;
+    VectorJ q;
     std::vector<IKCandidate> candidates;
     std::string chosen_branch;
     double singularity_metric = 1.0;
@@ -122,7 +108,7 @@ class KinematicsBackend {
     CartesianIkOptions options;
     std::size_t dp_window = 32;
     std::size_t dp_overlap = 8;
-    std::size_t max_candidates_per_point = 8;
+    std::size_t max_candidates_per_point = 6;
   };
 
   struct IKTrajectoryResult {

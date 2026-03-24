@@ -14,6 +14,7 @@
 #include "runtime/executor_core.hpp"
 #include "runtime/owner_arbiter.hpp"
 #include "runtime/planner_core.hpp"
+#include "runtime/shutdown_coordinator.hpp"
 #include "runtime/runtime_types.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
@@ -39,7 +40,7 @@ class MotionRuntime {
   [[nodiscard]] RuntimeView view() const;
   [[nodiscard]] RuntimeView view(const std::string &request_id) const;
   [[nodiscard]] RuntimePhase runtimePhase() const;
-  [[nodiscard]] RuntimeContractView contractView() const;
+  [[nodiscard]] RuntimeContractFacts contractFacts() const;
   [[nodiscard]] std::size_t activeRequestCount() const;
   [[nodiscard]] std::size_t activeGoalCount() const;
   [[nodiscard]] RuntimeStatus waitForUpdate(const std::string &request_id,

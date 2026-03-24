@@ -1,9 +1,12 @@
+bool request_shutdown
 ---
-string owner
-string runtime_phase
-string shutdown_phase
+bool accepted
+uint8 owner
+uint8 runtime_phase
+uint8 shutdown_phase
 uint32 active_request_count
 uint32 active_goal_count
+bool backend_quiescent
 bool safe_to_delete
 bool safe_to_stop_world
 string message

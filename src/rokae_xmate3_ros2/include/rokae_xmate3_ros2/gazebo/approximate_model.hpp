@@ -31,6 +31,14 @@ struct DynamicsBreakdown {
   std::array<double, 6> external{};
 };
 
+struct ModelObservability {
+  LoadContext load{};
+  std::array<double, 6> tool_pose{};
+  double effective_payload = 0.0;
+  bool uses_approximate_jacobian = true;
+  bool uses_simplified_inertia = true;
+};
+
 inline double meanAbs(const std::array<double, 6> &values) {
   double sum = 0.0;
   for (double value : values) {
@@ -295,6 +303,7 @@ class ModelFacade {
     [[nodiscard]] virtual std::array<double, 6> expectedTorque(
         const std::array<double, 6> &joint_position,
         const std::array<double, 6> &joint_velocity) const = 0;
+    [[nodiscard]] virtual ModelObservability observability() const = 0;
     [[nodiscard]] virtual const LoadContext &load() const noexcept = 0;
     [[nodiscard]] virtual const std::array<double, 6> &toolPose() const noexcept = 0;
   };
@@ -384,6 +393,16 @@ class ModelFacade {
       return gazebo_model::expectedTorqueProxy(*kinematics_, joint_position, joint_velocity, load_);
     }
 
+    [[nodiscard]] ModelObservability observability() const override {
+      ModelObservability state;
+      state.load = load_;
+      state.tool_pose = tool_pose_;
+      state.effective_payload = load_.mass;
+      state.uses_approximate_jacobian = true;
+      state.uses_simplified_inertia = true;
+      return state;
+    }
+
     [[nodiscard]] const LoadContext &load() const noexcept override { return load_; }
     [[nodiscard]] const std::array<double, 6> &toolPose() const noexcept override { return tool_pose_; }
 
@@ -416,6 +435,7 @@ class ModelFacade {
 
   [[nodiscard]] const LoadContext &load() const noexcept { return backend_->load(); }
   [[nodiscard]] const std::array<double, 6> &toolPose() const noexcept { return backend_->toolPose(); }
+  [[nodiscard]] ModelObservability observability() const { return backend_->observability(); }
 
   template <std::size_t DoF>
   [[nodiscard]] std::array<double, 6> cartPose(const std::array<double, DoF> &joint_position) const {

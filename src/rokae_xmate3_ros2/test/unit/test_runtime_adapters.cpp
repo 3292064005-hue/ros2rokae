@@ -15,11 +15,13 @@
 #include <Eigen/Dense>
 
 #include "rokae/model.h"
+#include "gazebo/kinematics_backend.hpp"
 #include "rokae_xmate3_ros2/gazebo/approximate_model.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "runtime/operation_state_adapter.hpp"
 #include "runtime/request_adapter.hpp"
 #include "runtime/runtime_state.hpp"
+#include "runtime/unified_retimer.hpp"
 #include "rokae_xmate3_ros2/msg/operation_state.hpp"
 
 namespace rt = rokae_xmate3_ros2::runtime;
@@ -68,6 +70,14 @@ Matrix4d legacyForwardKinematics(const std::vector<double> &joints) {
     transform *= legacyDhTransform(index, adjusted[index]);
   }
   return transform;
+}
+
+Matrix4d poseVectorToTransform(const std::vector<double> &pose) {
+  std::array<double, 6> pose_array{};
+  for (std::size_t index = 0; index < 6 && index < pose.size(); ++index) {
+    pose_array[index] = pose[index];
+  }
+  return rokae_xmate3_ros2::gazebo_model::poseToMatrix(pose_array);
 }
 
 Vector6d legacyPoseError(const Matrix4d &target, const Matrix4d &current) {
@@ -432,6 +442,13 @@ TEST(RuntimeSdkShimModelTest, ModelFacadeUnifiesToolPoseLoadAndExpectedTorqueCha
     torque_norm += std::fabs(value);
   }
   EXPECT_GT(torque_norm, 0.0);
+
+  const auto observability = facade.observability();
+  EXPECT_DOUBLE_EQ(observability.effective_payload, 0.6);
+  EXPECT_TRUE(observability.uses_approximate_jacobian);
+  EXPECT_TRUE(observability.uses_simplified_inertia);
+  EXPECT_NEAR(observability.tool_pose[2], 0.08, 1e-12);
+  EXPECT_NEAR(observability.load.com[2], 0.05, 1e-12);
 }
 
 TEST(RuntimeSdkShimModelTest, KdlBackendTracksLegacyDhReferenceWithinSmokeTolerance) {
@@ -530,6 +547,31 @@ TEST(RuntimeSdkShimModelTest, MultiBranchIkDedupesCanonicalCandidates) {
   }
 }
 
+TEST(RuntimeSdkShimModelTest, BackendSolveMultiBranchReturnsScoredStableCandidates) {
+  auto backend = gazebo::detail::makePreferredKinematicsBackend();
+  ASSERT_NE(backend, nullptr);
+
+  gazebo::xMate3Kinematics kinematics;
+  const std::vector<double> q{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  const auto target = kinematics.forwardKinematics(q);
+
+  gazebo::detail::KinematicsBackend::IKRequest request;
+  request.target_transform = target;
+  request.seed_joints = q;
+  request.joint_limits_min = {-3.0527, -2.0933, -2.0933, -3.0527, -2.0933, -6.1082};
+  request.joint_limits_max = {3.0527, 2.0933, 2.0933, 3.0527, 2.0933, 6.1082};
+
+  const auto solved = backend->solveMultiBranch(request);
+  ASSERT_TRUE(solved.success) << solved.message;
+  ASSERT_FALSE(solved.candidates.empty());
+  EXPECT_EQ(solved.chosen_branch, solved.candidates.front().branch_id);
+  EXPECT_EQ(solved.q, solved.candidates.front().q);
+  EXPECT_TRUE(std::isfinite(solved.singularity_metric));
+  for (std::size_t index = 1; index < solved.candidates.size(); ++index) {
+    EXPECT_LE(solved.candidates[index - 1].total_cost, solved.candidates[index].total_cost);
+  }
+}
+
 TEST(RuntimeSdkShimModelTest, CartesianTrajectorySolveKeepsBranchStableAndProjectsDerivatives) {
   gazebo::xMate3Kinematics kinematics;
   const std::vector<double> start_joints{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
@@ -584,6 +626,60 @@ TEST(RuntimeSdkShimModelTest, CartesianTrajectorySolveKeepsBranchStableAndProjec
       EXPECT_TRUE(std::isfinite(value));
     }
   }
+}
+
+TEST(RuntimeSdkShimModelTest, BackendTrajectoryResultKeepsStableBranchPathAndExplainsFailures) {
+  auto backend = gazebo::detail::makePreferredKinematicsBackend();
+  ASSERT_NE(backend, nullptr);
+
+  gazebo::xMate3Kinematics kinematics;
+  const std::vector<double> start_joints{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
+
+  gazebo::detail::KinematicsBackend::IKTrajectoryRequest request;
+  request.initial_seed = start_joints;
+  request.options.avoid_singularity = true;
+  request.options.joint_limits_min = {-3.0527, -2.0933, -2.0933, -3.0527, -2.0933, -6.1082};
+  request.options.joint_limits_max = {3.0527, 2.0933, 2.0933, 3.0527, 2.0933, 6.1082};
+
+  for (int index = 0; index < 24; ++index) {
+    auto pose = start_pose;
+    pose[0] -= 0.0006 * static_cast<double>(index);
+    pose[1] += 0.0002 * static_cast<double>(index);
+    pose[2] -= 0.0004 * static_cast<double>(index);
+    request.target_transforms.push_back(poseVectorToTransform(pose));
+  }
+
+  const auto solved = backend->solveTrajectory(request);
+  ASSERT_TRUE(solved.success) << solved.message;
+  ASSERT_EQ(solved.q_path.size(), request.target_transforms.size());
+  ASSERT_EQ(solved.chosen_branch_path.size(), request.target_transforms.size());
+  ASSERT_EQ(solved.singularity_metric_path.size(), request.target_transforms.size());
+  EXPECT_EQ(solved.failed_index, std::numeric_limits<std::size_t>::max());
+  const auto &expected_branch = solved.chosen_branch_path.front();
+  for (std::size_t index = 0; index < solved.q_path.size(); ++index) {
+    EXPECT_EQ(solved.chosen_branch_path[index], expected_branch);
+    EXPECT_TRUE(std::isfinite(solved.singularity_metric_path[index]));
+    if (index > 0) {
+      EXPECT_LT(kinematics.branchDistance(solved.q_path[index - 1], solved.q_path[index]), 0.75);
+    }
+  }
+}
+
+TEST(RuntimeRequestAdapterTest, ReplayRetimerReportsCanonicalMetadata) {
+  rt::ReplayPathAsset asset;
+  asset.samples = {
+      {0.0, {0.0, 0.1, 1.5, 0.0, 1.3, 3.14}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}},
+      {0.4, {0.05, 0.2, 1.4, 0.0, 1.2, 3.10}, {0.3, 0.2, -0.2, 0.0, -0.1, -0.1}},
+  };
+
+  const auto retimed = rt::retimeReplayWithUnifiedConfig(asset, 0.5, 0.02);
+  ASSERT_FALSE(retimed.empty()) << retimed.trajectory.error_message;
+  EXPECT_EQ(retimed.metadata.source_family, "replay");
+  EXPECT_EQ(retimed.metadata.note, "replay_retimed");
+  EXPECT_DOUBLE_EQ(retimed.metadata.effective_speed_scale, 0.5);
+  EXPECT_DOUBLE_EQ(retimed.metadata.sample_dt, retimed.trajectory.sample_dt);
+  EXPECT_DOUBLE_EQ(retimed.metadata.total_duration, retimed.trajectory.total_time);
 }
 
 TEST(RuntimeArchiveVerificationTest, RejectsForbiddenArtifactsInSourceArchive) {

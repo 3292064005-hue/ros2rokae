@@ -671,22 +671,22 @@ void QueryFacade::handleGenerateSTrajectory(
     if (cartesian_retimed.empty()) {
       cartesian_fallback_to_joint = true;
     } else {
-      trajectory_positions = cartesian_retimed.positions;
-      total_time = cartesian_retimed.total_time;
+      trajectory_positions = cartesian_retimed.trajectory.positions;
+      total_time = cartesian_retimed.trajectory.total_time;
     }
   }
 
   if (!req.is_cartesian || cartesian_fallback_to_joint) {
     const auto retimed = retimeJointWithUnifiedConfig(
-        start, target, sample_dt, req.max_velocity, req.max_acceleration, req.blend_radius);
+        start, target, sample_dt, req.max_velocity, req.max_acceleration, req.blend_radius, "s_trajectory");
     if (retimed.empty()) {
       res.success = false;
       res.error_code = 3003;
       res.error_msg = "trajectory planning failed";
       return;
     }
-    trajectory_positions = retimed.positions;
-    total_time = retimed.total_time;
+    trajectory_positions = retimed.trajectory.positions;
+    total_time = retimed.trajectory.total_time;
   }
 
   res.trajectory_points.clear();

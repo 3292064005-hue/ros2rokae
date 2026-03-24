@@ -9,166 +9,142 @@ namespace rokae_xmate3_ros2::runtime {
 
 using ShutdownContractView = RuntimeContractView;
 
+struct RuntimeContractFacts {
+  ControlOwner owner = ControlOwner::none;
+  RuntimePhase runtime_phase = RuntimePhase::idle;
+  std::size_t active_request_count = 0;
+  std::size_t active_goal_count = 0;
+  bool backend_quiescent = false;
+  bool plugin_detached = false;
+  bool faulted = false;
+  std::string message{"idle"};
+};
+
 class ShutdownCoordinator {
  public:
-  struct RuntimeFacts {
-    ControlOwner owner = ControlOwner::none;
-    RuntimePhase runtime_phase = RuntimePhase::idle;
-    std::size_t active_request_count = 0;
-    std::size_t active_goal_count = 0;
-    std::string message{"idle"};
-  };
-
-  struct BackendFacts {
-    bool update_loop_detached = false;
-    bool backend_quiescent = true;
-    bool safe_to_delete_ready = false;
-    bool safe_to_stop_world_ready = false;
-    std::string message{"backend ready"};
-  };
-
-  struct Inputs {
-    RuntimeFacts runtime;
-    BackendFacts backend;
-    bool faulted = false;
-  };
-
-  void begin(const std::string &reason) {
+  void beginShutdown(const std::string &reason = "shutdown requested") {
     if (!requested_ || phase_ == ShutdownPhase::finished || phase_ == ShutdownPhase::faulted) {
       phase_ = ShutdownPhase::running;
-      detached_seen_ = false;
-      delete_ready_seen_ = false;
-      stop_world_ready_seen_ = false;
     }
     requested_ = true;
-    if (!reason.empty()) {
-      last_reason_ = reason;
-    }
+    last_message_ = reason.empty() ? std::string{"shutdown requested"} : reason;
   }
 
-  void reset() {
+  void clearFault() {
     requested_ = false;
     phase_ = ShutdownPhase::running;
-    last_reason_ = "idle";
-    detached_seen_ = false;
-    delete_ready_seen_ = false;
-    stop_world_ready_seen_ = false;
+    facts_ = RuntimeContractFacts{};
+    last_message_ = "shutdown cleared";
   }
 
   [[nodiscard]] bool requested() const noexcept { return requested_; }
-  [[nodiscard]] ShutdownPhase phase() const noexcept { return phase_; }
+  [[nodiscard]] ShutdownPhase shutdownPhase() const noexcept { return phase_; }
 
   void finalize(const std::string &reason = "shutdown finished") {
     phase_ = ShutdownPhase::finished;
-    last_reason_ = reason;
+    last_message_ = reason.empty() ? std::string{"shutdown finished"} : reason;
   }
 
-  [[nodiscard]] RuntimeContractView observe(const Inputs &inputs) {
+  void updateFacts(const RuntimeContractFacts &facts) {
+    facts_ = facts;
+
     if (!requested_) {
       phase_ = ShutdownPhase::running;
-      last_reason_ = "shutdown not requested";
-    } else if (inputs.faulted || inputs.runtime.runtime_phase == RuntimePhase::faulted) {
-      phase_ = ShutdownPhase::faulted;
-      last_reason_ = "shutdown faulted";
-    } else {
-      advancePhase(inputs);
+      last_message_ = facts_.message.empty() ? std::string{"shutdown not requested"} : facts_.message;
+      return;
     }
 
-    return contractView(inputs);
+    if (facts_.faulted || facts_.runtime_phase == RuntimePhase::faulted) {
+      phase_ = ShutdownPhase::faulted;
+      last_message_ = facts_.message.empty() ? std::string{"shutdown faulted"} : facts_.message;
+      return;
+    }
+
+    advancePhase();
+  }
+
+  [[nodiscard]] RuntimeContractView currentView() const {
+    RuntimeContractView view;
+    view.owner = facts_.owner;
+    view.runtime_phase = facts_.runtime_phase;
+    view.shutdown_phase = phase_;
+    view.active_request_count = facts_.active_request_count;
+    view.active_goal_count = facts_.active_goal_count;
+    view.backend_quiescent = facts_.backend_quiescent;
+    view.safe_to_delete =
+        phase_ == ShutdownPhase::safe_to_delete ||
+        phase_ == ShutdownPhase::safe_to_stop_world ||
+        phase_ == ShutdownPhase::finished;
+    view.safe_to_stop_world =
+        phase_ == ShutdownPhase::safe_to_stop_world ||
+        phase_ == ShutdownPhase::finished;
+    view.message = !last_message_.empty() ? last_message_ : facts_.message;
+    return view;
   }
 
  private:
-  [[nodiscard]] static bool runtimeIdle(const RuntimeFacts &runtime) noexcept {
-    return runtime.active_request_count == 0 &&
-           runtime.runtime_phase != RuntimePhase::planning &&
-           runtime.runtime_phase != RuntimePhase::executing;
+  [[nodiscard]] bool runtimeDrained() const noexcept {
+    return facts_.owner == ControlOwner::none &&
+           facts_.active_request_count == 0 &&
+           facts_.active_goal_count == 0 &&
+           facts_.runtime_phase == RuntimePhase::idle;
   }
 
-  [[nodiscard]] static bool ownerNone(const RuntimeFacts &runtime) noexcept {
-    return runtime.owner == ControlOwner::none;
+  [[nodiscard]] bool backendDetachedReady() const noexcept {
+    return runtimeDrained() && facts_.backend_quiescent;
   }
 
-  [[nodiscard]] static bool backendQuiescent(const Inputs &inputs) noexcept {
-    return inputs.backend.backend_quiescent && inputs.runtime.active_goal_count == 0;
+  [[nodiscard]] bool safeToDeleteReady() const noexcept {
+    return backendDetachedReady() && facts_.plugin_detached;
   }
 
-  [[nodiscard]] static bool safeToDeleteReady(const Inputs &inputs) noexcept {
-    return inputs.backend.safe_to_delete_ready ||
-           (inputs.backend.update_loop_detached && backendQuiescent(inputs));
+  [[nodiscard]] bool safeToStopWorldReady() const noexcept {
+    return safeToDeleteReady();
   }
 
-  [[nodiscard]] static bool safeToStopWorldReady(const Inputs &inputs) noexcept {
-    return inputs.backend.safe_to_stop_world_ready || safeToDeleteReady(inputs);
-  }
-
-  void advancePhase(const Inputs &inputs) {
+  void advancePhase() {
     switch (phase_) {
       case ShutdownPhase::running:
         phase_ = ShutdownPhase::draining;
-        last_reason_ = "shutdown draining";
+        last_message_ = "shutdown draining";
         break;
       case ShutdownPhase::draining:
-        last_reason_ = "shutdown draining";
-        if (inputs.backend.update_loop_detached) {
-          detached_seen_ = true;
+        last_message_ = facts_.message.empty() ? std::string{"shutdown draining"} : facts_.message;
+        if (backendDetachedReady()) {
           phase_ = ShutdownPhase::backend_detached;
-          last_reason_ = "backend detached";
+          last_message_ = "backend detached";
         }
         break;
       case ShutdownPhase::backend_detached:
-        last_reason_ = "backend detached";
-        if (ownerNone(inputs.runtime) && runtimeIdle(inputs.runtime) &&
-            backendQuiescent(inputs) && safeToDeleteReady(inputs)) {
-          delete_ready_seen_ = true;
+        last_message_ = facts_.message.empty() ? std::string{"backend detached"} : facts_.message;
+        if (safeToDeleteReady()) {
           phase_ = ShutdownPhase::safe_to_delete;
-          last_reason_ = "safe to delete";
+          last_message_ = "safe to delete";
         }
         break;
       case ShutdownPhase::safe_to_delete:
-        last_reason_ = "safe to delete";
-        if (ownerNone(inputs.runtime) && runtimeIdle(inputs.runtime) &&
-            backendQuiescent(inputs) && safeToStopWorldReady(inputs)) {
-          stop_world_ready_seen_ = true;
+        last_message_ = facts_.message.empty() ? std::string{"safe to delete"} : facts_.message;
+        if (safeToStopWorldReady()) {
           phase_ = ShutdownPhase::safe_to_stop_world;
-          last_reason_ = "safe to stop world";
+          last_message_ = "safe to stop world";
         }
         break;
       case ShutdownPhase::safe_to_stop_world:
-        last_reason_ = "safe to stop world";
+        last_message_ = facts_.message.empty() ? std::string{"safe to stop world"} : facts_.message;
         break;
       case ShutdownPhase::finished:
-        last_reason_ = "shutdown finished";
+        last_message_ = "shutdown finished";
         break;
       case ShutdownPhase::faulted:
-        last_reason_ = "shutdown faulted";
+        last_message_ = facts_.message.empty() ? std::string{"shutdown faulted"} : facts_.message;
         break;
     }
-  }
-
-  [[nodiscard]] RuntimeContractView contractView(const Inputs &inputs) const {
-    RuntimeContractView view;
-    view.owner = inputs.runtime.owner;
-    view.runtime_phase = inputs.runtime.runtime_phase;
-    view.shutdown_phase = phase_;
-    view.active_request_count = inputs.runtime.active_request_count;
-    view.active_goal_count = inputs.runtime.active_goal_count;
-    view.safe_to_delete =
-        delete_ready_seen_ || phase_ == ShutdownPhase::safe_to_delete ||
-        phase_ == ShutdownPhase::safe_to_stop_world || phase_ == ShutdownPhase::finished;
-    view.safe_to_stop_world =
-        stop_world_ready_seen_ ||
-        phase_ == ShutdownPhase::safe_to_stop_world || phase_ == ShutdownPhase::finished;
-    view.message = !last_reason_.empty() ? last_reason_ :
-                   (!inputs.backend.message.empty() ? inputs.backend.message : inputs.runtime.message);
-    return view;
   }
 
   bool requested_ = false;
   ShutdownPhase phase_ = ShutdownPhase::running;
-  std::string last_reason_{"idle"};
-  bool detached_seen_ = false;
-  bool delete_ready_seen_ = false;
-  bool stop_world_ready_seen_ = false;
+  RuntimeContractFacts facts_{};
+  std::string last_message_{"idle"};
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

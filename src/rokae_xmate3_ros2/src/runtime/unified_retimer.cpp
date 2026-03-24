@@ -76,6 +76,36 @@ struct ReplayVectorSample {
   std::vector<double> velocity;
 };
 
+[[nodiscard]] RetimerMetadata make_metadata(std::string source_family,
+                                            double effective_speed_scale = 1.0,
+                                            bool clamped = false,
+                                            std::string note = "nominal") {
+  RetimerMetadata metadata;
+  metadata.source_family = std::move(source_family);
+  metadata.effective_speed_scale = effective_speed_scale;
+  metadata.clamped = clamped;
+  metadata.note = std::move(note);
+  return metadata;
+}
+
+[[nodiscard]] UnifiedTrajectoryResult wrap_trajectory(QuinticRetimerResult trajectory,
+                                                      std::string source_family,
+                                                      double effective_speed_scale = 1.0,
+                                                      bool clamped = false,
+                                                      std::string note = "nominal") {
+  UnifiedTrajectoryResult result;
+  result.metadata = make_metadata(std::move(source_family), effective_speed_scale, clamped, std::move(note));
+  result.metadata.sample_dt = trajectory.sample_dt;
+  result.metadata.total_duration = trajectory.total_time;
+  result.trajectory = std::move(trajectory);
+  return result;
+}
+
+void sync_metadata(UnifiedTrajectoryResult &result) {
+  result.metadata.sample_dt = result.trajectory.sample_dt;
+  result.metadata.total_duration = result.trajectory.total_time;
+}
+
 [[nodiscard]] double sanitize_replay_time(double requested,
                                           double fallback_time,
                                           double min_step) {
@@ -401,17 +431,20 @@ UnifiedTrajectoryResult retimeJointWithUnifiedConfig(const std::vector<double> &
                                                      double sample_dt,
                                                      double max_velocity,
                                                      double max_acceleration,
-                                                     double blend_radius) {
+                                                     double blend_radius,
+                                                     const std::string &source_family) {
   return retimeJointPathWithUnifiedConfig(
-      {start, target}, sample_dt, max_velocity, max_acceleration, blend_radius);
+      {start, target}, sample_dt, max_velocity, max_acceleration, blend_radius, source_family);
 }
 
 UnifiedTrajectoryResult retimeJointWithUnifiedLimits(const std::vector<double> &start,
                                                      const std::vector<double> &target,
                                                      double sample_dt,
                                                      const std::array<double, 6> &velocity_limits,
-                                                     const std::array<double, 6> &acceleration_limits) {
-  return retimeJointPathWithUnifiedLimits({start, target}, sample_dt, velocity_limits, acceleration_limits);
+                                                     const std::array<double, 6> &acceleration_limits,
+                                                     const std::string &source_family) {
+  return retimeJointPathWithUnifiedLimits(
+      {start, target}, sample_dt, velocity_limits, acceleration_limits, source_family);
 }
 
 std::array<double, 6> scaledUnifiedVelocityLimits(double speed_mm_per_s) {
@@ -448,20 +481,26 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
     const std::vector<std::vector<double>> &waypoints,
     double sample_dt,
     const std::array<double, 6> &velocity_limits,
-    const std::array<double, 6> &acceleration_limits) {
-  UnifiedTrajectoryResult result;
+    const std::array<double, 6> &acceleration_limits,
+    const std::string &source_family,
+    double effective_speed_scale) {
+  auto result = wrap_trajectory({}, source_family, effective_speed_scale);
+  auto &trajectory = result.trajectory;
   const auto normalized_waypoints = normalize_joint_waypoints(waypoints);
   if (normalized_waypoints.empty()) {
-    result.error_message = "joint path is empty";
+    trajectory.error_message = "joint path is empty";
+    result.metadata.note = "degenerate_path";
     return result;
   }
 
   if (normalized_waypoints.size() == 1) {
-    result.positions = normalized_waypoints;
-    result.velocities.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
-    result.accelerations.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
-    result.sample_dt = std::max(sample_dt, 1e-3);
-    result.total_time = 0.0;
+    trajectory.positions = normalized_waypoints;
+    trajectory.velocities.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
+    trajectory.accelerations.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
+    trajectory.sample_dt = std::max(sample_dt, 1e-3);
+    trajectory.total_time = 0.0;
+    result.metadata.note = "degenerate_path";
+    sync_metadata(result);
     return result;
   }
 
@@ -469,35 +508,37 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
   const auto cumulative_lengths = cumulative_joint_path_lengths(normalized_waypoints);
   const double total_path_length = cumulative_lengths.empty() ? 0.0 : cumulative_lengths.back();
   if (total_path_length <= 1e-9) {
-    result.positions = {normalized_waypoints.front()};
-    result.velocities.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
-    result.accelerations.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
-    result.sample_dt = std::clamp(config.sample_dt, config.min_sample_dt, config.max_sample_dt);
-    result.total_time = 0.0;
+    trajectory.positions = {normalized_waypoints.front()};
+    trajectory.velocities.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
+    trajectory.accelerations.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
+    trajectory.sample_dt = std::clamp(config.sample_dt, config.min_sample_dt, config.max_sample_dt);
+    trajectory.total_time = 0.0;
+    result.metadata.note = "degenerate_path";
+    sync_metadata(result);
     return result;
   }
 
   std::vector<double> path_start(6, 0.0);
   const auto axis_travel = joint_path_axis_travel(normalized_waypoints);
   const std::vector<double> path_target(axis_travel.begin(), axis_travel.end());
-  result.total_time = computeJointRetimerDuration(path_start, path_target, velocity_limits, acceleration_limits);
+  trajectory.total_time = computeJointRetimerDuration(path_start, path_target, velocity_limits, acceleration_limits);
   const double max_axis_travel =
       *std::max_element(axis_travel.begin(), axis_travel.end());
   const int interval_count = determine_path_interval_count(
-      result.total_time,
+      trajectory.total_time,
       config.sample_dt,
       max_axis_travel,
       config.max_joint_step_rad,
       config.min_sample_dt,
       config.max_sample_dt);
-  result.sample_dt = result.total_time / static_cast<double>(interval_count);
-  result.positions.reserve(static_cast<std::size_t>(interval_count) + 1);
-  result.velocities.reserve(static_cast<std::size_t>(interval_count) + 1);
-  result.accelerations.reserve(static_cast<std::size_t>(interval_count) + 1);
+  trajectory.sample_dt = trajectory.total_time / static_cast<double>(interval_count);
+  trajectory.positions.reserve(static_cast<std::size_t>(interval_count) + 1);
+  trajectory.velocities.reserve(static_cast<std::size_t>(interval_count) + 1);
+  trajectory.accelerations.reserve(static_cast<std::size_t>(interval_count) + 1);
 
   for (int index = 0; index <= interval_count; ++index) {
     const double u = static_cast<double>(index) / static_cast<double>(interval_count);
-    const auto path_sample = sample_quintic_blend(u, total_path_length, result.total_time);
+    const auto path_sample = sample_quintic_blend(u, total_path_length, trajectory.total_time);
     const auto interpolated =
         interpolate_joint_path(normalized_waypoints, cumulative_lengths, path_sample.position);
     if (interpolated.position.empty()) {
@@ -511,17 +552,18 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
       acceleration[axis] = interpolated.tangent[axis] * path_sample.acceleration;
     }
 
-    result.positions.push_back(interpolated.position);
-    result.velocities.push_back(std::move(velocity));
-    result.accelerations.push_back(std::move(acceleration));
+    trajectory.positions.push_back(interpolated.position);
+    trajectory.velocities.push_back(std::move(velocity));
+    trajectory.accelerations.push_back(std::move(acceleration));
   }
 
-  result.total_time =
-      result.positions.size() > 1 ? result.sample_dt * static_cast<double>(result.positions.size() - 1) : 0.0;
-  if (!result.positions.empty()) {
-    result.positions.front() = normalized_waypoints.front();
-    result.positions.back() = normalized_waypoints.back();
+  trajectory.total_time =
+      trajectory.positions.size() > 1 ? trajectory.sample_dt * static_cast<double>(trajectory.positions.size() - 1) : 0.0;
+  if (!trajectory.positions.empty()) {
+    trajectory.positions.front() = normalized_waypoints.front();
+    trajectory.positions.back() = normalized_waypoints.back();
   }
+  sync_metadata(result);
   return result;
 }
 
@@ -529,17 +571,26 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedConfig(const std::vector<std::
                                                          double sample_dt,
                                                          double max_velocity,
                                                          double max_acceleration,
-                                                         double blend_radius) {
+                                                         double blend_radius,
+                                                         const std::string &source_family,
+                                                         double effective_speed_scale) {
   const auto limits = makeUnifiedRetimerLimits(max_velocity, max_acceleration, blend_radius);
   return retimeJointPathWithUnifiedLimits(
-      waypoints, sample_dt, limits.velocity_limits, limits.acceleration_limits);
+      waypoints, sample_dt, limits.velocity_limits, limits.acceleration_limits, source_family, effective_speed_scale);
 }
 
 UnifiedTrajectoryResult retimeJointPathWithUnifiedSpeed(const std::vector<std::vector<double>> &waypoints,
                                                         double sample_dt,
-                                                        double speed_mm_per_s) {
+                                                        double speed_mm_per_s,
+                                                        const std::string &source_family,
+                                                        double effective_speed_scale) {
   return retimeJointPathWithUnifiedLimits(
-      waypoints, sample_dt, scaledUnifiedVelocityLimits(speed_mm_per_s), scaledUnifiedAccelerationLimits(speed_mm_per_s));
+      waypoints,
+      sample_dt,
+      scaledUnifiedVelocityLimits(speed_mm_per_s),
+      scaledUnifiedAccelerationLimits(speed_mm_per_s),
+      source_family,
+      effective_speed_scale);
 }
 
 std::vector<std::vector<double>> resampleCartesianPosePath(const std::vector<std::vector<double>> &poses,
@@ -572,7 +623,8 @@ UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
     ::gazebo::xMate3Kinematics &kinematics,
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &request,
     double sample_dt) {
-  UnifiedTrajectoryResult result;
+  auto result = wrap_trajectory({}, "s_trajectory");
+  auto &trajectory = result.trajectory;
 
   std::vector<double> start(request.start_joint_pos.begin(), request.start_joint_pos.end());
   std::vector<double> target(request.target_joint_pos.begin(), request.target_joint_pos.end());
@@ -582,7 +634,8 @@ UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
   const auto cartesian_samples =
       ::gazebo::TrajectoryPlanner::planCartesianLine(start_pose, target_pose, speed_mm_per_s, sample_dt);
   if (cartesian_samples.empty()) {
-    result.error_message = "cartesian path generation failed";
+    trajectory.error_message = "cartesian path generation failed";
+    result.metadata.note = "degenerate_path";
     return result;
   }
 
@@ -595,51 +648,65 @@ UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
                                              true,
                                              false,
                                              disabled_soft_limits(),
-                                             result.positions,
+                                             trajectory.positions,
                                              last_joints,
-                                             result.error_message)) {
+                                             trajectory.error_message)) {
     return result;
   }
 
-  if (result.positions.empty()) {
-    result.error_message = "cartesian joint sampling produced no trajectory points";
+  if (trajectory.positions.empty()) {
+    trajectory.error_message = "cartesian joint sampling produced no trajectory points";
+    result.metadata.note = "degenerate_path";
     return result;
   }
 
-  result.positions.front() = start;
-  result.positions.back() = target;
+  trajectory.positions.front() = start;
+  trajectory.positions.back() = target;
 
   auto retimed = retimeJointPathWithUnifiedConfig(
-      result.positions, sample_dt, request.max_velocity, request.max_acceleration, request.blend_radius);
+      trajectory.positions,
+      sample_dt,
+      request.max_velocity,
+      request.max_acceleration,
+      request.blend_radius,
+      "s_trajectory");
   if (retimed.empty()) {
-    retimed.error_message = retimed.error_message.empty() ? "cartesian unified retimer failed" : retimed.error_message;
+    retimed.trajectory.error_message = retimed.trajectory.error_message.empty()
+                                           ? "cartesian unified retimer failed"
+                                           : retimed.trajectory.error_message;
     return retimed;
   }
 
   const auto resampled_cartesian =
-      resampleCartesianPosePath(cartesian_samples.points, retimed.positions.size());
+      resampleCartesianPosePath(cartesian_samples.points, retimed.trajectory.positions.size());
   if (!project_joint_derivatives_from_cartesian(kinematics,
                                                 resampled_cartesian,
-                                                retimed.positions,
-                                                retimed.sample_dt,
-                                                retimed.velocities,
-                                                retimed.accelerations)) {
-    if (retimed.velocities.size() != retimed.positions.size()) {
-      retimed.velocities.assign(retimed.positions.size(), std::vector<double>(retimed.positions.front().size(), 0.0));
+                                                retimed.trajectory.positions,
+                                                retimed.trajectory.sample_dt,
+                                                retimed.trajectory.velocities,
+                                                retimed.trajectory.accelerations)) {
+    if (retimed.trajectory.velocities.size() != retimed.trajectory.positions.size()) {
+      retimed.trajectory.velocities.assign(
+          retimed.trajectory.positions.size(), std::vector<double>(retimed.trajectory.positions.front().size(), 0.0));
     }
-    if (retimed.accelerations.size() != retimed.positions.size()) {
-      retimed.accelerations.assign(
-          retimed.positions.size(), std::vector<double>(retimed.positions.front().size(), 0.0));
+    if (retimed.trajectory.accelerations.size() != retimed.trajectory.positions.size()) {
+      retimed.trajectory.accelerations.assign(
+          retimed.trajectory.positions.size(), std::vector<double>(retimed.trajectory.positions.front().size(), 0.0));
     }
   }
+  retimed.metadata.source_family = "s_trajectory";
+  sync_metadata(retimed);
   return retimed;
 }
 
 UnifiedTrajectoryResult retimeReplayWithUnifiedConfig(const ReplayPathAsset &asset,
                                                       double rate,
                                                       double sample_dt) {
-  UnifiedTrajectoryResult result;
+  auto result = wrap_trajectory({}, "replay", std::max(rate, 0.05), false, "replay_retimed");
+  auto &trajectory = result.trajectory;
   if (asset.samples.empty()) {
+    trajectory.error_message = "Path is empty";
+    result.metadata.note = "degenerate_path";
     return result;
   }
 
@@ -657,14 +724,14 @@ UnifiedTrajectoryResult retimeReplayWithUnifiedConfig(const ReplayPathAsset &ass
           ? std::max(1, static_cast<int>(std::ceil(scaled_total_time / resolved_sample_dt)))
           : 1;
 
-  result.sample_dt =
+  trajectory.sample_dt =
       scaled_total_time > 1e-9 ? scaled_total_time / static_cast<double>(interval_count) : resolved_sample_dt;
-  result.positions.reserve(static_cast<std::size_t>(interval_count) + 1);
-  result.velocities.reserve(static_cast<std::size_t>(interval_count) + 1);
+  trajectory.positions.reserve(static_cast<std::size_t>(interval_count) + 1);
+  trajectory.velocities.reserve(static_cast<std::size_t>(interval_count) + 1);
 
   for (int index = 0; index <= interval_count; ++index) {
     const double scaled_time =
-        scaled_total_time > 1e-9 ? result.sample_dt * static_cast<double>(index) : 0.0;
+        scaled_total_time > 1e-9 ? trajectory.sample_dt * static_cast<double>(index) : 0.0;
     const double original_time = std::min(scaled_time * rate_scale, original_total_time);
 
     auto position = interpolate_joint_vector(normalized_samples, original_time, false);
@@ -676,13 +743,14 @@ UnifiedTrajectoryResult retimeReplayWithUnifiedConfig(const ReplayPathAsset &ass
       value *= rate_scale;
     }
 
-    result.positions.push_back(std::move(position));
-    result.velocities.push_back(std::move(velocity));
+    trajectory.positions.push_back(std::move(position));
+    trajectory.velocities.push_back(std::move(velocity));
   }
 
-  populate_acceleration_trajectory(result.accelerations, result.velocities, result.sample_dt);
-  result.total_time =
-      result.positions.size() > 1 ? result.sample_dt * static_cast<double>(result.positions.size() - 1) : 0.0;
+  populate_acceleration_trajectory(trajectory.accelerations, trajectory.velocities, trajectory.sample_dt);
+  trajectory.total_time =
+      trajectory.positions.size() > 1 ? trajectory.sample_dt * static_cast<double>(trajectory.positions.size() - 1) : 0.0;
+  sync_metadata(result);
   return result;
 }
 

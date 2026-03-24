@@ -269,10 +269,10 @@ bool build_replay_request(const ReplayPathAsset &replay_asset,
   MotionCommandSpec cmd;
   cmd.kind = MotionKind::move_absj;
   cmd.use_preplanned_trajectory = true;
-  cmd.preplanned_dt = retimed.sample_dt;
-  cmd.preplanned_trajectory = retimed.positions;
-  cmd.preplanned_velocity_trajectory = retimed.velocities;
-  cmd.preplanned_acceleration_trajectory = retimed.accelerations;
+  cmd.preplanned_dt = retimed.trajectory.sample_dt;
+  cmd.preplanned_trajectory = retimed.trajectory.positions;
+  cmd.preplanned_velocity_trajectory = retimed.trajectory.velocities;
+  cmd.preplanned_acceleration_trajectory = retimed.trajectory.accelerations;
   cmd.target_joints = cmd.preplanned_trajectory.back();
   cmd.speed = resolve_nrt_speed_mm_per_s(
       std::max(context.default_speed * rate, 1.0),

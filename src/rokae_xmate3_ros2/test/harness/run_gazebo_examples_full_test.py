@@ -22,6 +22,17 @@ except Exception:  # pragma: no cover - best effort dependency
 from rokae_xmate3_ros2.srv import PrepareShutdown
 
 
+SHUTDOWN_PHASE = {
+    0: "running",
+    1: "draining",
+    2: "backend_detached",
+    3: "safe_to_delete",
+    4: "safe_to_stop_world",
+    5: "finished",
+    6: "faulted",
+}
+
+
 class TeePump(threading.Thread):
     def __init__(self, stream, sink, mirror, line_buffer):
         super().__init__(daemon=True)
@@ -376,7 +387,9 @@ def _prepare_plugin_shutdown(sink) -> bool:
             return False
         deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline:
-            future = client.call_async(PrepareShutdown.Request())
+            request = PrepareShutdown.Request()
+            request.request_shutdown = True
+            future = client.call_async(request)
             response = _wait_for_future(node, future, 2.0)
             if response is None:
                 sink.write("[harness] timed out waiting for /xmate3/internal/prepare_shutdown\n")
@@ -393,16 +406,18 @@ def _prepare_plugin_shutdown(sink) -> bool:
                 + str(response.active_request_count)
                 + " active_goal_count="
                 + str(response.active_goal_count)
+                + " backend_quiescent="
+                + str(response.backend_quiescent)
                 + " runtime_phase="
-                + response.runtime_phase
+                + str(response.runtime_phase)
                 + " shutdown_phase="
-                + response.shutdown_phase
+                + SHUTDOWN_PHASE.get(response.shutdown_phase, str(response.shutdown_phase))
                 + " message="
                 + getattr(response, "message", "")
                 + "\n"
             )
             sink.flush()
-            if response.safe_to_delete:
+            if response.accepted and response.safe_to_delete:
                 return True
             time.sleep(0.25)
         sink.write("[harness] prepare shutdown never reached safe_to_delete\n")

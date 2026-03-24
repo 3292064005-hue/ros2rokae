@@ -175,7 +175,7 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
     std::vector<std::vector<double>> candidates;
     candidates.reserve(solved.candidates.size());
     for (const auto &candidate : solved.candidates) {
-        candidates.push_back(candidate.joints);
+        candidates.push_back(candidate.q);
     }
     return candidates;
 }
@@ -210,7 +210,7 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
         0.02,
         0.5,
         5e-3);
-    return backend_->solveSeeded(request).joints;
+    return backend_->solveSeeded(request).q;
 }
 
 xMate3Kinematics::Matrix6d xMate3Kinematics::computeJacobian(const std::vector<double>& joints) {
@@ -387,7 +387,7 @@ xMate3Kinematics::IkSelectionResult xMate3Kinematics::selectBestIkSolution(
     const auto selected =
         backend_->selectBestCartesianIkSolution(candidates, target_transform, seed_joints, backend_options);
     result.success = selected.success;
-    result.joints = selected.joints;
+    result.joints = selected.q;
     result.message = selected.message;
     return result;
 }
