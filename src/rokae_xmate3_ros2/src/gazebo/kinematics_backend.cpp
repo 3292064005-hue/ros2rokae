@@ -9,9 +9,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <limits>
 #include <sstream>
@@ -40,7 +40,7 @@ constexpr std::array<double, 6> kJointOffset{0.0, -M_PI / 2.0, M_PI / 2.0, 0.0, 
 constexpr std::array<double, 6> kSmokeReferenceJoints{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
 constexpr const char *kPackageName = "rokae_xmate3_ros2";
 constexpr const char *kModelRoot = "xMate3_base";
-constexpr const char *kModelTip = "xMate3_link6";
+constexpr const char *kModelTip = "flange";
 
 Matrix4d legacyDhTransform(std::size_t index, double theta) {
   Matrix4d transform = Matrix4d::Identity();
@@ -114,6 +114,62 @@ double jointLimitPenalty(const std::vector<double> &joints,
   return penalty / 6.0;
 }
 
+std::vector<KinematicsBackend::VectorJ> makeMultiBranchSeeds(const KinematicsBackend::SeededIkRequest &request) {
+  std::vector<KinematicsBackend::VectorJ> seeds;
+  if (request.seed_joints.size() < 6 || request.joint_limits_min.size() < 6 || request.joint_limits_max.size() < 6) {
+    return seeds;
+  }
+
+  auto clamp_seed = [&](KinematicsBackend::VectorJ seed) {
+    for (std::size_t index = 0; index < 6; ++index) {
+      seed[index] = std::clamp(seed[index], request.joint_limits_min[index], request.joint_limits_max[index]);
+    }
+    return seed;
+  };
+
+  seeds.push_back(clamp_seed(request.seed_joints));
+
+  auto shoulder_left = request.seed_joints;
+  shoulder_left[0] = 2.0;
+  shoulder_left[4] = 0.3;
+  seeds.push_back(clamp_seed(std::move(shoulder_left)));
+
+  auto shoulder_right = request.seed_joints;
+  shoulder_right[0] = -2.0;
+  shoulder_right[4] = -0.3;
+  seeds.push_back(clamp_seed(std::move(shoulder_right)));
+
+  auto elbow_up = request.seed_joints;
+  elbow_up[2] = 1.5;
+  elbow_up[4] = 0.4;
+  seeds.push_back(clamp_seed(std::move(elbow_up)));
+
+  auto elbow_down = request.seed_joints;
+  elbow_down[2] = -1.5;
+  elbow_down[4] = -0.4;
+  seeds.push_back(clamp_seed(std::move(elbow_down)));
+
+  auto wrist_positive = request.seed_joints;
+  wrist_positive[4] = 0.5;
+  seeds.push_back(clamp_seed(std::move(wrist_positive)));
+
+  auto wrist_negative = request.seed_joints;
+  wrist_negative[4] = -0.5;
+  seeds.push_back(clamp_seed(std::move(wrist_negative)));
+
+  auto wrist_flip = request.seed_joints;
+  wrist_flip[5] = M_PI;
+  wrist_flip[4] = 0.25;
+  seeds.push_back(clamp_seed(std::move(wrist_flip)));
+
+  auto wrist_no_flip = request.seed_joints;
+  wrist_no_flip[5] = 0.0;
+  wrist_no_flip[4] = -0.25;
+  seeds.push_back(clamp_seed(std::move(wrist_no_flip)));
+
+  return seeds;
+}
+
 struct SeededIkAnalysis {
   Matrix6d jacobian = Matrix6d::Zero();
   double min_sigma = 0.0;
@@ -147,6 +203,44 @@ SeededIkAnalysis analyzeSeededIk(const KinematicsBackend &backend,
   analysis.near_singularity = std::fabs(joints[4]) < request.wrist_singularity_threshold ||
                               analysis.min_sigma < request.jacobian_singularity_threshold;
   return analysis;
+}
+
+double branchDistance(const std::vector<double> &lhs, const std::vector<double> &rhs) {
+  double max_distance = 0.0;
+  for (std::size_t index = 0; index < 6 && index < lhs.size() && index < rhs.size(); ++index) {
+    max_distance = std::max(max_distance, std::fabs(lhs[index] - rhs[index]));
+  }
+  return max_distance;
+}
+
+double continuityCost(const KinematicsBackend::SeededIkRequest &request, const std::vector<double> &candidate) {
+  if (candidate.size() < 6 || request.seed_joints.size() < 6) {
+    return std::numeric_limits<double>::infinity();
+  }
+  return request.continuity_weight *
+         (Eigen::Map<const Eigen::VectorXd>(candidate.data(), 6) -
+          Eigen::Map<const Eigen::VectorXd>(request.seed_joints.data(), 6))
+             .norm();
+}
+
+KinematicsBackend::SeededIkCandidateMetrics evaluateSeededIkCandidate(const KinematicsBackend &backend,
+                                                                      const KinematicsBackend::SeededIkRequest &request,
+                                                                      const std::vector<double> &candidate) {
+  KinematicsBackend::SeededIkCandidateMetrics metrics;
+  if (candidate.size() < 6) {
+    return metrics;
+  }
+
+  const auto singularity = analyzeSeededIk(backend, request, candidate);
+  metrics.branch_distance = branchDistance(candidate, request.seed_joints);
+  metrics.continuity_cost = continuityCost(request, candidate);
+  metrics.joint_limit_penalty =
+      request.joint_limit_weight * jointLimitPenalty(candidate, request.joint_limits_min, request.joint_limits_max);
+  metrics.singularity_metric = singularity.singularity_measure;
+  metrics.singularity_cost = request.singularity_weight * singularity.singularity_measure;
+  metrics.near_singularity = singularity.near_singularity;
+  metrics.valid = true;
+  return metrics;
 }
 
 bool nudgeAwayFromSingularity(const KinematicsBackend::SeededIkRequest &request, std::vector<double> &joints) {
@@ -188,18 +282,11 @@ std::vector<double> solveSeededIk(const KinematicsBackend &backend,
     const Vector6d error = poseError(request.target_transform, current_transform);
 
     const auto singularity = analyzeSeededIk(backend, request, joints);
+    const auto candidate_metrics = evaluateSeededIkCandidate(backend, request, joints);
     const double pos_err = error.head<3>().norm();
     const double ori_err = error.tail<3>().norm();
-    const double continuity_cost =
-        request.continuity_weight *
-        (Eigen::Map<const Eigen::VectorXd>(joints.data(), 6) -
-         Eigen::Map<const Eigen::VectorXd>(request.seed_joints.data(), 6))
-            .norm();
-    const double limit_cost =
-        request.joint_limit_weight * jointLimitPenalty(joints, request.joint_limits_min, request.joint_limits_max);
-    const double singularity_cost = request.singularity_weight * singularity.singularity_measure;
     const double current_score =
-        pos_err + request.orientation_weight * ori_err + continuity_cost + limit_cost + singularity_cost;
+        pos_err + request.orientation_weight * ori_err + candidate_metrics.totalCost();
     if (current_score < best_score) {
       best_score = current_score;
       best_joints = joints;
@@ -244,6 +331,43 @@ std::vector<double> solveSeededIk(const KinematicsBackend &backend,
   return best_joints;
 }
 
+std::vector<KinematicsBackend::VectorJ> solveMultiBranchIk(
+    const KinematicsBackend &backend,
+    const KinematicsBackend::SeededIkRequest &request) {
+  constexpr double kDuplicateThreshold = 0.05;
+
+  std::vector<KinematicsBackend::VectorJ> candidates;
+  for (const auto &seed : makeMultiBranchSeeds(request)) {
+    auto seeded_request = request;
+    seeded_request.seed_joints = seed;
+    const auto candidate = solveSeededIk(backend, seeded_request);
+    if (candidate.empty()) {
+      continue;
+    }
+    bool duplicate = false;
+    for (const auto &accepted : candidates) {
+      if (branchDistance(candidate, accepted) < kDuplicateThreshold) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (!duplicate) {
+      candidates.push_back(candidate);
+    }
+  }
+
+  std::sort(candidates.begin(), candidates.end(),
+            [&](const KinematicsBackend::VectorJ &lhs, const KinematicsBackend::VectorJ &rhs) {
+              const auto lhs_metrics = backend.evaluateSeededIkCandidate(request, lhs);
+              const auto rhs_metrics = backend.evaluateSeededIkCandidate(request, rhs);
+              if (lhs_metrics.totalCost() == rhs_metrics.totalCost()) {
+                return lhs_metrics.branch_distance < rhs_metrics.branch_distance;
+              }
+              return lhs_metrics.totalCost() < rhs_metrics.totalCost();
+            });
+  return candidates;
+}
+
 std::filesystem::path fallbackSourceShareDir() {
   auto path = std::filesystem::path(__FILE__);
   for (int i = 0; i < 3; ++i) {
@@ -268,34 +392,62 @@ std::string resolvePackageShareDir() {
   return {};
 }
 
-std::string runCommand(const std::string &command) {
-  std::string output;
-  FILE *pipe = popen(command.c_str(), "r");
-  if (pipe == nullptr) {
-    return output;
-  }
-  std::array<char, 4096> buffer{};
-  while (true) {
-    const auto bytes = std::fread(buffer.data(), 1, buffer.size(), pipe);
-    if (bytes == 0) {
-      break;
-    }
-    output.append(buffer.data(), bytes);
-  }
-  if (pclose(pipe) != 0) {
+std::string readFile(const std::filesystem::path &path) {
+  if (path.empty() || !std::filesystem::exists(path)) {
     return {};
   }
-  return output;
+  std::ifstream stream(path);
+  if (!stream.good()) {
+    return {};
+  }
+  std::ostringstream buffer;
+  buffer << stream.rdbuf();
+  return buffer.str();
 }
 
-std::string renderUrdfFromXacro(const std::filesystem::path &xacro_path) {
-  if (xacro_path.empty() || !std::filesystem::exists(xacro_path)) {
+std::string readEnvValue(const char *name) {
+  const char *value = std::getenv(name);
+  if (value == nullptr || *value == '\0') {
     return {};
   }
-  std::ostringstream command;
-  command << "xacro '" << xacro_path.string()
-          << "' enable_ros2_control:=false enable_xcore_plugin:=false backend_mode:=hybrid";
-  return runCommand(command.str());
+  return value;
+}
+
+std::string loadUrdfXml(std::string &origin) {
+  if (const auto env_xml = readEnvValue("ROKAE_XMATE3_ROBOT_DESCRIPTION_XML"); !env_xml.empty()) {
+    origin = "environment:ROKAE_XMATE3_ROBOT_DESCRIPTION_XML";
+    return env_xml;
+  }
+  if (const auto env_xml = readEnvValue("ROKAE_XMATE3_ROBOT_DESCRIPTION"); !env_xml.empty()) {
+    origin = "environment:ROKAE_XMATE3_ROBOT_DESCRIPTION";
+    return env_xml;
+  }
+
+  if (const auto env_file = readEnvValue("ROKAE_XMATE3_ROBOT_DESCRIPTION_FILE"); !env_file.empty()) {
+    if (const auto xml = readFile(env_file); !xml.empty()) {
+      origin = "environment:ROKAE_XMATE3_ROBOT_DESCRIPTION_FILE";
+      return xml;
+    }
+  }
+
+  std::vector<std::filesystem::path> candidates;
+  if (const auto share_dir = resolvePackageShareDir(); !share_dir.empty()) {
+    const auto share_path = std::filesystem::path(share_dir);
+    candidates.emplace_back(share_path / "generated" / "xMate3.urdf");
+    candidates.emplace_back(share_path / "urdf" / "xMate3.urdf");
+  }
+#ifdef ROKAE_XMATE3_GENERATED_URDF_PATH
+  candidates.emplace_back(std::filesystem::path(ROKAE_XMATE3_GENERATED_URDF_PATH));
+#endif
+
+  for (const auto &candidate : candidates) {
+    if (const auto xml = readFile(candidate); !xml.empty()) {
+      origin = candidate.string();
+      return xml;
+    }
+  }
+  origin = "unavailable";
+  return {};
 }
 
 Matrix4d toEigen(const KDL::Frame &frame) {
@@ -328,6 +480,20 @@ std::vector<Matrix4d> computeKdlTransforms(const KDL::Chain &chain, const std::v
   return transforms;
 }
 
+Matrix4d computeKdlTipTransform(const KDL::Chain &chain, const std::vector<double> &joints) {
+  KDL::Frame pose = KDL::Frame::Identity();
+  std::size_t joint_index = 0;
+  for (unsigned int segment_index = 0; segment_index < chain.getNrOfSegments(); ++segment_index) {
+    const auto &segment = chain.getSegment(segment_index);
+    double position = 0.0;
+    if (segment.getJoint().getType() != KDL::Joint::Fixed && joint_index < joints.size()) {
+      position = joints[joint_index++];
+    }
+    pose = pose * segment.pose(position);
+  }
+  return toEigen(pose);
+}
+
 struct SharedKdlModel {
   bool valid = false;
   std::string reason;
@@ -351,27 +517,21 @@ bool smokeCheckKdlChain(const KDL::Chain &chain) {
 
 SharedKdlModel buildSharedKdlModel() {
   SharedKdlModel model;
-  const auto share_dir = resolvePackageShareDir();
-  if (share_dir.empty()) {
-    model.reason = "package share directory is unavailable";
-    return model;
-  }
-
-  const auto xacro_path = std::filesystem::path(share_dir) / "urdf" / "xMate3.xacro";
-  const auto urdf_xml = renderUrdfFromXacro(xacro_path);
+  std::string urdf_origin;
+  const auto urdf_xml = loadUrdfXml(urdf_origin);
   if (urdf_xml.empty()) {
-    model.reason = "failed to render URDF from xacro";
+    model.reason = "failed to load URDF description";
     return model;
   }
 
   KDL::Tree tree;
   if (!kdl_parser::treeFromString(urdf_xml, tree)) {
-    model.reason = "kdl_parser failed to build a tree from the rendered URDF";
+    model.reason = "kdl_parser failed to build a tree from the loaded URDF";
     return model;
   }
 
   if (!tree.getChain(kModelRoot, kModelTip, model.chain)) {
-    model.reason = "failed to extract xMate3_base -> xMate3_link6 chain";
+    model.reason = "failed to extract xMate3_base -> flange chain";
     return model;
   }
 
@@ -381,12 +541,12 @@ SharedKdlModel buildSharedKdlModel() {
   }
 
   if (!smokeCheckKdlChain(model.chain)) {
-    model.reason = "URDF-derived KDL chain failed legacy DH smoke validation";
+    model.reason = "URDF-derived KDL chain failed legacy DH smoke validation from " + urdf_origin;
     return model;
   }
 
   model.valid = true;
-  model.reason = "ok";
+  model.reason = "ok:" + urdf_origin;
   return model;
 }
 
@@ -420,8 +580,29 @@ class LegacyKinematicsBackend final : public KinematicsBackend {
     return jacobian;
   }
 
+  [[nodiscard]] double branchDistance(const VectorJ &lhs, const VectorJ &rhs) const override {
+    return gazebo::detail::branchDistance(lhs, rhs);
+  }
+
+  [[nodiscard]] double continuityCost(const SeededIkRequest &request, const VectorJ &candidate) const override {
+    return gazebo::detail::continuityCost(request, candidate);
+  }
+
+  [[nodiscard]] double singularityMetric(const SeededIkRequest &request, const VectorJ &candidate) const override {
+    return evaluateSeededIkCandidate(request, candidate).singularity_metric;
+  }
+
+  [[nodiscard]] SeededIkCandidateMetrics evaluateSeededIkCandidate(const SeededIkRequest &request,
+                                                                   const VectorJ &candidate) const override {
+    return gazebo::detail::evaluateSeededIkCandidate(*this, request, candidate);
+  }
+
   [[nodiscard]] VectorJ inverseKinematicsSeeded(const SeededIkRequest &request) const override {
     return solveSeededIk(*this, request);
+  }
+
+  [[nodiscard]] std::vector<VectorJ> inverseKinematicsMultiBranch(const SeededIkRequest &request) const override {
+    return solveMultiBranchIk(*this, request);
   }
 };
 
@@ -448,7 +629,7 @@ class KdlKinematicsBackend final : public KinematicsBackend {
     if (!valid_) {
       return LegacyKinematicsBackend{}.computeForwardTransform(joints);
     }
-    return computeKdlTransforms(chain_, joints).back();
+    return computeKdlTipTransform(chain_, joints);
   }
 
   [[nodiscard]] std::vector<Matrix4d> computeAllTransforms(const std::vector<double> &joints) const override {
@@ -481,11 +662,38 @@ class KdlKinematicsBackend final : public KinematicsBackend {
     return result;
   }
 
+  [[nodiscard]] double branchDistance(const VectorJ &lhs, const VectorJ &rhs) const override {
+    return gazebo::detail::branchDistance(lhs, rhs);
+  }
+
+  [[nodiscard]] double continuityCost(const SeededIkRequest &request, const VectorJ &candidate) const override {
+    return gazebo::detail::continuityCost(request, candidate);
+  }
+
+  [[nodiscard]] double singularityMetric(const SeededIkRequest &request, const VectorJ &candidate) const override {
+    return evaluateSeededIkCandidate(request, candidate).singularity_metric;
+  }
+
+  [[nodiscard]] SeededIkCandidateMetrics evaluateSeededIkCandidate(const SeededIkRequest &request,
+                                                                   const VectorJ &candidate) const override {
+    if (!valid_) {
+      return LegacyKinematicsBackend{}.evaluateSeededIkCandidate(request, candidate);
+    }
+    return gazebo::detail::evaluateSeededIkCandidate(*this, request, candidate);
+  }
+
   [[nodiscard]] VectorJ inverseKinematicsSeeded(const SeededIkRequest &request) const override {
     if (!valid_) {
       return LegacyKinematicsBackend{}.inverseKinematicsSeeded(request);
     }
     return solveSeededIk(*this, request);
+  }
+
+  [[nodiscard]] std::vector<VectorJ> inverseKinematicsMultiBranch(const SeededIkRequest &request) const override {
+    if (!valid_) {
+      return LegacyKinematicsBackend{}.inverseKinematicsMultiBranch(request);
+    }
+    return solveMultiBranchIk(*this, request);
   }
 
  private:

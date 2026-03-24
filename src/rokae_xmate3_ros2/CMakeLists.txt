@@ -20,6 +20,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(kdl_parser REQUIRED)
 find_package(gazebo REQUIRED)
@@ -29,7 +30,68 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(rosidl_runtime_cpp REQUIRED)
 find_package(unique_identifier_msgs REQUIRED)
 find_package(action_msgs REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 pkg_check_modules(OROCOS_KDL REQUIRED orocos-kdl)
+find_program(XACRO_EXECUTABLE xacro REQUIRED)
+
+set(ROKAE_GENERATED_URDF_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/urdf")
+set(ROKAE_GENERATED_XMATE3_URDF "${ROKAE_GENERATED_URDF_DIR}/xMate3.urdf")
+add_custom_command(
+  OUTPUT "${ROKAE_GENERATED_XMATE3_URDF}"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${ROKAE_GENERATED_URDF_DIR}"
+  COMMAND ${XACRO_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
+          -o "${ROKAE_GENERATED_XMATE3_URDF}"
+          enable_ros2_control:=false
+          enable_xcore_plugin:=false
+          backend_mode:=hybrid
+  DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
+    "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.ros2_control.xacro"
+  VERBATIM
+)
+add_custom_target(${PROJECT_NAME}_generated_urdf ALL
+  DEPENDS "${ROKAE_GENERATED_XMATE3_URDF}"
+)
+
+set(ROKAE_SOURCE_ARCHIVE "" CACHE FILEPATH
+  "Optional source archive (.zip) to verify against the current working tree"
+)
+get_filename_component(ROKAE_SOURCE_TREE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+set(ROKAE_SOURCE_ARCHIVE_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rokae_source_candidate.zip" CACHE FILEPATH
+  "Output path for the verified source archive release candidate"
+)
+add_custom_target(verify_source_archive
+  COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_source_archive.py"
+          --source-root "${ROKAE_SOURCE_TREE_ROOT}"
+          --archive "${ROKAE_SOURCE_ARCHIVE}"
+  WORKING_DIRECTORY "${ROKAE_SOURCE_TREE_ROOT}"
+  COMMENT "Verifying packaged source archive matches required SDK closeout files"
+  VERBATIM
+)
+add_custom_target(package_verified_source_archive
+  COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/cmake/create_verified_source_archive.py"
+          --source-root "${ROKAE_SOURCE_TREE_ROOT}"
+          --archive "${ROKAE_SOURCE_ARCHIVE_OUTPUT}"
+  WORKING_DIRECTORY "${ROKAE_SOURCE_TREE_ROOT}"
+  COMMENT "Creating and verifying a single release-candidate source archive"
+  VERBATIM
+)
+if(ROKAE_SOURCE_ARCHIVE)
+  add_test(
+    NAME verify_source_archive
+    COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_source_archive.py"
+            --source-root "${ROKAE_SOURCE_TREE_ROOT}"
+            --archive "${ROKAE_SOURCE_ARCHIVE}"
+  )
+  set_tests_properties(verify_source_archive PROPERTIES
+    LABELS "archive_quality"
+    TIMEOUT 30
+  )
+endif()
 
 # 生成msg/srv/action接口
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -98,6 +160,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/QueryPathLists.srv
   srv/ClearServoAlarm.srv
   srv/QueryControllerLog.srv
+  srv/PrepareShutdown.srv
   # 未使用但保留的srv（兼容性）
   srv/Start.srv
   srv/Reset.srv
@@ -168,6 +231,10 @@ add_library(${PROJECT_NAME}_runtime_motion_core OBJECT
   src/runtime/request_coordinator.cpp
   src/runtime/executor_core.cpp
   src/runtime/motion_runtime.cpp
+)
+add_dependencies(${PROJECT_NAME}_runtime_motion_core ${PROJECT_NAME}_generated_urdf)
+target_compile_definitions(${PROJECT_NAME}_runtime_motion_core
+  PRIVATE ROKAE_XMATE3_GENERATED_URDF_PATH="${ROKAE_GENERATED_XMATE3_URDF}"
 )
 
 add_library(${PROJECT_NAME}_runtime_state OBJECT
@@ -296,7 +363,7 @@ add_library(xcore_controller_gazebo_plugin SHARED
   src/gazebo/xcore_controller_gazebo_plugin.cpp
 )
 ament_target_dependencies(xcore_controller_gazebo_plugin
-  ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs tf2_ros gazebo_ros kdl_parser
+  ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs std_srvs tf2_ros gazebo_ros kdl_parser
 )
 target_include_directories(xcore_controller_gazebo_plugin
   PRIVATE
@@ -376,8 +443,13 @@ install(TARGETS
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch meshes models urdf config worlds examples docs
   DESTINATION share/${PROJECT_NAME}/
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE
 )
 install(FILES model.config DESTINATION share/${PROJECT_NAME})
+install(FILES "${ROKAE_GENERATED_XMATE3_URDF}"
+  DESTINATION share/${PROJECT_NAME}/generated
+)
 
 # 导出
 ament_export_dependencies(
@@ -385,6 +457,7 @@ ament_export_dependencies(
   rclcpp
   gazebo_ros
   Eigen3
+  std_srvs
 )
 ament_export_include_directories(include)
 ament_export_libraries(
@@ -396,9 +469,9 @@ if(BUILD_TESTING)
   option(ROKAE_ENABLE_GAZEBO_STRICT_TESTS "Enable strict Gazebo precision regression tests" OFF)
   option(ROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS "Enable full Gazebo examples harness" OFF)
   option(ROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS "Enable Gazebo backend mode smoke harnesses" OFF)
+  option(ROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS "Enable Gazebo teardown quality contract harness" OFF)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(launch_testing_ament_cmake REQUIRED)
-  find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
   if(EXISTS "/usr/bin/python3")
     set(ROKAE_LAUNCH_TEST_PYTHON "/usr/bin/python3")
@@ -461,6 +534,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(test_runtime_adapters
       ${PROJECT_NAME}_runtime_core
+    )
+    target_compile_definitions(test_runtime_adapters
+      PRIVATE
+        ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY="${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_source_archive.py"
+        ROKAE_TEST_CREATE_VERIFIED_SOURCE_ARCHIVE_PY="${CMAKE_CURRENT_SOURCE_DIR}/cmake/create_verified_source_archive.py"
+        ROKAE_TEST_PYTHON_EXECUTABLE="${Python3_EXECUTABLE}"
     )
     target_compile_features(test_runtime_adapters PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_adapters)
@@ -833,6 +912,10 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
 
   if(ROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS)
     set(GAZEBO_EXAMPLES_FULL_COMMAND
+      "${CMAKE_COMMAND}" "-E" "env"
+      "ROKAE_XMATE3_ROS2_SHARE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+      "ROKAE_XMATE3_ROS2_LIB_DIR=$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
+      "PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py:$ENV{PYTHONPATH}"
       "${ROKAE_LAUNCH_TEST_PYTHON}"
       "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/run_gazebo_examples_full_test.py"
       "--simulation-launch" "${CMAKE_CURRENT_SOURCE_DIR}/launch/simulation.launch.py"
@@ -855,6 +938,55 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
     set_tests_properties(gazebo_examples_full PROPERTIES RUN_SERIAL TRUE)
     set_tests_properties(gazebo_examples_full PROPERTIES
       LABELS "gazebo_integration_examples_full"
+      TIMEOUT 1800
+    )
+  endif()
+
+  if(ROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS)
+    add_test(
+      NAME gazebo_teardown_quality
+      COMMAND
+        "${CMAKE_COMMAND}" "-E" "env"
+        "ROKAE_XMATE3_ROS2_SHARE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+        "ROKAE_XMATE3_ROS2_LIB_DIR=$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
+        "PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py:$ENV{PYTHONPATH}"
+        "${ROKAE_LAUNCH_TEST_PYTHON}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/gazebo_teardown_quality_runner.py"
+        "--simulation-launch" "${CMAKE_CURRENT_SOURCE_DIR}/launch/simulation.launch.py"
+        "--launch-runner" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/run_launch_service.py"
+        "--package-share" "${CMAKE_CURRENT_SOURCE_DIR}"
+        "--package-lib-dir" "$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
+        "--rosidl-python-path" "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"
+        "--log-file" "${CMAKE_CURRENT_BINARY_DIR}/launch_test/gazebo_teardown_quality.txt"
+        "--python-bin" "${ROKAE_LAUNCH_TEST_PYTHON}"
+    )
+    set_tests_properties(gazebo_teardown_quality PROPERTIES
+      RUN_SERIAL TRUE
+      LABELS "gazebo_teardown_quality"
+      TIMEOUT 240
+    )
+
+    add_test(
+      NAME gazebo_teardown_quality_repeat
+      COMMAND
+        "${CMAKE_COMMAND}" "-E" "env"
+        "ROKAE_XMATE3_ROS2_SHARE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+        "ROKAE_XMATE3_ROS2_LIB_DIR=$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
+        "PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py:$ENV{PYTHONPATH}"
+        "${ROKAE_LAUNCH_TEST_PYTHON}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/gazebo_teardown_quality_runner.py"
+        "--simulation-launch" "${CMAKE_CURRENT_SOURCE_DIR}/launch/simulation.launch.py"
+        "--launch-runner" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/run_launch_service.py"
+        "--package-share" "${CMAKE_CURRENT_SOURCE_DIR}"
+        "--package-lib-dir" "$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
+        "--rosidl-python-path" "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py"
+        "--log-file" "${CMAKE_CURRENT_BINARY_DIR}/launch_test/gazebo_teardown_quality_repeat.txt"
+        "--python-bin" "${ROKAE_LAUNCH_TEST_PYTHON}"
+        "--repeat" "10"
+    )
+    set_tests_properties(gazebo_teardown_quality_repeat PROPERTIES
+      RUN_SERIAL TRUE
+      LABELS "gazebo_teardown_quality_repeat"
       TIMEOUT 1800
     )
   endif()

@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 #include "runtime/executor_core.hpp"
+#include "runtime/owner_arbiter.hpp"
 #include "runtime/planner_core.hpp"
 #include "runtime/runtime_types.hpp"
 
@@ -32,11 +33,16 @@ class MotionRuntime {
 
   void stop(const std::string &message = "stopped");
   void reset();
+  void setRuntimePhaseForShutdown(RuntimePhase phase, const std::string &message = {});
 
   [[nodiscard]] RuntimeStatus status() const;
   [[nodiscard]] RuntimeStatus status(const std::string &request_id) const;
   [[nodiscard]] RuntimeView view() const;
   [[nodiscard]] RuntimeView view(const std::string &request_id) const;
+  [[nodiscard]] RuntimePhase runtimePhase() const;
+  [[nodiscard]] RuntimeContractView contractView() const;
+  [[nodiscard]] std::size_t activeRequestCount() const;
+  [[nodiscard]] std::size_t activeGoalCount() const;
   [[nodiscard]] RuntimeStatus waitForUpdate(const std::string &request_id,
                                             std::uint64_t last_revision,
                                             std::chrono::milliseconds timeout) const;
@@ -46,6 +52,11 @@ class MotionRuntime {
   void plannerLoop();
   void rememberStatus(RuntimeStatus &status);
   [[nodiscard]] RuntimeView buildViewLocked(const std::string *request_id) const;
+  [[nodiscard]] bool setOwnerLocked(ControlOwner owner, const std::string &reason);
+  [[nodiscard]] bool syncOwnerLocked(BackendInterface &backend,
+                                     ControlOwner owner,
+                                     const std::string &reason);
+  void setRuntimePhaseLocked(RuntimePhase phase, const std::string &message = {});
 
   mutable std::mutex mutex_;
   std::condition_variable planner_cv_;
@@ -63,10 +74,12 @@ class MotionRuntime {
   MotionExecutor executor_;
   double active_speed_scale_ = 1.0;
   BackendInterface *backend_ = nullptr;
+  OwnerArbiter owner_arbiter_;
   bool using_backend_trajectory_ = false;
   std::optional<MotionPlan> active_trajectory_plan_;
   std::optional<TrajectoryExecutionGoal> active_trajectory_goal_;
   double dispatched_speed_scale_ = 1.0;
+  RuntimePhase runtime_phase_ = RuntimePhase::idle;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

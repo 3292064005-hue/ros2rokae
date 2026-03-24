@@ -183,6 +183,7 @@ def generate_launch_description():
             'verbose': launch.substitutions.LaunchConfiguration('verbose'),
             'gui': launch.substitutions.LaunchConfiguration('gui'),
             'pause': 'false',
+            'server_required': 'true',
         }.items()
     )
 

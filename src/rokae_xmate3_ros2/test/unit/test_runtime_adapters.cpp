@@ -2,7 +2,12 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -92,6 +97,49 @@ Matrix6d legacyFiniteDifferenceJacobian(const std::vector<double> &joints) {
     jacobian.col(axis) = legacyPoseError(plus, current) / kDelta;
   }
   return jacobian;
+}
+
+std::string shellQuote(const std::string &value) {
+  std::string quoted = "'";
+  for (char ch : value) {
+    if (ch == '\'') {
+      quoted += "'\\''";
+    } else {
+      quoted.push_back(ch);
+    }
+  }
+  quoted.push_back('\'');
+  return quoted;
+}
+
+void writeTextFile(const std::filesystem::path &path, const std::string &content) {
+  std::filesystem::create_directories(path.parent_path());
+  std::ofstream stream(path);
+  ASSERT_TRUE(stream.good()) << "failed to open " << path;
+  stream << content;
+  ASSERT_TRUE(stream.good()) << "failed to write " << path;
+}
+
+void createArchiveFixtureTree(const std::filesystem::path &root, bool dirty_archive) {
+  writeTextFile(root / ".gitignore", "build/\nlog/\n__pycache__/\n*.pyc\n");
+  writeTextFile(root / "src/rokae_xmate3_ros2/src/runtime/owner_arbiter.hpp",
+                "#pragma once\n// archive fixture\n");
+  writeTextFile(root / "src/rokae_xmate3_ros2/urdf/xMate3.xacro",
+                R"(<robot name="xmate3">
+  <link name="flange"/>
+  <link name="tool0"/>
+  <link name="tcp"/>
+  <link name="payload"/>
+</robot>
+)");
+  if (dirty_archive) {
+    writeTextFile(root / "src/rokae_xmate3_ros2/test/harness/__pycache__/stale.cpython-312.pyc", "pyc");
+    writeTextFile(root / "build/generated.cache", "build artifact");
+  }
+}
+
+int runShellCommand(const std::string &command) {
+  return std::system(command.c_str());
 }
 
 }  // namespace
@@ -209,6 +257,33 @@ TEST(RuntimeRequestAdapterTest, ReplayRequestRetimesByRecordedTimelineInsteadOfD
   EXPECT_GT(fast.preplanned_velocity_trajectory[1][0], nominal.preplanned_velocity_trajectory[1][0]);
 }
 
+TEST(RuntimeRequestAdapterTest, ReplayAssetPreservesMetadataAndToolingContext) {
+  rt::ProgramState program_state;
+  rt::ToolingState tooling_state;
+  tooling_state.setToolset("tcp_demo", "fixture_demo",
+                           {0.0, 0.0, 0.08, 0.0, 0.0, 0.0},
+                           {0.2, -0.1, 0.3, 0.0, 0.0, 0.0});
+  tooling_state.setToolDynamics("tcp_demo", 0.6, {0.0, 0.0, 0.05});
+
+  program_state.startRecordingPath(tooling_state.toolset(), "unit_test_record");
+  program_state.recordPathSample(10.0, {0.0, 0.1, 0.2, 0.3, 0.4, 0.5}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+  program_state.recordPathSample(10.2, {0.1, 0.2, 0.3, 0.4, 0.5, 0.6}, {0.2, 0.2, 0.2, 0.2, 0.2, 0.2});
+  program_state.stopRecordingPath();
+  program_state.saveRecordedPath("asset_demo");
+
+  rt::ReplayPathAsset asset;
+  ASSERT_TRUE(program_state.getReplayAsset("asset_demo", asset));
+  EXPECT_EQ(asset.metadata.version, "v1");
+  EXPECT_EQ(asset.metadata.robot, "xMate3");
+  EXPECT_EQ(asset.metadata.source, "unit_test_record");
+  EXPECT_DOUBLE_EQ(asset.metadata.created_at_sec, 10.0);
+  EXPECT_EQ(asset.toolset.tool_name, "tcp_demo");
+  EXPECT_EQ(asset.toolset.wobj_name, "fixture_demo");
+  EXPECT_DOUBLE_EQ(asset.toolset.base_pose[0], 0.2);
+  EXPECT_DOUBLE_EQ(asset.toolset.tool_mass, 0.6);
+  EXPECT_DOUBLE_EQ(asset.toolset.tool_com[2], 0.05);
+}
+
 TEST(RuntimeOperationStateAdapterTest, MapsStateAndFormatsLogEvent) {
   rt::RuntimeView view;
   view.has_request = true;
@@ -223,6 +298,7 @@ TEST(RuntimeOperationStateAdapterTest, MapsStateAndFormatsLogEvent) {
   view.status.revision = 7;
   view.status.execution_backend = rt::ExecutionBackend::jtc;
   view.status.control_owner = rt::ControlOwner::trajectory;
+  view.status.runtime_phase = rt::RuntimePhase::executing;
 
   rt::OperationStateContext context;
   context.connected = true;
@@ -238,6 +314,7 @@ TEST(RuntimeOperationStateAdapterTest, MapsStateAndFormatsLogEvent) {
   EXPECT_NE(log_event.text.find("state=executing"), std::string::npos);
   EXPECT_NE(log_event.text.find("backend=jtc"), std::string::npos);
   EXPECT_NE(log_event.text.find("owner=trajectory"), std::string::npos);
+  EXPECT_NE(log_event.text.find("phase=executing"), std::string::npos);
 }
 
 TEST(RuntimeSdkShimModelTest, KdlBackedKinematicsExposeNonZeroVelocityAndAccelerationMappings) {
@@ -328,6 +405,32 @@ TEST(RuntimeSdkShimModelTest, KdlBackendTracksLegacyDhReferenceWithinSmokeTolera
   EXPECT_LT((kdl_jac - legacy_jac).norm(), 1e-1);
 }
 
+TEST(RuntimeSdkShimModelTest, KdlBackedIkCandidateMetricsPreferContinuousNonSingularBranches) {
+  gazebo::xMate3Kinematics kinematics;
+  const std::vector<double> seed{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  auto continuous = seed;
+  continuous[0] += 0.02;
+  continuous[2] -= 0.03;
+  auto discontinuous = seed;
+  discontinuous[0] += 0.9;
+  discontinuous[2] -= 0.7;
+  auto near_singular = seed;
+  near_singular[4] = 0.0;
+
+  const auto continuous_metrics = kinematics.evaluateIkCandidate(continuous, seed);
+  const auto discontinuous_metrics = kinematics.evaluateIkCandidate(discontinuous, seed);
+  const auto singular_metrics = kinematics.evaluateIkCandidate(near_singular, seed);
+
+  ASSERT_TRUE(continuous_metrics.valid);
+  ASSERT_TRUE(discontinuous_metrics.valid);
+  ASSERT_TRUE(singular_metrics.valid);
+  EXPECT_LT(continuous_metrics.branch_distance, discontinuous_metrics.branch_distance);
+  EXPECT_LT(continuous_metrics.continuity_cost, discontinuous_metrics.continuity_cost);
+  EXPECT_LT(continuous_metrics.singularity_metric, singular_metrics.singularity_metric);
+  EXPECT_FALSE(continuous_metrics.near_singularity);
+  EXPECT_TRUE(singular_metrics.near_singularity);
+}
+
 TEST(RuntimeSdkShimModelTest, SeededIkReproducesForwardKinematicsTargetContinuously) {
   gazebo::xMate3Kinematics kinematics;
   EXPECT_STREQ(kinematics.backendName(), "kdl");
@@ -348,4 +451,106 @@ TEST(RuntimeSdkShimModelTest, SeededIkReproducesForwardKinematicsTargetContinuou
     joint_delta += std::fabs(solved[i] - q[i]);
   }
   EXPECT_LT(joint_delta, 0.1);
+}
+
+TEST(RuntimeSdkShimModelTest, MultiBranchIkReturnsContinuousCandidatesForSamePose) {
+  gazebo::xMate3Kinematics kinematics;
+  EXPECT_STREQ(kinematics.backendName(), "kdl");
+
+  const std::vector<double> q{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  const auto target = kinematics.forwardKinematicsRPY(q);
+  const auto solutions = kinematics.inverseKinematicsMultiSolution(target, q);
+
+  ASSERT_FALSE(solutions.empty());
+  const auto solved_fk = kinematics.forwardKinematics(solutions.front());
+  const auto expected_fk = kinematics.forwardKinematics(q);
+  const auto fk_error = legacyPoseError(expected_fk, solved_fk);
+  EXPECT_LT(fk_error.head<3>().norm(), 1e-4);
+  EXPECT_LT(fk_error.tail<3>().norm(), 1e-3);
+}
+
+TEST(RuntimeArchiveVerificationTest, RejectsForbiddenArtifactsInSourceArchive) {
+  const auto temp_root = std::filesystem::temp_directory_path() /
+                         ("rokae_archive_verify_" +
+                          std::to_string(static_cast<long long>(
+                              std::chrono::steady_clock::now().time_since_epoch().count())));
+  const auto source_tree = temp_root / "source_tree";
+  const auto clean_tree = temp_root / "clean_tree";
+  const auto dirty_tree = temp_root / "dirty_tree";
+  const auto clean_archive = temp_root / "clean.zip";
+  const auto dirty_archive = temp_root / "dirty.zip";
+
+  std::filesystem::create_directories(source_tree);
+  std::filesystem::create_directories(clean_tree);
+  std::filesystem::create_directories(dirty_tree);
+
+  createArchiveFixtureTree(source_tree, false);
+  createArchiveFixtureTree(clean_tree, false);
+  createArchiveFixtureTree(dirty_tree, true);
+
+  const std::string zipper_script =
+      "import pathlib, sys, zipfile\n"
+      "root = pathlib.Path(sys.argv[1])\n"
+      "archive = pathlib.Path(sys.argv[2])\n"
+      "with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zf:\n"
+      "  for path in sorted(root.rglob('*')):\n"
+      "    if path.is_file():\n"
+      "      zf.write(path, path.relative_to(root))\n";
+
+  const auto make_clean_archive =
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " -c " + shellQuote(zipper_script) + " " +
+      shellQuote(clean_tree.string()) + " " + shellQuote(clean_archive.string());
+  const auto make_dirty_archive =
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " -c " + shellQuote(zipper_script) + " " +
+      shellQuote(dirty_tree.string()) + " " + shellQuote(dirty_archive.string());
+  ASSERT_EQ(runShellCommand(make_clean_archive), 0);
+  ASSERT_EQ(runShellCommand(make_dirty_archive), 0);
+
+  const auto verify_clean =
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " " +
+      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --source-root " +
+      shellQuote(source_tree.string()) + " --archive " + shellQuote(clean_archive.string());
+  const auto verify_dirty =
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " " +
+      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --source-root " +
+      shellQuote(source_tree.string()) + " --archive " + shellQuote(dirty_archive.string());
+
+  EXPECT_EQ(runShellCommand(verify_clean), 0);
+  EXPECT_NE(runShellCommand(verify_dirty), 0);
+
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(temp_root, cleanup_error);
+}
+
+TEST(RuntimeArchiveVerificationTest, PackagingScriptCreatesVerifiedCleanArchiveFromTrackedFiles) {
+  const auto temp_root = std::filesystem::temp_directory_path() /
+                         ("rokae_archive_package_" +
+                          std::to_string(static_cast<long long>(
+                              std::chrono::steady_clock::now().time_since_epoch().count())));
+  const auto source_tree = temp_root / "source_tree";
+  const auto output_archive = temp_root / "candidate.zip";
+
+  std::filesystem::create_directories(source_tree);
+  createArchiveFixtureTree(source_tree, false);
+  writeTextFile(source_tree / "src/rokae_xmate3_ros2/test/harness/__pycache__/stale.cpython-312.pyc", "pyc");
+
+  const auto git_init = "git -C " + shellQuote(source_tree.string()) + " init --quiet";
+  const auto git_add = "git -C " + shellQuote(source_tree.string()) + " add .";
+  ASSERT_EQ(runShellCommand(git_init), 0);
+  ASSERT_EQ(runShellCommand(git_add), 0);
+
+  const auto package_archive =
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " " +
+      shellQuote(std::string(ROKAE_TEST_CREATE_VERIFIED_SOURCE_ARCHIVE_PY)) + " --source-root " +
+      shellQuote(source_tree.string()) + " --archive " + shellQuote(output_archive.string());
+  ASSERT_EQ(runShellCommand(package_archive), 0);
+
+  const auto verify_packaged =
+      shellQuote(std::string(ROKAE_TEST_PYTHON_EXECUTABLE)) + " " +
+      shellQuote(std::string(ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY)) + " --source-root " +
+      shellQuote(source_tree.string()) + " --archive " + shellQuote(output_archive.string());
+  EXPECT_EQ(runShellCommand(verify_packaged), 0);
+
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(temp_root, cleanup_error);
 }

@@ -37,6 +37,7 @@ def main() -> int:
     )
 
     stop_event = threading.Event()
+    sigterm_event = threading.Event()
     sentinel_path = Path(args.shutdown_sentinel) if args.shutdown_sentinel else None
 
     def _watch_shutdown_sentinel():
@@ -44,15 +45,35 @@ def main() -> int:
             return
         while not stop_event.is_set():
             if sentinel_path.exists():
-                launch_service.shutdown(force_sync=True)
+                print("[launch-runner] shutdown requested via sentinel", flush=True)
+                launch_service.shutdown()
                 return
             time.sleep(0.1)
 
     sentinel_thread = threading.Thread(target=_watch_shutdown_sentinel, daemon=True)
     sentinel_thread.start()
 
+    def _watch_sigterm_shutdown():
+        while not stop_event.is_set():
+            if not sigterm_event.wait(timeout=0.1):
+                continue
+            print("[launch-runner] SIGTERM grace period started", flush=True)
+            time.sleep(1.0)
+            if stop_event.is_set():
+                return
+            print("[launch-runner] SIGTERM grace elapsed, shutting down launch service", flush=True)
+            launch_service.shutdown()
+            return
+
+    sigterm_thread = threading.Thread(target=_watch_sigterm_shutdown, daemon=True)
+    sigterm_thread.start()
+
     def _request_shutdown(_signum, _frame):
-        launch_service.shutdown(force_sync=True)
+        print(f"[launch-runner] shutdown requested via signal {_signum}", flush=True)
+        if _signum == signal.SIGTERM:
+            sigterm_event.set()
+            return
+        launch_service.shutdown()
 
     signal.signal(signal.SIGINT, _request_shutdown)
     signal.signal(signal.SIGTERM, _request_shutdown)
@@ -61,6 +82,7 @@ def main() -> int:
     finally:
         stop_event.set()
         sentinel_thread.join(timeout=1.0)
+        sigterm_thread.join(timeout=1.0)
 
 
 if __name__ == "__main__":

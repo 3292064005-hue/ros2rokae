@@ -11,6 +11,12 @@ constexpr double kExecutionGoalMinDt = 1e-3;
 constexpr double kExecutionGoalRetimingEps = 1e-6;
 constexpr double kTrajectoryCompletionJointToleranceRad = 0.03;
 
+bool is_shutdown_phase(RuntimePhase phase) {
+  return phase == RuntimePhase::draining || phase == RuntimePhase::backend_detached ||
+         phase == RuntimePhase::shutdown_prepared || phase == RuntimePhase::safe_to_delete ||
+         phase == RuntimePhase::safe_to_stop_world;
+}
+
 double clamp_active_speed_scale(double scale) {
   return std::clamp(scale, 0.05, 2.0);
 }
@@ -21,7 +27,8 @@ bool statusEquivalent(const RuntimeStatus &lhs, const RuntimeStatus &rhs) {
          lhs.current_segment_index == rhs.current_segment_index &&
          lhs.terminal_success == rhs.terminal_success &&
          lhs.execution_backend == rhs.execution_backend &&
-         lhs.control_owner == rhs.control_owner;
+         lhs.control_owner == rhs.control_owner &&
+         lhs.runtime_phase == rhs.runtime_phase;
 }
 
 std::string summarize_plan_notes(const MotionPlan &plan) {
@@ -316,14 +323,86 @@ void MotionRuntime::setExecutorConfig(const MotionExecutorConfig &config) {
   executor_.setConfig(config);
 }
 
+void MotionRuntime::setRuntimePhaseLocked(RuntimePhase phase, const std::string &message) {
+  runtime_phase_ = phase;
+  active_status_.runtime_phase = phase;
+  if (!message.empty()) {
+    active_status_.message = message;
+  }
+}
+
+void MotionRuntime::setRuntimePhaseForShutdown(RuntimePhase phase, const std::string &message) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  setRuntimePhaseLocked(phase, message);
+  if (!active_status_.request_id.empty()) {
+    rememberStatus(active_status_);
+  } else {
+    status_cv_.notify_all();
+  }
+}
+
 void MotionRuntime::setActiveSpeedScale(double scale) {
   std::lock_guard<std::mutex> lock(mutex_);
   active_speed_scale_ = clamp_active_speed_scale(scale);
 }
 
+bool MotionRuntime::setOwnerLocked(ControlOwner owner, const std::string &reason) {
+  OwnerArbiter::TransitionResult transition;
+  switch (owner) {
+    case ControlOwner::trajectory:
+      transition = owner_arbiter_.claimTrajectory(reason);
+      break;
+    case ControlOwner::effort:
+      transition = owner_arbiter_.claimEffort(reason);
+      break;
+    case ControlOwner::none:
+    default:
+      transition = owner_arbiter_.clear(reason);
+      break;
+  }
+  active_status_.control_owner = owner_arbiter_.current();
+  if (!transition.accepted && !transition.reason.empty()) {
+    active_status_.message = transition.reason;
+  }
+  return transition.accepted;
+}
+
+bool MotionRuntime::syncOwnerLocked(BackendInterface &backend,
+                                    ControlOwner owner,
+                                    const std::string &reason) {
+  const bool accepted = setOwnerLocked(owner, reason);
+  backend.setControlOwner(active_status_.control_owner);
+  return accepted;
+}
+
 double MotionRuntime::activeSpeedScale() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return active_speed_scale_;
+}
+
+RuntimePhase MotionRuntime::runtimePhase() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return runtime_phase_;
+}
+
+RuntimeContractView MotionRuntime::contractView() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  RuntimeContractView view;
+  view.owner = owner_arbiter_.current();
+  view.phase = runtime_phase_;
+  view.active_request_count = active_request_id_.empty() ? 0u : 1u;
+  view.active_goal_count = (using_backend_trajectory_ && active_trajectory_goal_.has_value()) ? 1u : 0u;
+  return view;
+}
+
+std::size_t MotionRuntime::activeRequestCount() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return active_request_id_.empty() ? 0u : 1u;
+}
+
+std::size_t MotionRuntime::activeGoalCount() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return (using_backend_trajectory_ && active_trajectory_goal_.has_value()) ? 1u : 0u;
 }
 
 void MotionRuntime::rememberStatus(RuntimeStatus &status) {
@@ -364,6 +443,7 @@ RuntimeView MotionRuntime::buildViewLocked(const std::string *request_id) const 
       found_status = true;
     } else {
       effective_status = RuntimeStatus{*request_id, ExecutionState::idle, "unknown request", 0, 0, 0, false, 0};
+      effective_status.runtime_phase = runtime_phase_;
     }
     view.has_request = found_status;
   } else if (!active_request_id_.empty()) {
@@ -384,6 +464,7 @@ RuntimeView MotionRuntime::buildViewLocked(const std::string *request_id) const 
 
   if (!found_status) {
     effective_status = RuntimeStatus{};
+    effective_status.runtime_phase = runtime_phase_;
   }
 
   const bool request_slot_busy =
@@ -437,7 +518,8 @@ bool MotionRuntime::submit(const MotionRequest &request, std::string &message) {
       false,
   };
   active_status_.execution_backend = ExecutionBackend::none;
-  active_status_.control_owner = ControlOwner::none;
+  setRuntimePhaseLocked(RuntimePhase::planning);
+  (void)setOwnerLocked(ControlOwner::none, "planning");
   rememberStatus(active_status_);
   planner_cv_.notify_one();
   message.clear();
@@ -448,6 +530,7 @@ void MotionRuntime::stop(const std::string &message) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (active_request_id_.empty()) {
     active_status_ = RuntimeStatus{};
+    active_status_.runtime_phase = runtime_phase_;
     return;
   }
 
@@ -458,7 +541,12 @@ void MotionRuntime::stop(const std::string &message) {
   active_status_.state = ExecutionState::stopped;
   active_status_.message = message;
   active_status_.terminal_success = false;
-  active_status_.control_owner = ControlOwner::none;
+  if (!is_shutdown_phase(runtime_phase_)) {
+    setRuntimePhaseLocked(RuntimePhase::idle);
+  } else {
+    active_status_.runtime_phase = runtime_phase_;
+  }
+  (void)setOwnerLocked(ControlOwner::none, message.empty() ? "stopped" : message);
   if (!using_backend_trajectory_ && executor_.hasActivePlan()) {
     active_status_.execution_backend = ExecutionBackend::effort;
   }
@@ -480,6 +568,11 @@ void MotionRuntime::reset() {
   queued_plan_.reset();
   active_request_id_.clear();
   active_status_ = RuntimeStatus{};
+  if (!is_shutdown_phase(runtime_phase_)) {
+    runtime_phase_ = RuntimePhase::idle;
+  }
+  active_status_.runtime_phase = runtime_phase_;
+  (void)owner_arbiter_.clear("reset");
   executor_.reset();
   active_trajectory_plan_.reset();
   active_trajectory_goal_.reset();
@@ -501,7 +594,9 @@ RuntimeStatus MotionRuntime::status(const std::string &request_id) const {
   if (active_status_.request_id == request_id) {
     return active_status_;
   }
-  return RuntimeStatus{request_id, ExecutionState::idle, "unknown request", 0, 0, 0, false, 0};
+  RuntimeStatus status{request_id, ExecutionState::idle, "unknown request", 0, 0, 0, false, 0};
+  status.runtime_phase = runtime_phase_;
+  return status;
 }
 
 RuntimeView MotionRuntime::view() const {
@@ -526,7 +621,9 @@ RuntimeStatus MotionRuntime::waitForUpdate(const std::string &request_id,
     if (active_status_.request_id == request_id) {
       return active_status_;
     }
-    return RuntimeStatus{request_id, ExecutionState::idle, "unknown request", 0, 0, 0, false, 0};
+    RuntimeStatus status{request_id, ExecutionState::idle, "unknown request", 0, 0, 0, false, 0};
+    status.runtime_phase = runtime_phase_;
+    return status;
   };
 
   const auto status_changed = [this, &lookup_status, last_revision]() {
@@ -565,6 +662,7 @@ void MotionRuntime::plannerLoop() {
       active_status_.state = ExecutionState::failed;
       active_status_.message = plan.error_message.empty() ? "planning failed" : plan.error_message;
       active_status_.terminal_success = false;
+      setRuntimePhaseLocked(RuntimePhase::faulted);
       rememberStatus(active_status_);
       continue;
     }
@@ -576,7 +674,8 @@ void MotionRuntime::plannerLoop() {
     active_status_.completed_segments = 0;
     active_status_.current_segment_index = 0;
     active_status_.execution_backend = ExecutionBackend::none;
-    active_status_.control_owner = ControlOwner::none;
+    setRuntimePhaseLocked(RuntimePhase::planning);
+    (void)setOwnerLocked(ControlOwner::none, "queued");
     rememberStatus(active_status_);
   }
 }
@@ -586,7 +685,7 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
 
   std::lock_guard<std::mutex> lock(mutex_);
   if (active_request_id_.empty()) {
-    backend.setControlOwner(ControlOwner::none);
+    (void)syncOwnerLocked(backend, ControlOwner::none, "idle");
     if (using_backend_trajectory_) {
       backend.cancelTrajectoryExecution("cleared idle trajectory owner");
       using_backend_trajectory_ = false;
@@ -598,11 +697,15 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
     }
     backend.clearControl();
     active_status_ = RuntimeStatus{};
+    setRuntimePhaseLocked(RuntimePhase::idle);
+    active_status_.runtime_phase = runtime_phase_;
+    (void)owner_arbiter_.clear("idle");
     return active_status_;
   }
 
   if (active_status_.state == ExecutionState::failed || active_status_.state == ExecutionState::stopped) {
-    backend.setControlOwner(ControlOwner::none);
+    (void)syncOwnerLocked(
+        backend, ControlOwner::none, active_status_.message.empty() ? "terminal" : active_status_.message);
     if (using_backend_trajectory_) {
       backend.cancelTrajectoryExecution(active_status_.message.empty() ? "stopped" : active_status_.message);
       using_backend_trajectory_ = false;
@@ -611,7 +714,6 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
     }
     executor_.reset();
     backend.clearControl();
-    active_status_.control_owner = ControlOwner::none;
     rememberStatus(active_status_);
     const auto terminal_status = active_status_;
     active_request_id_.clear();
@@ -633,8 +735,20 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
         active_status_.current_segment_index = active_trajectory_goal_->segment_index_offset;
         active_status_.completed_segments = active_trajectory_goal_->segment_index_offset;
         active_status_.execution_backend = ExecutionBackend::jtc;
-        active_status_.control_owner = ControlOwner::trajectory;
-        backend.setControlOwner(ControlOwner::trajectory);
+        setRuntimePhaseLocked(RuntimePhase::executing);
+        if (!syncOwnerLocked(backend, ControlOwner::trajectory, "jtc execution")) {
+          backend.cancelTrajectoryExecution(active_status_.message);
+          using_backend_trajectory_ = false;
+          active_trajectory_plan_.reset();
+          active_trajectory_goal_.reset();
+          active_status_.state = ExecutionState::failed;
+          active_status_.terminal_success = false;
+          setRuntimePhaseLocked(RuntimePhase::faulted);
+          rememberStatus(active_status_);
+          const auto terminal_status = active_status_;
+          active_request_id_.clear();
+          return terminal_status;
+        }
         queued_plan_.reset();
         started_backend_trajectory = true;
       } else if (!trajectory_message.empty()) {
@@ -650,13 +764,34 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
       active_status_.current_segment_index = 0;
       active_status_.completed_segments = 0;
       active_status_.execution_backend = ExecutionBackend::effort;
-      active_status_.control_owner = ControlOwner::effort;
-      backend.setControlOwner(ControlOwner::effort);
+      setRuntimePhaseLocked(RuntimePhase::executing);
+      if (!syncOwnerLocked(backend, ControlOwner::effort, "effort execution")) {
+        active_status_.state = ExecutionState::failed;
+        active_status_.terminal_success = false;
+        setRuntimePhaseLocked(RuntimePhase::faulted);
+        rememberStatus(active_status_);
+        const auto terminal_status = active_status_;
+        active_request_id_.clear();
+        return terminal_status;
+      }
     }
   }
 
   if (using_backend_trajectory_) {
-    backend.setControlOwner(ControlOwner::trajectory);
+    if (!syncOwnerLocked(backend, ControlOwner::trajectory, "jtc execution")) {
+      backend.cancelTrajectoryExecution(active_status_.message.empty() ? "owner arbitration rejected" :
+                                                                      active_status_.message);
+      using_backend_trajectory_ = false;
+      active_trajectory_plan_.reset();
+      active_trajectory_goal_.reset();
+      active_status_.state = ExecutionState::failed;
+      active_status_.terminal_success = false;
+      setRuntimePhaseLocked(RuntimePhase::faulted);
+      rememberStatus(active_status_);
+      const auto terminal_status = active_status_;
+      active_request_id_.clear();
+      return terminal_status;
+    }
     auto trajectory_state = backend.readTrajectoryExecutionState();
     if (active_trajectory_plan_ && active_trajectory_goal_ && trajectory_state.active &&
         !trajectory_state.completed &&
@@ -686,7 +821,8 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
       active_status_.current_segment_index = progress.current_segment_index;
     }
     active_status_.execution_backend = ExecutionBackend::jtc;
-    active_status_.control_owner = ControlOwner::trajectory;
+    setRuntimePhaseLocked(RuntimePhase::executing);
+    (void)setOwnerLocked(ControlOwner::trajectory, "jtc execution");
 
     if (trajectory_state.completed) {
       using_backend_trajectory_ = false;
@@ -703,15 +839,16 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
       if (trajectory_state.succeeded && final_joint_error <= kTrajectoryCompletionJointToleranceRad) {
         active_status_.state = ExecutionState::completed;
         active_status_.terminal_success = true;
+        setRuntimePhaseLocked(RuntimePhase::idle);
       } else {
         active_status_.state = ExecutionState::failed;
         active_status_.terminal_success = false;
+        setRuntimePhaseLocked(RuntimePhase::faulted);
         if (final_joint_error > kTrajectoryCompletionJointToleranceRad) {
           active_status_.message += "; final joint error exceeded tolerance";
         }
       }
-      active_status_.control_owner = ControlOwner::none;
-      backend.setControlOwner(ControlOwner::none);
+      (void)syncOwnerLocked(backend, ControlOwner::none, "jtc completed");
       rememberStatus(active_status_);
       const auto terminal_status = active_status_;
       active_trajectory_plan_.reset();
@@ -722,7 +859,8 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
 
     active_status_.state = ExecutionState::executing;
     active_status_.execution_backend = ExecutionBackend::jtc;
-    active_status_.control_owner = ControlOwner::trajectory;
+    setRuntimePhaseLocked(RuntimePhase::executing);
+    (void)setOwnerLocked(ControlOwner::trajectory, "jtc execution");
     if (!trajectory_state.message.empty() && trajectory_state.message != active_status_.message) {
       active_status_.message = trajectory_state.message;
     } else if (active_status_.message.empty()) {
@@ -734,11 +872,20 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
 
   const double trajectory_time_scale = active_speed_scale_;
   const auto step = executor_.tick(snapshot, dt, trajectory_time_scale);
-  backend.setControlOwner(ControlOwner::effort);
+  if (!syncOwnerLocked(backend, ControlOwner::effort, "effort execution")) {
+    executor_.stop(snapshot);
+    active_status_.state = ExecutionState::failed;
+    active_status_.terminal_success = false;
+    setRuntimePhaseLocked(RuntimePhase::faulted);
+    rememberStatus(active_status_);
+    const auto terminal_status = active_status_;
+    active_request_id_.clear();
+    return terminal_status;
+  }
   if (step.command.has_effort) {
     backend.applyControl(step.command);
   } else {
-    backend.setControlOwner(ControlOwner::none);
+    (void)syncOwnerLocked(backend, ControlOwner::none, "effort idle");
     backend.clearControl();
   }
 
@@ -749,7 +896,8 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
   if (runtime_driving_execution && step.state != ExecutionState::idle) {
     active_status_.state = step.state;
     active_status_.execution_backend = ExecutionBackend::effort;
-    active_status_.control_owner = ControlOwner::effort;
+    setRuntimePhaseLocked(RuntimePhase::executing);
+    (void)setOwnerLocked(ControlOwner::effort, "effort execution");
   }
   active_status_.current_segment_index = step.current_segment_index;
   active_status_.completed_segments = step.completed_segments;
@@ -760,11 +908,11 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
     active_status_.message = step.message.empty() ? to_string(step.state) : step.message;
     active_status_.terminal_success = step.terminal_success;
     active_status_.execution_backend = ExecutionBackend::effort;
-    active_status_.control_owner = ControlOwner::none;
-    backend.setControlOwner(ControlOwner::none);
+    setRuntimePhaseLocked(step.terminal_success ? RuntimePhase::idle : RuntimePhase::faulted);
+    (void)syncOwnerLocked(backend, ControlOwner::none, "effort completed");
   } else if (!runtime_driving_execution || step.state == ExecutionState::idle) {
-    active_status_.control_owner = ControlOwner::none;
-    backend.setControlOwner(ControlOwner::none);
+    setRuntimePhaseLocked(RuntimePhase::idle);
+    (void)syncOwnerLocked(backend, ControlOwner::none, "effort idle");
   }
 
   rememberStatus(active_status_);

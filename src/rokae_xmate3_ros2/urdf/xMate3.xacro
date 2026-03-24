@@ -10,12 +10,20 @@
   <xacro:arg name="enable_ros2_control" default="false"/>
   <xacro:arg name="enable_xcore_plugin" default="true"/>
   <xacro:arg name="backend_mode" default="hybrid"/>
+  <xacro:arg name="joint_damping" default="0.5"/>
+  <xacro:arg name="joint_friction" default="0.1"/>
+  <xacro:arg name="flange_to_tool0_xyz" default="0 0 0"/>
+  <xacro:arg name="tool0_to_tcp_xyz" default="0 0 0"/>
+  <xacro:arg name="payload_xyz" default="0 0 0"/>
+  <xacro:arg name="payload_mass" default="0.0001"/>
   <xacro:property name="mesh_prefix_root" value="$(arg mesh_root)"/>
   <xacro:property name="mesh_prefix_vis" value="${mesh_prefix_root}visual/"/>
   <xacro:property name="mesh_prefix_col" value="${mesh_prefix_root}collision/"/>
   <xacro:property name="ros2_control_enabled" value="$(arg enable_ros2_control)"/>
   <xacro:property name="xcore_plugin_enabled" value="$(arg enable_xcore_plugin)"/>
   <xacro:property name="backend_mode_value" value="$(arg backend_mode)"/>
+  <xacro:property name="joint_damping_value" value="$(arg joint_damping)"/>
+  <xacro:property name="joint_friction_value" value="$(arg joint_friction)"/>
 
   <!-- ==================== 材料定义 ==================== -->
   <xacro:macro name="material_color" params="name r g b">
@@ -59,16 +67,25 @@
   </xacro:macro>
 
   <!-- ==================== Joint宏 ==================== -->
-  <xacro:macro name="robot_joint" params="name parent child axis_x axis_y axis_z limit_effort limit_lower limit_upper limit_vel ox oy oz damping:=0.5">
+  <xacro:macro name="robot_joint" params="name parent child axis_x axis_y axis_z limit_effort limit_lower limit_upper limit_vel ox oy oz damping:=${joint_damping_value} friction:=${joint_friction_value}">
     <joint name="${name}" type="revolute">
       <parent link="${parent}"/>
       <child link="${child}"/>
       <limit effort="${limit_effort}" lower="${limit_lower}" upper="${limit_upper}" velocity="${limit_vel}"/>
       <axis xyz="${axis_x} ${axis_y} ${axis_z}"/>
       <origin rpy="0 0 0" xyz="${ox} ${oy} ${oz}"/>
-      <!-- 阻尼改为0.5，补充小摩擦提升稳定性 -->
-      <dynamics damping="${damping}" friction="0.1"/>
+      <dynamics damping="${damping}" friction="${friction}"/>
     </joint>
+  </xacro:macro>
+
+  <xacro:macro name="frame_link" params="name mass:=0.0001">
+    <link name="${name}">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="${mass}"/>
+        <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+      </inertial>
+    </link>
   </xacro:macro>
 
   <!-- ==================== Transmission宏 ==================== -->
@@ -233,6 +250,34 @@
     ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"
     ox="0" oy="0.017" oz="-0.043"
     vis_material="white"/>
+
+  <xacro:frame_link name="flange"/>
+  <joint name="xmate_flange_joint" type="fixed">
+    <parent link="xMate3_link6"/>
+    <child link="flange"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:frame_link name="tool0"/>
+  <joint name="xmate_tool0_joint" type="fixed">
+    <parent link="flange"/>
+    <child link="tool0"/>
+    <origin xyz="$(arg flange_to_tool0_xyz)" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:frame_link name="tcp"/>
+  <joint name="xmate_tcp_joint" type="fixed">
+    <parent link="tool0"/>
+    <child link="tcp"/>
+    <origin xyz="$(arg tool0_to_tcp_xyz)" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:frame_link name="payload" mass="$(arg payload_mass)"/>
+  <joint name="xmate_payload_joint" type="fixed">
+    <parent link="tcp"/>
+    <child link="payload"/>
+    <origin xyz="$(arg payload_xyz)" rpy="0 0 0"/>
+  </joint>
 
   <!-- 强制锁定基座，Gazebo中不会被重力影响、不会移动 -->
   <gazebo reference="xMate3_base">

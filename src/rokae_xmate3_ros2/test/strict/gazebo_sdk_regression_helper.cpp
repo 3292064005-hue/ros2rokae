@@ -810,31 +810,53 @@ bool startCommands(rokae::xMateRobot &robot, const std::vector<Command> &cmds, s
   return !ec;
 }
 
-bool configureRobot(rokae::xMateRobot &robot) {
+template <typename Fn>
+bool retryRobotCall(const std::string &action,
+                    Fn &&fn,
+                    int attempts = 4,
+                    std::chrono::milliseconds initial_backoff = std::chrono::milliseconds(400)) {
   std::error_code ec;
-  robot.connectToRobot(ec);
-  if (ec) {
-    std::cerr << "connectToRobot failed: " << ec.message() << std::endl;
+  auto backoff = initial_backoff;
+  for (int attempt = 1; attempt <= attempts; ++attempt) {
+    ec.clear();
+    fn(ec);
+    if (!ec) {
+      return true;
+    }
+    std::cerr << action << " failed (attempt " << attempt << "/" << attempts
+              << "): " << ec.message() << std::endl;
+    if (attempt < attempts) {
+      std::this_thread::sleep_for(backoff);
+      backoff += initial_backoff;
+    }
+  }
+  return false;
+}
+
+bool configureRobot(rokae::xMateRobot &robot) {
+  if (!retryRobotCall("connectToRobot", [&](std::error_code &ec) {
+        robot.connectToRobot(ec);
+      })) {
     return false;
   }
-  robot.setMotionControlMode(rokae::MotionControlMode::NrtCommand, ec);
-  if (ec) {
-    std::cerr << "setMotionControlMode failed: " << ec.message() << std::endl;
+  if (!retryRobotCall("setMotionControlMode", [&](std::error_code &ec) {
+        robot.setMotionControlMode(rokae::MotionControlMode::NrtCommand, ec);
+      })) {
     return false;
   }
-  robot.setOperateMode(rokae::OperateMode::automatic, ec);
-  if (ec) {
-    std::cerr << "setOperateMode failed: " << ec.message() << std::endl;
+  if (!retryRobotCall("setOperateMode", [&](std::error_code &ec) {
+        robot.setOperateMode(rokae::OperateMode::automatic, ec);
+      })) {
     return false;
   }
-  robot.setPowerState(true, ec);
-  if (ec) {
-    std::cerr << "setPowerState failed: " << ec.message() << std::endl;
+  if (!retryRobotCall("setPowerState", [&](std::error_code &ec) {
+        robot.setPowerState(true, ec);
+      })) {
     return false;
   }
-  robot.setDefaultConfOpt(false, ec);
-  if (ec) {
-    std::cerr << "setDefaultConfOpt failed: " << ec.message() << std::endl;
+  if (!retryRobotCall("setDefaultConfOpt", [&](std::error_code &ec) {
+        robot.setDefaultConfOpt(false, ec);
+      })) {
     return false;
   }
   return true;

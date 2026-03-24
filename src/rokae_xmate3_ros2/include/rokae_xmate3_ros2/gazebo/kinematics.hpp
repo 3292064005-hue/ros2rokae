@@ -7,8 +7,11 @@
 #define ROKAE_XMATE3_GAZEBO_KINEMATICS_HPP
 
 #include <Eigen/Dense>
+#include <array>
 #include <cmath>
+#include <limits>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace gazebo {
@@ -30,6 +33,41 @@ public:
     struct DebugCounters {
         std::size_t jacobian_calls = 0;
         std::size_t svd_calls = 0;
+    };
+
+    struct IkCandidateMetrics {
+        double branch_distance = std::numeric_limits<double>::infinity();
+        double continuity_cost = std::numeric_limits<double>::infinity();
+        double joint_limit_penalty = std::numeric_limits<double>::infinity();
+        double singularity_metric = 1.0;
+        double singularity_cost = std::numeric_limits<double>::infinity();
+        bool near_singularity = true;
+        bool valid = false;
+
+        [[nodiscard]] double totalCost() const noexcept {
+            return continuity_cost + joint_limit_penalty + singularity_cost;
+        }
+    };
+
+    struct CartesianIkOptions {
+        std::vector<int> requested_conf;
+        bool strict_conf = false;
+        bool avoid_singularity = true;
+        bool soft_limit_enabled = false;
+        std::array<std::array<double, 2>, 6> soft_limits{{
+            {{-3.14, 3.14}},
+            {{-3.14, 3.14}},
+            {{-3.14, 3.14}},
+            {{-3.14, 3.14}},
+            {{-3.14, 3.14}},
+            {{-3.14, 3.14}},
+        }};
+    };
+
+    struct IkSelectionResult {
+        bool success = false;
+        std::vector<double> joints;
+        std::string message;
     };
 
     xMate3Kinematics();
@@ -86,6 +124,23 @@ public:
      * @return 是否成功调整
      */
     bool avoidSingularity(std::vector<double>& joints);
+
+    [[nodiscard]] double branchDistance(const std::vector<double>& lhs,
+                                        const std::vector<double>& rhs) const;
+    [[nodiscard]] IkCandidateMetrics evaluateIkCandidate(const std::vector<double>& candidate,
+                                                         const std::vector<double>& seed_joints) const;
+    [[nodiscard]] IkSelectionResult selectBestIkSolution(
+        const std::vector<std::vector<double>>& candidates,
+        const std::vector<double>& target_pose,
+        const std::vector<double>& seed_joints,
+        const CartesianIkOptions& options);
+    [[nodiscard]] bool buildCartesianJointTrajectory(
+        const std::vector<std::vector<double>>& cartesian_trajectory,
+        const std::vector<double>& initial_seed,
+        const CartesianIkOptions& options,
+        std::vector<std::vector<double>>& joint_trajectory,
+        std::vector<double>& last_joints,
+        std::string& error_message);
 
     void resetDebugCounters();
     [[nodiscard]] DebugCounters debugCounters() const;

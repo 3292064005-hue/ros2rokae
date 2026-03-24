@@ -103,6 +103,8 @@ rokae_xmate3_ros2/
 │   ├── xMate3.ros2_control.xacro
 │   ├── xMate3.urdf
 │   └── materials.xacro
+├── generated/
+│   └── xMate3.urdf
 ├── models/
 │   └── rokae_xmate3_ros2/
 │       ├── model.config
@@ -117,7 +119,7 @@ rokae_xmate3_ros2/
 └── action/
 ```
 
-> `xMate3.xacro` 是主要维护入口，mesh 路径默认走 `models/rokae_xmate3_ros2/meshes/...`。
+> `xMate3.xacro` 是主要维护入口，构建期会额外生成一份 `generated/xMate3.urdf` 供 KDL/测试主路径直接加载；mesh 路径默认走 `models/rokae_xmate3_ros2/meshes/...`。
 > `src/sdk/` 负责 SDK façade 分层；`src/gazebo/` 聚焦模型与 Gazebo 插件；`src/runtime/` 聚焦规划、状态与执行链；`test/` 按 `unit / harness / strict` 三层组织。
 
 ## 快速开始
@@ -181,11 +183,48 @@ cmake --build . -j4
 ctest -L gazebo_integration_modes --output-on-failure
 ```
 
+teardown 质量回归（非默认，验证 `prepare_shutdown` 契约、phase 推进与优雅停机路径）：
+```bash
+cd ~/ros2_ws0/build/rokae_xmate3_ros2
+cmake -DROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
+cmake --build . -j4
+ctest -L gazebo_teardown_quality --output-on-failure
+```
+
+teardown 重复压力回归（非默认，连续跑 10 次 shutdown 路径收竞态）：
+```bash
+cd ~/ros2_ws0/build/rokae_xmate3_ros2
+cmake -DROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
+cmake --build . -j4
+ctest -R gazebo_teardown_quality_repeat --output-on-failure
+```
+
+源码归档一致性检查（发布 zip 前，确保归档包含 `owner_arbiter.hpp`、`.gitignore` 与 `flange/tool0/tcp/payload` 终局化 xacro）：
+```bash
+cd ~/ros2_ws0/build/rokae_xmate3_ros2
+cmake -DROKAE_SOURCE_ARCHIVE=/path/to/src.zip /home/chen/ros2_ws0/src/rokae_xmate3_ros2
+cmake --build . --target verify_source_archive
+```
+
+生成并校验唯一候选源码归档（推荐的发布出口）：
+```bash
+cd ~/ros2_ws0/build/rokae_xmate3_ros2
+cmake -DROKAE_SOURCE_ARCHIVE_OUTPUT=$PWD/rokae_source_candidate.zip /home/chen/ros2_ws0/src/rokae_xmate3_ros2
+cmake --build . --target package_verified_source_archive
+```
+
 默认 `ctest --output-on-failure` 固定为 12 项轻量门禁：
 - 9 个纯单测
 - `gazebo_sdk_regression`
 - `gazebo_examples_smoke`
 - `gazebo_alias_smoke`
+
+teardown 质量与 full examples 业务回归已经拆成两个质量信号：
+- `gazebo_examples_full` 只关注 `27/27` examples 业务通过
+- `gazebo_teardown_quality` 单独关注 `prepare_shutdown` / `safe_to_delete` / 优雅停机路径
+- `gazebo_teardown_quality_repeat` 单独关注 teardown 路径的重复稳定性
+
+当前 JTC 主链定义为 `position trajectory backend`，不是完整闭环伺服替身。
 
 详细步骤请参考 [docs/QUICKSTART.md](docs/QUICKSTART.md)。
 
@@ -265,7 +304,7 @@ auto ik = model.calcIk(pose);
 
 - `backend_mode:=hybrid`：默认模式，同时启用 xCore plugin 与 JTC，由 owner 状态机仲裁执行权
 - `backend_mode:=effort`：只启用 xCore plugin / effort runtime
-- `backend_mode:=jtc`：只启用 ros2_control / JTC；需同时设 `enable_xcore_plugin:=false`
+- `backend_mode:=jtc`：只启用 ros2_control / JTC；JTC 当前是 position trajectory backend，`velocity/acceleration` 作为轨迹边界与重定时辅助信息
 - `enable_xcore_plugin:=false`：显式关闭 xCore Gazebo plugin 装配
 
 ## 架构说明
@@ -273,17 +312,22 @@ auto ik = model.calcIk(pose);
 ```text
 用户应用/示例
         |
-        | ROS2 服务 / Action / 话题
+        | SDK facade / ROS2 服务 / Action / 话题
         v
-rokae_xmate3_ros2 SDK 封装层
+Request adapter / Service facade
         |
-        | ROS2 与 Gazebo 桥接
+        | 几何路径 / lookahead / zone / unified retimer
         v
-xcore_controller_gazebo_plugin
+Motion runtime / Owner arbiter / Supervisor
         |
-        | Gazebo API
+        | backend dispatch
         v
-Gazebo 11 + xMate3 模型
+JTC backend        Effort backend
+        |                 |
+        +-------- Gazebo plugin --------+
+                          |
+                          v
+               Gazebo 11 + xMate3 URDF/KDL/model facade
 ```
 
 ## ROS2 接口

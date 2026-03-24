@@ -33,10 +33,12 @@
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
+#include "rokae_xmate3_ros2/srv/prepare_shutdown.hpp"
 #include "runtime/runtime_control_bridge.hpp"
 #include "runtime/runtime_publish_bridge.hpp"
 #include "runtime/runtime_context.hpp"
 #include "runtime/ros_bindings.hpp"
+#include "runtime/shutdown_coordinator.hpp"
 
 // ROS2 接口头文件
 #include "rokae_xmate3_ros2/msg/operation_state.hpp"
@@ -462,6 +464,8 @@ private:
     void InitPublishers();
     void OnUpdate();
     void ExecuteMotion();
+    void prepareForShutdown(const std::string &reason);
+    [[nodiscard]] runtime::ShutdownContractView collectShutdownContractState(bool request_prepare);
     [[nodiscard]] runtime::MotionRuntime *motionRuntime();
     [[nodiscard]] const runtime::MotionRuntime *motionRuntime() const;
     void RefreshJointStateCache();
@@ -492,6 +496,7 @@ private:
 
     double current_update_dt_ = kDefaultTrajectorySampleDt;
     std::mutex joint_state_cache_mutex_;
+    std::mutex update_cycle_mutex_;
     std::array<double, 6> cached_joint_position_{};
     std::array<double, 6> cached_joint_velocity_{};
     std::array<double, 6> cached_joint_torque_{};
@@ -500,6 +505,10 @@ private:
     double trajectory_sample_dt_ = kDefaultTrajectorySampleDt;
     BackendMode backend_mode_ = BackendMode::hybrid;
     std::atomic<bool> shutting_down_{false};
+    std::mutex shutdown_prepare_mutex_;
+    bool shutdown_prepared_ = false;
+    runtime::ShutdownCoordinator shutdown_coordinator_;
+    rclcpp::Service<rokae_xmate3_ros2::srv::PrepareShutdown>::SharedPtr prepare_shutdown_service_;
 
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
     rclcpp::Publisher<rokae_xmate3_ros2::msg::OperationState>::SharedPtr operation_state_pub_;
@@ -563,9 +572,8 @@ void XCoreControllerPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 }
 
 XCoreControllerPlugin::~XCoreControllerPlugin() {
-    shutting_down_.store(true);
-    update_conn_.reset();
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    prepareForShutdown("plugin shutdown");
+
     if (executor_) {
         executor_->cancel();
     }
@@ -573,17 +581,16 @@ XCoreControllerPlugin::~XCoreControllerPlugin() {
         executor_thread_.join();
     }
     if (executor_ && node_) {
-        executor_->remove_node(node_);
-    }
-    if (motion_backend_) {
-        motion_backend_->beginShutdown();
-    }
-    if (runtime_context_) {
-        runtime_context_->motionRuntime().stop("plugin shutdown");
-        runtime_context_->motionRuntime().reset();
-    }
-    if (motion_backend_) {
-        motion_backend_->cancelTrajectoryExecution("plugin shutdown");
+        try {
+            auto node_base = node_->get_node_base_interface();
+            if (node_base &&
+                node_base->get_associated_with_executor_atomic().load()) {
+                executor_->remove_node(node_);
+            }
+        } catch (const std::exception &e) {
+            gzdbg << "[xCore Controller] executor remove_node skipped during shutdown: "
+                  << e.what() << std::endl;
+        }
     }
     ros_bindings_.reset();
     publish_bridge_.reset();
@@ -593,6 +600,79 @@ XCoreControllerPlugin::~XCoreControllerPlugin() {
     kinematics_.reset();
     executor_.reset();
     node_.reset();
+}
+
+void XCoreControllerPlugin::prepareForShutdown(const std::string &reason) {
+    std::lock_guard<std::mutex> shutdown_lock(shutdown_prepare_mutex_);
+    shutdown_coordinator_.begin(reason.empty() ? "shutdown requested" : reason);
+    if (shutdown_prepared_) {
+        return;
+    }
+
+    shutting_down_.store(true);
+    if (runtime_context_) {
+        runtime_context_->motionRuntime().setRuntimePhaseForShutdown(
+            runtime::RuntimePhase::draining, reason.empty() ? "shutdown draining" : reason);
+    }
+    update_conn_.reset();
+
+    {
+        std::unique_lock<std::mutex> update_lock(update_cycle_mutex_);
+        if (motion_backend_) {
+            motion_backend_->clearControl();
+            motion_backend_->cancelTrajectoryExecution(reason);
+            motion_backend_->beginShutdown();
+        }
+    }
+
+    if (runtime_context_) {
+        runtime_context_->motionRuntime().stop(reason);
+        runtime_context_->motionRuntime().reset();
+    }
+
+    shutdown_prepared_ = true;
+}
+
+runtime::ShutdownContractView
+XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
+    if (request_prepare) {
+        prepareForShutdown("internal prepare shutdown");
+    }
+
+    runtime::ShutdownContractView state;
+    state.accepted = runtime_context_ != nullptr;
+    if (!runtime_context_) {
+        state.phase = runtime::RuntimePhase::faulted;
+        state.message = "runtime context unavailable";
+        state.owner_none = true;
+        state.runtime_idle = true;
+        state.backend_quiescent = true;
+        state.safe_to_delete = false;
+        state.safe_to_stop_world = false;
+        return state;
+    }
+
+    auto &motion_runtime = runtime_context_->motionRuntime();
+    const auto runtime_contract = motion_runtime.contractView();
+
+    const auto backend_owner =
+        motion_backend_ ? motion_backend_->controlOwner() : runtime::ControlOwner::none;
+
+    const auto trajectory_state =
+        motion_backend_ ? motion_backend_->readTrajectoryExecutionState() : runtime::TrajectoryExecutionState{};
+    runtime::ShutdownCoordinator::Inputs inputs;
+    inputs.runtime = runtime_contract;
+    inputs.update_loop_detached = !static_cast<bool>(update_conn_);
+    inputs.backend_quiescent =
+        backend_owner == runtime::ControlOwner::none &&
+        (!trajectory_state.active || trajectory_state.completed || trajectory_state.failed ||
+         trajectory_state.canceled || trajectory_state.succeeded);
+    inputs.faulted = runtime_contract.phase == runtime::RuntimePhase::faulted;
+
+    state = shutdown_coordinator_.observe(inputs);
+    state.accepted = state.accepted && shutdown_prepared_;
+    motion_runtime.setRuntimePhaseForShutdown(state.phase, state.message);
+    return state;
 }
 
 void XCoreControllerPlugin::InitROS2() {
@@ -801,6 +881,25 @@ void XCoreControllerPlugin::InitROS2() {
         request_id_generator);
     control_bridge_ = std::make_unique<runtime::RuntimeControlBridge>(*runtime_context_, control_bridge_config);
 
+    prepare_shutdown_service_ = node_->create_service<rokae_xmate3_ros2::srv::PrepareShutdown>(
+        "/xmate3/internal/prepare_shutdown",
+        [this](const std::shared_ptr<rokae_xmate3_ros2::srv::PrepareShutdown::Request>,
+               std::shared_ptr<rokae_xmate3_ros2::srv::PrepareShutdown::Response> response) {
+          const auto state = collectShutdownContractState(true);
+          response->accepted = state.accepted;
+          response->owner_none = state.owner_none;
+          response->runtime_idle = state.runtime_idle;
+          response->backend_quiescent = state.backend_quiescent;
+          response->safe_to_delete = state.safe_to_delete;
+          response->safe_to_stop_world = state.safe_to_stop_world;
+          response->active_request_count =
+              static_cast<decltype(response->active_request_count)>(state.active_request_count);
+          response->active_goal_count =
+              static_cast<decltype(response->active_goal_count)>(state.active_goal_count);
+          response->phase = runtime::to_string(state.phase);
+          response->message = state.message;
+        });
+
     executor_thread_ = std::thread([this]() {
         try {
             executor_->spin();
@@ -850,6 +949,7 @@ const runtime::MotionRuntime *XCoreControllerPlugin::motionRuntime() const {
 }
 
 void XCoreControllerPlugin::OnUpdate() {
+    std::unique_lock<std::mutex> update_lock(update_cycle_mutex_);
     if (shutting_down_.load() || !model_ || !node_ || !motion_backend_ || !control_bridge_) {
         return;
     }

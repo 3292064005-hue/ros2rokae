@@ -59,7 +59,15 @@ struct RecordedPathSample {
   std::array<double, 6> joint_velocity{};
 };
 
+struct ReplayPathAssetMetadata {
+  std::string version{"v1"};
+  std::string robot{"xMate3"};
+  std::string source{"sdk_record"};
+  double created_at_sec = 0.0;
+};
+
 struct ReplayPathAsset {
+  ReplayPathAssetMetadata metadata;
   std::vector<RecordedPathSample> samples;
   ToolsetSnapshot toolset;
   std::string source{"sdk_record"};
@@ -264,6 +272,7 @@ class ProgramState {
   bool is_recording_path_ = false;
   bool record_time_origin_initialized_ = false;
   double record_time_origin_sec_ = 0.0;
+  double record_created_at_sec_ = 0.0;
   ToolsetSnapshot recorded_toolset_;
   std::string record_source_{"sdk_record"};
   std::vector<RecordedPathSample> recorded_path_;

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <memory>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -246,49 +247,152 @@ inline std::array<double, 6> expectedTorqueProxy(::gazebo::xMate3Kinematics &kin
 
 class ModelFacade {
  public:
-  explicit ModelFacade(::gazebo::xMate3Kinematics &kinematics) : kinematics_(&kinematics) {}
+  class ModelBackend {
+   public:
+    virtual ~ModelBackend() = default;
+
+    [[nodiscard]] virtual std::array<double, 6> cartPose(
+        const std::array<double, 6> &joint_position) const = 0;
+    [[nodiscard]] virtual std::array<double, 6> cartVelocity(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity) const = 0;
+    [[nodiscard]] virtual std::array<double, 6> cartAcceleration(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity,
+        const std::array<double, 6> &joint_acceleration) const = 0;
+    [[nodiscard]] virtual std::array<double, 6> jointAcceleration(
+        const std::array<double, 6> &cartesian_acceleration,
+        const std::array<double, 6> &joint_position) const = 0;
+    [[nodiscard]] virtual Matrix6d jacobian(const std::array<double, 6> &joint_position) const = 0;
+    [[nodiscard]] virtual DynamicsBreakdown dynamics(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity,
+        const std::array<double, 6> &joint_acceleration,
+        const std::array<double, 6> &external_force) const = 0;
+    [[nodiscard]] virtual std::array<double, 6> expectedTorque(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity) const = 0;
+    [[nodiscard]] virtual const LoadContext &load() const noexcept = 0;
+    [[nodiscard]] virtual const std::array<double, 6> &toolPose() const noexcept = 0;
+  };
+
+  class ApproximateModelBackend final : public ModelBackend {
+   public:
+    ApproximateModelBackend(::gazebo::xMate3Kinematics &kinematics,
+                            const std::array<double, 6> &tool_pose,
+                            const LoadContext &load)
+        : kinematics_(&kinematics), load_(load), tool_pose_(tool_pose) {}
+
+    [[nodiscard]] std::array<double, 6> cartPose(
+        const std::array<double, 6> &joint_position) const override {
+      return gazebo_model::cartesianPose(joint_position, *kinematics_, tool_pose_);
+    }
+
+    [[nodiscard]] std::array<double, 6> cartVelocity(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity) const override {
+      return gazebo_model::cartesianVelocity(*kinematics_, joint_position, joint_velocity);
+    }
+
+    [[nodiscard]] std::array<double, 6> cartAcceleration(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity,
+        const std::array<double, 6> &joint_acceleration) const override {
+      return gazebo_model::cartesianAcceleration(
+          *kinematics_, joint_position, joint_velocity, joint_acceleration);
+    }
+
+    [[nodiscard]] std::array<double, 6> jointAcceleration(
+        const std::array<double, 6> &cartesian_acceleration,
+        const std::array<double, 6> &joint_position) const override {
+      return gazebo_model::jointAccelerationFromCartesian(*kinematics_, joint_position, cartesian_acceleration);
+    }
+
+    [[nodiscard]] Matrix6d jacobian(const std::array<double, 6> &joint_position) const override {
+      return gazebo_model::jacobian(*kinematics_, joint_position);
+    }
+
+    [[nodiscard]] DynamicsBreakdown dynamics(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity,
+        const std::array<double, 6> &joint_acceleration,
+        const std::array<double, 6> &external_force) const override {
+      return gazebo_model::computeApproximateDynamics(
+          *kinematics_, joint_position, joint_velocity, joint_acceleration, external_force, load_);
+    }
+
+    [[nodiscard]] std::array<double, 6> expectedTorque(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity) const override {
+      return gazebo_model::expectedTorqueProxy(*kinematics_, joint_position, joint_velocity, load_);
+    }
+
+    [[nodiscard]] const LoadContext &load() const noexcept override { return load_; }
+    [[nodiscard]] const std::array<double, 6> &toolPose() const noexcept override { return tool_pose_; }
+
+   private:
+    ::gazebo::xMate3Kinematics *kinematics_;
+    LoadContext load_{};
+    std::array<double, 6> tool_pose_{};
+  };
+
+  explicit ModelFacade(std::shared_ptr<ModelBackend> backend) : backend_(std::move(backend)) {}
+
+  ModelFacade(::gazebo::xMate3Kinematics &kinematics,
+              const std::array<double, 6> &tool_pose = {},
+              const LoadContext &load = {})
+      : kinematics_(&kinematics), load_(load), tool_pose_(tool_pose) {
+    rebuildApproximateBackend();
+  }
 
   ModelFacade &setToolPose(const std::array<double, 6> &tool_pose) {
     tool_pose_ = tool_pose;
+    rebuildApproximateBackend();
     return *this;
   }
 
   ModelFacade &setLoad(const LoadContext &load) {
     load_ = load;
+    rebuildApproximateBackend();
     return *this;
   }
 
-  [[nodiscard]] const LoadContext &load() const noexcept { return load_; }
-  [[nodiscard]] const std::array<double, 6> &toolPose() const noexcept { return tool_pose_; }
+  [[nodiscard]] const LoadContext &load() const noexcept { return backend_->load(); }
+  [[nodiscard]] const std::array<double, 6> &toolPose() const noexcept { return backend_->toolPose(); }
 
   template <std::size_t DoF>
   [[nodiscard]] std::array<double, 6> cartPose(const std::array<double, DoF> &joint_position) const {
-    return gazebo_model::cartesianPose(joint_position, *kinematics_, tool_pose_);
+    return backend_->cartPose(toJointArray<6>(toVector6(joint_position)));
   }
 
   template <std::size_t DoF>
   [[nodiscard]] std::array<double, 6> cartVelocity(const std::array<double, DoF> &joint_position,
                                                    const std::array<double, DoF> &joint_velocity) const {
-    return gazebo_model::cartesianVelocity(*kinematics_, joint_position, joint_velocity);
+    return backend_->cartVelocity(toJointArray<6>(toVector6(joint_position)),
+                                  toJointArray<6>(toVector6(joint_velocity)));
   }
 
   template <std::size_t DoF>
   [[nodiscard]] std::array<double, 6> cartAcceleration(const std::array<double, DoF> &joint_position,
                                                        const std::array<double, DoF> &joint_velocity,
                                                        const std::array<double, DoF> &joint_acceleration) const {
-    return gazebo_model::cartesianAcceleration(*kinematics_, joint_position, joint_velocity, joint_acceleration);
+    return backend_->cartAcceleration(toJointArray<6>(toVector6(joint_position)),
+                                      toJointArray<6>(toVector6(joint_velocity)),
+                                      toJointArray<6>(toVector6(joint_acceleration)));
   }
 
   template <std::size_t DoF>
   [[nodiscard]] std::array<double, DoF> jointAcceleration(
       const std::array<double, 6> &cartesian_acceleration,
       const std::array<double, DoF> &joint_position) const {
-    return gazebo_model::jointAccelerationFromCartesian(*kinematics_, joint_position, cartesian_acceleration);
+    const auto acceleration =
+        backend_->jointAcceleration(cartesian_acceleration, toJointArray<6>(toVector6(joint_position)));
+    return toJointArray<DoF>(toVector6(acceleration));
   }
 
   template <std::size_t DoF>
   [[nodiscard]] Matrix6d jacobian(const std::array<double, DoF> &joint_position) const {
-    return gazebo_model::jacobian(*kinematics_, joint_position);
+    return backend_->jacobian(toJointArray<6>(toVector6(joint_position)));
   }
 
   template <std::size_t DoF>
@@ -296,17 +400,27 @@ class ModelFacade {
                                            const std::array<double, DoF> &joint_velocity,
                                            const std::array<double, DoF> &joint_acceleration,
                                            const std::array<double, 6> &external_force = {}) const {
-    return gazebo_model::computeApproximateDynamics(
-        *kinematics_, joint_position, joint_velocity, joint_acceleration, external_force, load_);
+    return backend_->dynamics(toJointArray<6>(toVector6(joint_position)),
+                              toJointArray<6>(toVector6(joint_velocity)),
+                              toJointArray<6>(toVector6(joint_acceleration)),
+                              external_force);
   }
 
   [[nodiscard]] std::array<double, 6> expectedTorque(const std::array<double, 6> &joint_position,
                                                      const std::array<double, 6> &joint_velocity) const {
-    return gazebo_model::expectedTorqueProxy(*kinematics_, joint_position, joint_velocity, load_);
+    return backend_->expectedTorque(joint_position, joint_velocity);
   }
 
  private:
-  ::gazebo::xMate3Kinematics *kinematics_;
+  void rebuildApproximateBackend() {
+    if (kinematics_ == nullptr) {
+      return;
+    }
+    backend_ = std::make_shared<ApproximateModelBackend>(*kinematics_, tool_pose_, load_);
+  }
+
+  std::shared_ptr<ModelBackend> backend_;
+  ::gazebo::xMate3Kinematics *kinematics_ = nullptr;
   LoadContext load_{};
   std::array<double, 6> tool_pose_{};
 };
@@ -314,9 +428,11 @@ class ModelFacade {
 inline ModelFacade configuredModelFacade(::gazebo::xMate3Kinematics &kinematics,
                                          const std::array<double, 6> &tool_pose,
                                          const LoadContext &load) {
-  ModelFacade facade(kinematics);
-  return facade.setToolPose(tool_pose).setLoad(load);
+  return ModelFacade(kinematics, tool_pose, load);
 }
+
+using ModelBackend = ModelFacade::ModelBackend;
+using ApproximateModelBackend = ModelFacade::ApproximateModelBackend;
 
 }  // namespace rokae_xmate3_ros2::gazebo_model
 

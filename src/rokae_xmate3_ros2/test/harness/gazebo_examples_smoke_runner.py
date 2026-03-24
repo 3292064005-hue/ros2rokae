@@ -157,9 +157,19 @@ def main(argv):
             time.sleep(0.5)
         return 0
     finally:
-        probe.cleanup_runtime()
-        probe.destroy_node()
-        rclpy.shutdown()
+        try:
+            probe.cleanup_runtime()
+        except BaseException as exc:
+            sys.stderr.write(f"[cleanup] ignoring runtime cleanup interruption: {exc}\n")
+        try:
+            probe.destroy_node()
+        except BaseException:
+            pass
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+        except BaseException:
+            pass
 
 
 if __name__ == "__main__":

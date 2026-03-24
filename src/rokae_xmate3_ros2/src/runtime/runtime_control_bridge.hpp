@@ -10,6 +10,10 @@ struct RuntimeControlBridgeConfig {
   std::array<double, 6> collision_nominal_thresholds{{35.0, 35.0, 30.0, 18.0, 12.0, 8.0}};
   double collision_slow_scale = 0.25;
   double collision_retreat_distance = 0.04;
+  double collision_hysteresis_ratio = 0.15;
+  double collision_confirm_window_sec = 0.01;
+  double collision_debounce_sec = 0.10;
+  double servo_lag_warning_sec = 0.004;
 };
 
 struct ControlTickResult {
@@ -34,6 +38,11 @@ class RuntimeControlBridge {
   RuntimeControlBridgeConfig config_;
   gazebo::xMate3Kinematics kinematics_;
   double servo_accumulator_sec_ = 0.0;
+  double collision_candidate_time_sec_ = 0.0;
+  double collision_debounce_remaining_sec_ = 0.0;
+  std::size_t collision_candidate_axis_ = 0;
+  bool collision_candidate_active_ = false;
+  std::size_t servo_lag_warning_count_ = 0;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

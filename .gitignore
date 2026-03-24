@@ -1,6 +1,7 @@
 /build/
 /install/
 /log/
+/test_results/
 /.cache/
 /.claude/
 /.vscode/
@@ -8,4 +9,6 @@
 /xCoreSDK-CPP-v0.3.4/
 **/__pycache__/
 *.pyc
+/tmp_launch_probe.log
+/tmp_launch_probe.shutdown
 /compile_commands.json

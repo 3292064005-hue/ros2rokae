@@ -172,6 +172,24 @@ ctest -L gazebo_integration_modes --output-on-failure
 5. `xMateModel` / `03_kinematics.cpp` / `14_model_extended.cpp` 的动力学结果属于可解释的仿真近似，不等价于完整刚体动力学求解。
 6. `simulation.launch.py` 默认使用 `backend_mode:=hybrid`；若只验证 JTC，可显式传 `backend_mode:=jtc enable_xcore_plugin:=false`。
 
+## 回归分层
+1. 默认 `ctest`：9 个 unit tests + `gazebo_sdk_regression` + `gazebo_examples_smoke` + `gazebo_alias_smoke`
+2. `gazebo_examples_full`：非默认，全量 `27/27` examples 可运行性回归
+3. `gazebo_integration_modes`：非默认，覆盖 `effort-only / jtc-only / hybrid`
+4. `gazebo_teardown_quality`：非默认，覆盖 `prepare_shutdown` 契约、phase 推进、`safe_to_delete` 与优雅停机路径
+5. `gazebo_teardown_quality_repeat`：非默认，连续跑 10 次 teardown 路径，专门收 shutdown 竞态
+
+源码归档发布建议只走经过 `package_verified_source_archive` 校验的候选 zip，不要直接上传未验证的源码包。
+5. strict Gazebo 集：非默认，覆盖长路径、长时间、blend/lookahead、replay fidelity 与 ownership stability
+
+发布源码归档前，建议执行：
+
+```bash
+cd ~/ros2_ws0/build/rokae_xmate3_ros2
+cmake -DROKAE_SOURCE_ARCHIVE=/path/to/src.zip /home/chen/ros2_ws0/src/rokae_xmate3_ros2
+cmake --build . --target verify_source_archive
+```
+
 ## 更多资源
 - [快速入门指南](../docs/QUICKSTART.md)
 - [主 README](../README.md)

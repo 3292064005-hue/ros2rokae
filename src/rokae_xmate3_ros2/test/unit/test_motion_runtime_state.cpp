@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "runtime/motion_runtime.hpp"
+#include "runtime/owner_arbiter.hpp"
+#include "runtime/shutdown_coordinator.hpp"
 
 namespace rt = rokae_xmate3_ros2::runtime;
 
@@ -213,6 +215,156 @@ TEST(MotionRuntimeStateTest, ActiveSpeedScaleChangesTrajectoryProgressRate) {
   }
   const auto fast_status = fast_runtime.status("speed_scale_runtime");
   EXPECT_NE(fast_status.state, rt::ExecutionState::executing);
+}
+
+TEST(MotionRuntimeStateTest, RuntimePhaseTracksPlanningExecutionAndShutdownPreparation) {
+  rt::MotionRuntime runtime;
+  StaticBackend backend;
+
+  rt::MotionRequest request;
+  request.request_id = "runtime_phase_contract";
+  request.start_joints.assign(6, 0.0);
+  request.default_speed = 120.0;
+  request.trajectory_dt = 0.01;
+
+  rt::MotionCommandSpec command;
+  command.kind = rt::MotionKind::move_absj;
+  command.use_preplanned_trajectory = true;
+  command.preplanned_dt = 0.01;
+  command.preplanned_trajectory = {
+      {0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {0.02, -0.01, 0.015, 0.0, 0.0, 0.0},
+      {0.04, -0.02, 0.03, 0.0, 0.0, 0.0},
+  };
+  command.target_joints = command.preplanned_trajectory.back();
+  request.commands.push_back(command);
+
+  EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::idle);
+
+  std::string message;
+  ASSERT_TRUE(runtime.submit(request, message)) << message;
+  EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::planning);
+  EXPECT_EQ(runtime.status(request.request_id).runtime_phase, rt::RuntimePhase::planning);
+
+  bool saw_queued = false;
+  for (int i = 0; i < 200; ++i) {
+    const auto status = runtime.status(request.request_id);
+    if (status.state == rt::ExecutionState::queued) {
+      saw_queued = true;
+      EXPECT_EQ(status.runtime_phase, rt::RuntimePhase::planning);
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  ASSERT_TRUE(saw_queued);
+
+  bool saw_executing = false;
+  for (int i = 0; i < 20; ++i) {
+    const auto status = runtime.tick(backend, 0.01);
+    if (status.state == rt::ExecutionState::executing) {
+      saw_executing = true;
+      EXPECT_EQ(status.runtime_phase, rt::RuntimePhase::executing);
+      break;
+    }
+  }
+  ASSERT_TRUE(saw_executing);
+  EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::executing);
+
+  runtime.setRuntimePhaseForShutdown(rt::RuntimePhase::draining, "prepare shutdown");
+  EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::draining);
+  EXPECT_EQ(runtime.status(request.request_id).runtime_phase, rt::RuntimePhase::draining);
+
+  runtime.stop("shutdown stop");
+  EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::draining);
+
+  runtime.setRuntimePhaseForShutdown(rt::RuntimePhase::shutdown_prepared, "safe to delete");
+  runtime.reset();
+  EXPECT_EQ(runtime.runtimePhase(), rt::RuntimePhase::shutdown_prepared);
+  EXPECT_EQ(runtime.view().status.runtime_phase, rt::RuntimePhase::shutdown_prepared);
+}
+
+TEST(MotionRuntimeStateTest, OwnerArbiterRejectsDirectTrajectoryToEffortTransition) {
+  rt::OwnerArbiter arbiter;
+
+  const auto claimed_trajectory = arbiter.claimTrajectory("trajectory execution");
+  EXPECT_TRUE(claimed_trajectory.accepted);
+  EXPECT_EQ(arbiter.current(), rt::ControlOwner::trajectory);
+
+  const auto rejected_effort = arbiter.claimEffort("unexpected effort claim");
+  EXPECT_FALSE(rejected_effort.accepted);
+  EXPECT_EQ(arbiter.current(), rt::ControlOwner::trajectory);
+  EXPECT_NE(rejected_effort.reason.find("trajectory -> effort"), std::string::npos);
+
+  const auto cleared = arbiter.clear("idle");
+  EXPECT_TRUE(cleared.accepted);
+  EXPECT_EQ(arbiter.current(), rt::ControlOwner::none);
+
+  const auto claimed_effort = arbiter.claimEffort("effort execution");
+  EXPECT_TRUE(claimed_effort.accepted);
+  EXPECT_EQ(arbiter.current(), rt::ControlOwner::effort);
+}
+
+TEST(MotionRuntimeStateTest, OwnerArbiterFaultBlocksNewClaimsUntilCleared) {
+  rt::OwnerArbiter arbiter;
+
+  const auto fault_result = arbiter.fault("collision trip");
+  EXPECT_FALSE(fault_result.accepted);
+  EXPECT_TRUE(arbiter.faulted());
+  EXPECT_EQ(arbiter.current(), rt::ControlOwner::none);
+
+  const auto blocked = arbiter.claimTrajectory("resume trajectory");
+  EXPECT_FALSE(blocked.accepted);
+  EXPECT_TRUE(arbiter.faulted());
+  EXPECT_EQ(arbiter.current(), rt::ControlOwner::none);
+
+  const auto cleared = arbiter.clear("operator reset");
+  EXPECT_TRUE(cleared.accepted);
+  EXPECT_FALSE(arbiter.faulted());
+  EXPECT_EQ(arbiter.current(), rt::ControlOwner::none);
+}
+
+TEST(MotionRuntimeStateTest, ShutdownCoordinatorExposesMonotonicPhaseProgression) {
+  rt::ShutdownCoordinator coordinator;
+  coordinator.begin("unit test shutdown");
+
+  rt::ShutdownCoordinator::Inputs inputs;
+  inputs.runtime.owner = rt::ControlOwner::trajectory;
+  inputs.runtime.phase = rt::RuntimePhase::executing;
+  inputs.runtime.active_request_count = 1;
+  inputs.runtime.active_goal_count = 1;
+  inputs.update_loop_detached = false;
+  inputs.backend_quiescent = false;
+
+  const auto draining = coordinator.observe(inputs);
+  EXPECT_TRUE(draining.accepted);
+  EXPECT_EQ(draining.phase, rt::RuntimePhase::draining);
+  EXPECT_FALSE(draining.safe_to_delete);
+  EXPECT_FALSE(draining.safe_to_stop_world);
+
+  inputs.runtime.owner = rt::ControlOwner::none;
+  inputs.runtime.phase = rt::RuntimePhase::draining;
+  inputs.runtime.active_request_count = 0;
+  inputs.runtime.active_goal_count = 0;
+  inputs.update_loop_detached = true;
+  inputs.backend_quiescent = true;
+
+  const auto backend_detached = coordinator.observe(inputs);
+  EXPECT_EQ(backend_detached.phase, rt::RuntimePhase::backend_detached);
+  EXPECT_FALSE(backend_detached.safe_to_delete);
+
+  const auto shutdown_prepared = coordinator.observe(inputs);
+  EXPECT_EQ(shutdown_prepared.phase, rt::RuntimePhase::shutdown_prepared);
+  EXPECT_FALSE(shutdown_prepared.safe_to_delete);
+
+  const auto safe_to_delete = coordinator.observe(inputs);
+  EXPECT_EQ(safe_to_delete.phase, rt::RuntimePhase::safe_to_delete);
+  EXPECT_TRUE(safe_to_delete.safe_to_delete);
+  EXPECT_FALSE(safe_to_delete.safe_to_stop_world);
+
+  const auto safe_to_stop_world = coordinator.observe(inputs);
+  EXPECT_EQ(safe_to_stop_world.phase, rt::RuntimePhase::safe_to_stop_world);
+  EXPECT_TRUE(safe_to_stop_world.safe_to_delete);
+  EXPECT_TRUE(safe_to_stop_world.safe_to_stop_world);
 }
 
 TEST(MotionRuntimeStateTest, ActiveSpeedScaleChangesCompletionTickCount) {

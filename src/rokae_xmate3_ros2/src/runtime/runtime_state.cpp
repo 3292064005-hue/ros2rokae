@@ -462,6 +462,7 @@ void ProgramState::startRecordingPath() {
   recorded_path_.clear();
   record_time_origin_initialized_ = false;
   record_time_origin_sec_ = 0.0;
+  record_created_at_sec_ = 0.0;
   recorded_toolset_ = ToolsetSnapshot{};
   record_source_ = "sdk_record";
 }
@@ -472,6 +473,7 @@ void ProgramState::startRecordingPath(const ToolsetSnapshot &toolset, const std:
   recorded_path_.clear();
   record_time_origin_initialized_ = false;
   record_time_origin_sec_ = 0.0;
+  record_created_at_sec_ = 0.0;
   recorded_toolset_ = toolset;
   record_source_ = source.empty() ? std::string("sdk_record") : source;
 }
@@ -486,6 +488,7 @@ void ProgramState::cancelRecordingPath() {
   is_recording_path_ = false;
   recorded_path_.clear();
   record_time_origin_initialized_ = false;
+  record_created_at_sec_ = 0.0;
 }
 
 bool ProgramState::isRecordingPath() const {
@@ -505,6 +508,7 @@ void ProgramState::recordPathSample(double timestamp_sec,
   const double absolute_timestamp = clamp_record_timestamp(timestamp_sec, fallback_time);
   if (!record_time_origin_initialized_) {
     record_time_origin_sec_ = absolute_timestamp;
+    record_created_at_sec_ = absolute_timestamp;
     record_time_origin_initialized_ = true;
   }
 
@@ -527,6 +531,10 @@ void ProgramState::recordPathSample(const std::array<double, 6> &joint_position)
 void ProgramState::saveRecordedPath(const std::string &name) {
   std::lock_guard<std::mutex> lock(mutex_);
   ReplayPathAsset asset;
+  asset.metadata.version = "v1";
+  asset.metadata.robot = "xMate3";
+  asset.metadata.source = record_source_;
+  asset.metadata.created_at_sec = record_created_at_sec_;
   asset.samples = recorded_path_;
   asset.toolset = recorded_toolset_;
   asset.source = record_source_;

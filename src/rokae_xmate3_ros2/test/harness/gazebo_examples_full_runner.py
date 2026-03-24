@@ -11,7 +11,6 @@ from typing import Dict, List, Tuple
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
 
 from rokae_xmate3_ros2.action import MoveAppend
 from rokae_xmate3_ros2.srv import (
@@ -20,7 +19,7 @@ from rokae_xmate3_ros2.srv import (
     SetOperateMode,
 )
 
-from common import RuntimeCleanupMixin, RuntimeReadinessMixin
+from common import RuntimeCleanupMixin, RuntimeReadinessMixin, RuntimeTelemetryMixin
 
 @dataclass(frozen=True)
 class ExampleSpec:
@@ -63,10 +62,9 @@ def build_spec(binary_path: str) -> ExampleSpec:
     )
 
 
-class ExampleProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin):
+class ExampleProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin, RuntimeTelemetryMixin):
     def __init__(self):
         super().__init__("rokae_gazebo_examples_full_probe")
-        self._heartbeat_count = 0
         self._connect_client = self.create_client(Connect, "/xmate3/cobot/connect")
         self._set_motion_control_mode_client = self.create_client(
             SetMotionControlMode, "/xmate3/cobot/set_motion_control_mode"
@@ -76,28 +74,14 @@ class ExampleProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin):
         )
         self._init_runtime_cleanup_clients()
         self._init_runtime_readiness_clients()
+        self._init_runtime_telemetry()
         self._move_append_client = ActionClient(self, MoveAppend, "/xmate3/cobot/move_append")
-        self.create_subscription(JointState, "/xmate3/joint_states", self._on_joint_state, 20)
-
-    def _on_joint_state(self, _msg):
-        self._heartbeat_count += 1
 
     def wait_for_heartbeat(self, timeout_sec: float) -> bool:
-        deadline = time.monotonic() + timeout_sec
-        while time.monotonic() < deadline:
-            rclpy.spin_once(self, timeout_sec=0.1)
-            if self._heartbeat_count > 0:
-                return True
-        return False
+        return self.wait_for_joint_heartbeat(timeout_sec)
 
     def wait_for_fresh_heartbeat(self, timeout_sec: float) -> bool:
-        previous_count = self._heartbeat_count
-        deadline = time.monotonic() + timeout_sec
-        while time.monotonic() < deadline:
-            rclpy.spin_once(self, timeout_sec=0.1)
-            if self._heartbeat_count > previous_count:
-                return True
-        return False
+        return self.wait_for_fresh_joint_heartbeat(timeout_sec)
 
     def wait_for_runtime_ready(self, timeout_sec: float) -> bool:
         service_specs = [
@@ -126,6 +110,22 @@ class ExampleProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin):
             )
             return False
         return True
+
+    def wait_for_runtime_quiescent_after_example(self, binary_path: str, timeout_sec: float = 20.0) -> bool:
+        return self.wait_for_runtime_quiescent(
+            timeout_sec,
+            quiet_window_sec=1.5,
+            stable_sec=0.35,
+            label=f"runtime settle after {Path(binary_path).name}",
+        )
+
+    def wait_for_runtime_quiescent_after_cleanup(self, timeout_sec: float = 30.0) -> bool:
+        return self.wait_for_runtime_quiescent(
+            timeout_sec,
+            quiet_window_sec=2.0,
+            stable_sec=0.5,
+            label="runtime cleanup settle",
+        )
 
 def run_example(binary_path: str, spec: ExampleSpec) -> Tuple[bool, subprocess.CompletedProcess[str]]:
     completed = subprocess.run(
@@ -181,49 +181,63 @@ def main(argv: List[str]) -> int:
 
     rclpy.init()
     probe = ExampleProbe()
+    exit_code = 0
     try:
         if not probe.wait_for_heartbeat(45.0):
             sys.stderr.write("Timed out waiting for /xmate3/joint_states before running examples\n")
-            return 1
-        if not probe.wait_for_runtime_ready(45.0):
-            return 1
-        time.sleep(1.0)
+            exit_code = 1
+        elif not probe.wait_for_runtime_ready(45.0):
+            exit_code = 1
+        else:
+            time.sleep(1.0)
 
-        total = len(example_paths)
-        for index, binary_path in enumerate(example_paths, start=1):
-            spec = specs[binary_path]
-            sys.stdout.write(
-                f"[examples-full] ({index}/{total}) {Path(binary_path).name} mode={spec.mode} timeout={spec.timeout_sec:.0f}s\n"
-            )
-            sys.stdout.flush()
+            total = len(example_paths)
+            for index, binary_path in enumerate(example_paths, start=1):
+                spec = specs[binary_path]
+                sys.stdout.write(
+                    f"[examples-full] ({index}/{total}) {Path(binary_path).name} mode={spec.mode} timeout={spec.timeout_sec:.0f}s\n"
+                )
+                sys.stdout.flush()
 
-            if not probe.wait_for_runtime_ready(30.0):
-                sys.stderr.write(f"Runtime not ready before {binary_path}\n")
-                return 1
-            time.sleep(0.75)
-
-            success, _ = run_example(binary_path, spec)
-            if not success:
-                sys.stderr.write(f"Retrying {binary_path} after runtime settle...\n")
                 if not probe.wait_for_runtime_ready(30.0):
-                    return 1
-                time.sleep(2.0)
+                    sys.stderr.write(f"Runtime not ready before {binary_path}\n")
+                    exit_code = 1
+                    break
+                time.sleep(0.75)
+
                 success, _ = run_example(binary_path, spec)
                 if not success:
-                    return 1
+                    sys.stderr.write(f"Retrying {binary_path} after runtime settle...\n")
+                    if not probe.wait_for_runtime_ready(30.0):
+                        exit_code = 1
+                        break
+                    time.sleep(2.0)
+                    success, _ = run_example(binary_path, spec)
+                    if not success:
+                        exit_code = 1
+                        break
 
-            if not probe.wait_for_fresh_heartbeat(10.0):
-                sys.stderr.write(f"/xmate3/joint_states stopped updating after {binary_path}\n")
-                return 1
-            time.sleep(0.5)
+                if not probe.wait_for_fresh_heartbeat(10.0):
+                    sys.stderr.write(f"/xmate3/joint_states stopped updating after {binary_path}\n")
+                    exit_code = 1
+                    break
+                if not probe.wait_for_runtime_quiescent_after_example(binary_path):
+                    exit_code = 1
+                    break
+                time.sleep(0.25)
 
-        sys.stdout.write(f"[examples-full] completed {total}/{total} examples successfully\n")
-        return 0
+            if exit_code == 0:
+                sys.stdout.write(f"[examples-full] completed {total}/{total} examples successfully\n")
     finally:
         probe.cleanup_runtime(delete_entity=False)
-        probe.drain_callbacks(5.0)
+        probe.drain_callbacks(2.0)
+        cleanup_ok = probe.wait_for_runtime_quiescent_after_cleanup()
+        if not cleanup_ok and exit_code == 0:
+            exit_code = 1
+        probe.drain_callbacks(10.0)
         probe.destroy_node()
         rclpy.shutdown()
+    return exit_code
 
 
 if __name__ == "__main__":

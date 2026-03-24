@@ -40,6 +40,7 @@ RuntimeLogEvent build_runtime_log_event(const RuntimeStatus &status,
          << " state=" << state_text
          << " backend=" << to_string(status.execution_backend)
          << " owner=" << to_string(status.control_owner)
+         << " phase=" << to_string(status.runtime_phase)
          << " segment=" << status.current_segment_index << "/" << status.total_segments
          << " completed=" << status.completed_segments
          << " message=" << message_text;

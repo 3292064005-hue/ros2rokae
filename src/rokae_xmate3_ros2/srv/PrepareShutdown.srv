@@ -1,0 +1,11 @@
+---
+bool accepted
+bool owner_none
+bool runtime_idle
+bool backend_quiescent
+bool safe_to_delete
+bool safe_to_stop_world
+uint32 active_request_count
+uint32 active_goal_count
+string phase
+string message

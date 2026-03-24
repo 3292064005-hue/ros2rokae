@@ -52,6 +52,18 @@ enum class ControlOwner {
   trajectory,
 };
 
+enum class RuntimePhase {
+  idle,
+  planning,
+  executing,
+  draining,
+  backend_detached,
+  shutdown_prepared,
+  safe_to_delete,
+  safe_to_stop_world,
+  faulted,
+};
+
 struct MotionCommandSpec {
   MotionKind kind = MotionKind::none;
   std::vector<double> target_joints;
@@ -181,6 +193,7 @@ struct RuntimeStatus {
   std::uint64_t revision = 0;
   ExecutionBackend execution_backend = ExecutionBackend::none;
   ControlOwner control_owner = ControlOwner::none;
+  RuntimePhase runtime_phase = RuntimePhase::idle;
 
   [[nodiscard]] bool terminal() const noexcept {
     return state == ExecutionState::completed || state == ExecutionState::completed_relaxed ||
@@ -198,6 +211,13 @@ struct RuntimeView {
   [[nodiscard]] bool busy() const noexcept {
     return has_request && !terminal;
   }
+};
+
+struct RuntimeContractView {
+  ControlOwner owner = ControlOwner::none;
+  RuntimePhase phase = RuntimePhase::idle;
+  std::size_t active_request_count = 0;
+  std::size_t active_goal_count = 0;
 };
 
 class BackendInterface {
@@ -302,6 +322,29 @@ inline const char *to_string(ControlOwner owner) noexcept {
       return "trajectory";
     default:
       return "none";
+  }
+}
+
+inline const char *to_string(RuntimePhase phase) noexcept {
+  switch (phase) {
+    case RuntimePhase::planning:
+      return "planning";
+    case RuntimePhase::executing:
+      return "executing";
+    case RuntimePhase::draining:
+      return "draining";
+    case RuntimePhase::backend_detached:
+      return "backend_detached";
+    case RuntimePhase::shutdown_prepared:
+      return "shutdown_prepared";
+    case RuntimePhase::safe_to_delete:
+      return "safe_to_delete";
+    case RuntimePhase::safe_to_stop_world:
+      return "safe_to_stop_world";
+    case RuntimePhase::faulted:
+      return "faulted";
+    default:
+      return "idle";
   }
 }
 

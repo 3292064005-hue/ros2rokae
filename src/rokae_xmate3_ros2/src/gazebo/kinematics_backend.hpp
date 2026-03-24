@@ -1,6 +1,7 @@
 #ifndef ROKAE_XMATE3_ROS2_GAZEBO_KINEMATICS_BACKEND_HPP
 #define ROKAE_XMATE3_ROS2_GAZEBO_KINEMATICS_BACKEND_HPP
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -40,6 +41,20 @@ class KinematicsBackend {
     double singularity_weight = 0.1;
   };
 
+  struct SeededIkCandidateMetrics {
+    double branch_distance = std::numeric_limits<double>::infinity();
+    double continuity_cost = std::numeric_limits<double>::infinity();
+    double joint_limit_penalty = std::numeric_limits<double>::infinity();
+    double singularity_metric = 1.0;
+    double singularity_cost = std::numeric_limits<double>::infinity();
+    bool near_singularity = true;
+    bool valid = false;
+
+    [[nodiscard]] double totalCost() const noexcept {
+      return continuity_cost + joint_limit_penalty + singularity_cost;
+    }
+  };
+
   virtual ~KinematicsBackend() = default;
 
   [[nodiscard]] virtual std::string name() const = 0;
@@ -54,7 +69,13 @@ class KinematicsBackend {
     const auto resolved_index = std::min(frame_index, transforms.size() - 1);
     return transforms[resolved_index];
   }
+  [[nodiscard]] virtual double branchDistance(const VectorJ &lhs, const VectorJ &rhs) const = 0;
+  [[nodiscard]] virtual double continuityCost(const SeededIkRequest &request, const VectorJ &candidate) const = 0;
+  [[nodiscard]] virtual double singularityMetric(const SeededIkRequest &request, const VectorJ &candidate) const = 0;
+  [[nodiscard]] virtual SeededIkCandidateMetrics evaluateSeededIkCandidate(const SeededIkRequest &request,
+                                                                           const VectorJ &candidate) const = 0;
   [[nodiscard]] virtual VectorJ inverseKinematicsSeeded(const SeededIkRequest &request) const = 0;
+  [[nodiscard]] virtual std::vector<VectorJ> inverseKinematicsMultiBranch(const SeededIkRequest &request) const = 0;
 };
 
 [[nodiscard]] std::shared_ptr<KinematicsBackend> makePreferredKinematicsBackend();

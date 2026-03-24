@@ -7,6 +7,7 @@
 #include "gazebo/kinematics_backend.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -44,6 +45,90 @@ detail::KinematicsBackend::SeededIkRequest makeSeededIkRequest(
     request.max_lambda = max_lambda;
     request.solution_valid_threshold = solution_valid_threshold;
     return request;
+}
+
+xMate3Kinematics::IkCandidateMetrics toPublicMetrics(
+    const detail::KinematicsBackend::SeededIkCandidateMetrics &metrics) {
+    xMate3Kinematics::IkCandidateMetrics result;
+    result.branch_distance = metrics.branch_distance;
+    result.continuity_cost = metrics.continuity_cost;
+    result.joint_limit_penalty = metrics.joint_limit_penalty;
+    result.singularity_metric = metrics.singularity_metric;
+    result.singularity_cost = metrics.singularity_cost;
+    result.near_singularity = metrics.near_singularity;
+    result.valid = metrics.valid;
+    return result;
+}
+
+constexpr double kConfAngleStrictToleranceDeg = 45.0;
+constexpr double kJointBranchJumpThreshold = 0.75;
+
+struct ConfScore {
+    double penalty = 0.0;
+    bool strict_match = true;
+    bool has_request = false;
+};
+
+double normalize_degree(double value) {
+    while (value > 180.0) {
+        value -= 180.0 * 2.0;
+    }
+    while (value < -180.0) {
+        value += 180.0 * 2.0;
+    }
+    return value;
+}
+
+double shortest_degree_distance(double lhs, double rhs) {
+    return std::fabs(normalize_degree(lhs - rhs));
+}
+
+bool violatesSoftLimit(const std::vector<double> &joints,
+                       const std::array<std::array<double, 2>, 6> &soft_limits) {
+    for (std::size_t index = 0; index < 6 && index < joints.size(); ++index) {
+        if (joints[index] < soft_limits[index][0] || joints[index] > soft_limits[index][1]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+ConfScore scoreRequestedConf(const std::vector<double> &candidate,
+                             const std::vector<int> &requested_conf) {
+    ConfScore score;
+    for (std::size_t index = 0; index < 6 && index < candidate.size() && index < requested_conf.size(); ++index) {
+        const int requested = requested_conf[index];
+        if (requested == 0) {
+            continue;
+        }
+
+        score.has_request = true;
+        if (std::abs(requested) <= 2) {
+            const int sign = std::fabs(candidate[index]) < 1e-6 ? 0 : (candidate[index] > 0.0 ? 1 : -1);
+            if (sign != requested) {
+                score.penalty += 180.0;
+                score.strict_match = false;
+            }
+            continue;
+        }
+
+        const double candidate_deg = candidate[index] * 180.0 / M_PI;
+        const double delta_deg = shortest_degree_distance(candidate_deg, static_cast<double>(requested));
+        score.penalty += delta_deg;
+        if (delta_deg > kConfAngleStrictToleranceDeg) {
+            score.strict_match = false;
+        }
+    }
+    return score;
+}
+
+double cartesianErrorScore(const Matrix4d &target_transform, const Matrix4d &candidate_transform) {
+    const Eigen::Vector3d position_error =
+        candidate_transform.block<3, 1>(0, 3) - target_transform.block<3, 1>(0, 3);
+    const Eigen::Quaterniond q_target(target_transform.block<3, 3>(0, 0));
+    const Eigen::Quaterniond q_candidate(candidate_transform.block<3, 3>(0, 0));
+    const double orientation_error = q_target.angularDistance(q_candidate);
+    return position_error.norm() * 1000.0 + orientation_error * 100.0;
 }
 
 }  // namespace
@@ -141,6 +226,26 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
         const std::vector<double>& target,
         const std::vector<double>& current_joints) {
     Matrix4d T_target = rpyToTransform(target);
+
+    if (backend_) {
+        auto request = makeSeededIkRequest(
+            T_target,
+            current_joints,
+            joint_limits_min_,
+            joint_limits_max_,
+            16,
+            1e-5,
+            1e-3,
+            0.8,
+            0.05,
+            0.02,
+            0.5,
+            5e-3);
+        const auto backend_solutions = backend_->inverseKinematicsMultiBranch(request);
+        if (!backend_solutions.empty()) {
+            return backend_solutions;
+        }
+    }
 
     const double orientation_weight = 0.8;
     const double duplicate_threshold = 0.05;
@@ -454,6 +559,215 @@ bool xMate3Kinematics::avoidSingularity(std::vector<double>& joints) {
     }
 
     return true;
+}
+
+double xMate3Kinematics::branchDistance(const std::vector<double>& lhs,
+                                        const std::vector<double>& rhs) const {
+    if (backend_) {
+        return backend_->branchDistance(lhs, rhs);
+    }
+    double max_distance = 0.0;
+    for (std::size_t index = 0; index < 6 && index < lhs.size() && index < rhs.size(); ++index) {
+        max_distance = std::max(max_distance, std::fabs(lhs[index] - rhs[index]));
+    }
+    return max_distance;
+}
+
+xMate3Kinematics::IkCandidateMetrics xMate3Kinematics::evaluateIkCandidate(
+        const std::vector<double>& candidate,
+        const std::vector<double>& seed_joints) const {
+    if (candidate.size() < 6 || seed_joints.size() < 6) {
+        return {};
+    }
+
+    constexpr int max_iter = 16;
+    constexpr double position_tolerance = 1e-5;
+    constexpr double orientation_tolerance = 1e-3;
+    constexpr double orientation_weight = 0.8;
+    constexpr double max_joint_step = 0.05;
+    constexpr double min_lambda = 0.02;
+    constexpr double max_lambda = 0.5;
+    constexpr double solution_valid_threshold = 5e-3;
+
+    auto request = makeSeededIkRequest(
+        Matrix4d::Identity(),
+        seed_joints,
+        joint_limits_min_,
+        joint_limits_max_,
+        max_iter,
+        position_tolerance,
+        orientation_tolerance,
+        orientation_weight,
+        max_joint_step,
+        min_lambda,
+        max_lambda,
+        solution_valid_threshold);
+
+    if (backend_) {
+        return toPublicMetrics(backend_->evaluateSeededIkCandidate(request, candidate));
+    }
+
+    IkCandidateMetrics metrics;
+    metrics.branch_distance = branchDistance(candidate, seed_joints);
+    metrics.continuity_cost = request.continuity_weight *
+        (Eigen::Map<const Eigen::VectorXd>(candidate.data(), 6) -
+         Eigen::Map<const Eigen::VectorXd>(seed_joints.data(), 6))
+            .norm();
+
+    double limit_penalty = 0.0;
+    for (std::size_t index = 0; index < 6; ++index) {
+        const double lower_margin = candidate[index] - joint_limits_min_[index];
+        const double upper_margin = joint_limits_max_[index] - candidate[index];
+        const double range = std::max(joint_limits_max_[index] - joint_limits_min_[index], 1e-6);
+        const double normalized_margin = std::clamp(std::min(lower_margin, upper_margin) / range, 0.0, 1.0);
+        limit_penalty += (1.0 - normalized_margin);
+    }
+    metrics.joint_limit_penalty = request.joint_limit_weight * (limit_penalty / 6.0);
+    metrics.singularity_metric = 0.0;
+    metrics.singularity_cost = 0.0;
+    metrics.near_singularity = false;
+    metrics.valid = true;
+    return metrics;
+}
+
+xMate3Kinematics::IkSelectionResult xMate3Kinematics::selectBestIkSolution(
+        const std::vector<std::vector<double>>& candidates,
+        const std::vector<double>& target_pose,
+        const std::vector<double>& seed_joints,
+        const CartesianIkOptions& options) {
+    IkSelectionResult best;
+    IkSelectionResult fallback_singular;
+    double best_score = std::numeric_limits<double>::infinity();
+    double fallback_singular_score = std::numeric_limits<double>::infinity();
+    const auto target_transform = rpyToTransform(target_pose);
+
+    for (const auto &candidate : candidates) {
+        if (candidate.size() < 6) {
+            continue;
+        }
+        if (options.soft_limit_enabled && violatesSoftLimit(candidate, options.soft_limits)) {
+            continue;
+        }
+
+        const auto conf_score = scoreRequestedConf(candidate, options.requested_conf);
+        if (conf_score.has_request && options.strict_conf && !conf_score.strict_match) {
+            continue;
+        }
+
+        const auto candidate_metrics = evaluateIkCandidate(candidate, seed_joints);
+        if (!candidate_metrics.valid) {
+            continue;
+        }
+
+        const auto fk_transform = forwardKinematics(candidate);
+        const double score = cartesianErrorScore(target_transform, fk_transform) +
+                             candidate_metrics.branch_distance * 2.0 +
+                             conf_score.penalty +
+                             candidate_metrics.singularity_metric * 40.0 +
+                             candidate_metrics.joint_limit_penalty * 10.0;
+
+        if (options.avoid_singularity && candidate_metrics.near_singularity) {
+            if (score < fallback_singular_score) {
+                fallback_singular.success = true;
+                fallback_singular.joints = candidate;
+                fallback_singular_score = score;
+            }
+            continue;
+        }
+
+        if (score < best_score) {
+            best.success = true;
+            best.joints = candidate;
+            best_score = score;
+        }
+    }
+
+    if (!best.success && fallback_singular.success) {
+        fallback_singular.message =
+            "selected a near-singular IK branch because no better branch was available";
+        return fallback_singular;
+    }
+
+    if (!best.success) {
+        best.message = (!options.requested_conf.empty() && options.strict_conf)
+                           ? "no IK solution matches requested confData"
+                           : "no valid IK solution";
+    }
+    return best;
+}
+
+bool xMate3Kinematics::buildCartesianJointTrajectory(
+        const std::vector<std::vector<double>>& cartesian_trajectory,
+        const std::vector<double>& initial_seed,
+        const CartesianIkOptions& options,
+        std::vector<std::vector<double>>& joint_trajectory,
+        std::vector<double>& last_joints,
+        std::string& error_message) {
+    joint_trajectory.clear();
+    last_joints = initial_seed;
+
+    auto fast_solution_acceptable = [&](const std::vector<double> &candidate) {
+        if (candidate.empty()) {
+            return false;
+        }
+        const auto conf_score = scoreRequestedConf(candidate, options.requested_conf);
+        const bool conf_ok = !conf_score.has_request || !options.strict_conf || conf_score.strict_match;
+        const bool soft_limit_ok = !options.soft_limit_enabled || !violatesSoftLimit(candidate, options.soft_limits);
+        const auto candidate_metrics = evaluateIkCandidate(candidate, last_joints);
+        const bool singularity_ok = !options.avoid_singularity || !candidate_metrics.near_singularity;
+        const bool continuity_ok =
+            joint_trajectory.empty() || branchDistance(last_joints, candidate) <= kJointBranchJumpThreshold;
+        return conf_ok && soft_limit_ok && singularity_ok && continuity_ok;
+    };
+
+    for (const auto &pose : cartesian_trajectory) {
+        std::vector<double> resolved_joints;
+
+        const auto fast_solution = inverseKinematicsSeededFast(pose, last_joints);
+        if (fast_solution_acceptable(fast_solution)) {
+            resolved_joints = fast_solution;
+        }
+
+        if (resolved_joints.empty()) {
+            auto singularity_retry_seed = last_joints;
+            if (avoidSingularity(singularity_retry_seed)) {
+                const auto singularity_retry = inverseKinematicsSeededFast(pose, singularity_retry_seed);
+                if (fast_solution_acceptable(singularity_retry)) {
+                    resolved_joints = singularity_retry;
+                }
+            }
+        }
+
+        if (resolved_joints.empty()) {
+            const auto candidates = inverseKinematicsMultiSolution(pose, last_joints);
+            const auto selected = selectBestIkSolution(candidates, pose, last_joints, options);
+            if (!selected.success) {
+                error_message = selected.message;
+                return false;
+            }
+            resolved_joints = selected.joints;
+        }
+
+        if (!joint_trajectory.empty() &&
+            branchDistance(last_joints, resolved_joints) > kJointBranchJumpThreshold) {
+            auto local_retry_seed = last_joints;
+            if (avoidSingularity(local_retry_seed)) {
+                const auto local_retry = inverseKinematicsSeededFast(pose, local_retry_seed);
+                if (fast_solution_acceptable(local_retry)) {
+                    resolved_joints = local_retry;
+                }
+            }
+            if (branchDistance(last_joints, resolved_joints) > kJointBranchJumpThreshold) {
+                error_message = "IK branch changed discontinuously along Cartesian path";
+                return false;
+            }
+        }
+
+        joint_trajectory.push_back(resolved_joints);
+        last_joints = resolved_joints;
+    }
+
+    return !joint_trajectory.empty();
 }
 
 void xMate3Kinematics::resetDebugCounters() {
