@@ -34,6 +34,18 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 pkg_check_modules(OROCOS_KDL REQUIRED orocos-kdl)
 find_program(XACRO_EXECUTABLE xacro REQUIRED)
 
+set(ROKAE_SYSTEM_PYTHON "/usr/bin/python3")
+if(NOT EXISTS "${ROKAE_SYSTEM_PYTHON}")
+  set(ROKAE_SYSTEM_PYTHON "${Python3_EXECUTABLE}")
+endif()
+set(ROKAE_CLEAN_ENV_WRAPPER "${CMAKE_CURRENT_SOURCE_DIR}/tools/clean_build_env.sh")
+if(DEFINED ENV{CONDA_PREFIX} AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
+  message(WARNING
+    "Conda environment detected at $ENV{CONDA_PREFIX}. "
+    "Use ${ROKAE_CLEAN_ENV_WRAPPER} for release build/test/archive commands to avoid shadow-library drift."
+  )
+endif()
+
 set(ROKAE_GENERATED_URDF_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/urdf")
 set(ROKAE_GENERATED_XMATE3_URDF "${ROKAE_GENERATED_URDF_DIR}/xMate3.urdf")
 add_custom_command(
@@ -63,7 +75,7 @@ set(ROKAE_SOURCE_ARCHIVE_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rokae_source_candid
   "Output path for the verified source archive release candidate"
 )
 add_custom_target(verify_source_archive
-  COMMAND ${Python3_EXECUTABLE}
+  COMMAND "${ROKAE_CLEAN_ENV_WRAPPER}" "${ROKAE_SYSTEM_PYTHON}"
           "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_source_archive.py"
           --package-root "${ROKAE_SOURCE_PACKAGE_ROOT}"
           --workspace-root "${ROKAE_SOURCE_WORKSPACE_ROOT}"
@@ -73,7 +85,7 @@ add_custom_target(verify_source_archive
   VERBATIM
 )
 add_custom_target(package_verified_source_archive
-  COMMAND ${Python3_EXECUTABLE}
+  COMMAND "${ROKAE_CLEAN_ENV_WRAPPER}" "${ROKAE_SYSTEM_PYTHON}"
           "${CMAKE_CURRENT_SOURCE_DIR}/cmake/create_verified_source_archive.py"
           --package-root "${ROKAE_SOURCE_PACKAGE_ROOT}"
           --workspace-root "${ROKAE_SOURCE_WORKSPACE_ROOT}"
@@ -85,7 +97,7 @@ add_custom_target(package_verified_source_archive
 if(ROKAE_SOURCE_ARCHIVE)
   add_test(
     NAME verify_source_archive
-    COMMAND ${Python3_EXECUTABLE}
+    COMMAND "${ROKAE_CLEAN_ENV_WRAPPER}" "${ROKAE_SYSTEM_PYTHON}"
             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_source_archive.py"
             --package-root "${ROKAE_SOURCE_PACKAGE_ROOT}"
             --workspace-root "${ROKAE_SOURCE_WORKSPACE_ROOT}"
@@ -445,7 +457,7 @@ install(TARGETS
 )
 
 install(DIRECTORY include/ DESTINATION include)
-install(DIRECTORY launch meshes models urdf config worlds examples docs
+install(DIRECTORY launch meshes models urdf config worlds examples docs tools
   DESTINATION share/${PROJECT_NAME}/
   PATTERN "__pycache__" EXCLUDE
   PATTERN "*.pyc" EXCLUDE
@@ -543,7 +555,7 @@ if(BUILD_TESTING)
       PRIVATE
         ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY="${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_source_archive.py"
         ROKAE_TEST_CREATE_VERIFIED_SOURCE_ARCHIVE_PY="${CMAKE_CURRENT_SOURCE_DIR}/cmake/create_verified_source_archive.py"
-        ROKAE_TEST_PYTHON_EXECUTABLE="${Python3_EXECUTABLE}"
+        ROKAE_TEST_PYTHON_EXECUTABLE="${ROKAE_SYSTEM_PYTHON}"
     )
     target_compile_features(test_runtime_adapters PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_adapters)

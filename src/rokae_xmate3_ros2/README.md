@@ -141,9 +141,13 @@ sudo apt install \
 
 ```bash
 cd ~/ros2_ws0
-colcon build --packages-select rokae_xmate3_ros2 --symlink-install
+src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  colcon build --packages-select rokae_xmate3_ros2 --symlink-install
 source install/setup.bash
 ```
+
+release build、`ctest` 与源码归档打包建议统一通过 `src/rokae_xmate3_ros2/tools/clean_build_env.sh` 运行。
+它会固定 `/usr/bin/python3`，并清理 Conda 相关环境变量，避免影子库路径污染构建或发布结果。
 
 ### 3. 启动仿真
 
@@ -172,7 +176,8 @@ ros2 run rokae_xmate3_ros2 example_25_rt_s_line
 cd ~/ros2_ws0/build/rokae_xmate3_ros2
 cmake -DROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
 cmake --build . -j4
-ctest -R gazebo_examples_full --output-on-failure
+../../src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  ctest -R gazebo_examples_full --output-on-failure
 ```
 
 backend mode smoke（非默认，覆盖 `effort / jtc / hybrid`）：
@@ -180,7 +185,8 @@ backend mode smoke（非默认，覆盖 `effort / jtc / hybrid`）：
 cd ~/ros2_ws0/build/rokae_xmate3_ros2
 cmake -DROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
 cmake --build . -j4
-ctest -L gazebo_integration_modes --output-on-failure
+../../src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  ctest -L gazebo_integration_modes --output-on-failure
 ```
 
 teardown 质量回归（非默认，验证 `prepare_shutdown` 契约、phase 推进与优雅停机路径）：
@@ -188,7 +194,8 @@ teardown 质量回归（非默认，验证 `prepare_shutdown` 契约、phase 推
 cd ~/ros2_ws0/build/rokae_xmate3_ros2
 cmake -DROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
 cmake --build . -j4
-ctest -L gazebo_teardown_quality --output-on-failure
+../../src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  ctest -L gazebo_teardown_quality --output-on-failure
 ```
 
 teardown 重复压力回归（非默认，连续跑 10 次 shutdown 路径收竞态）：
@@ -196,27 +203,31 @@ teardown 重复压力回归（非默认，连续跑 10 次 shutdown 路径收竞
 cd ~/ros2_ws0/build/rokae_xmate3_ros2
 cmake -DROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
 cmake --build . -j4
-ctest -R gazebo_teardown_quality_repeat --output-on-failure
+../../src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  ctest -R gazebo_teardown_quality_repeat --output-on-failure
 ```
 
 源码归档一致性检查（发布 zip 前，确保候选包按 `package root + workspace sidecars` 布局，且包含 `owner_arbiter.hpp`、工作区根 `.gitignore` / `colcon_defaults.yaml` 与 `flange/tool0/tcp/payload` 终局化 xacro）：
 ```bash
 cd ~/ros2_ws0/build/rokae_xmate3_ros2
 cmake -DROKAE_SOURCE_ARCHIVE=/path/to/src.zip /home/chen/ros2_ws0/src/rokae_xmate3_ros2
-cmake --build . --target verify_source_archive
+../../src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  cmake --build . --target verify_source_archive
 ```
 
 生成并校验唯一候选源码归档（推荐的发布出口）：
 ```bash
 cd ~/ros2_ws0/build/rokae_xmate3_ros2
 cmake -DROKAE_SOURCE_ARCHIVE_OUTPUT=$PWD/rokae_source_candidate.zip /home/chen/ros2_ws0/src/rokae_xmate3_ros2
-cmake --build . --target package_verified_source_archive
+../../src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  cmake --build . --target package_verified_source_archive
 ```
 
 禁止直接上传手工打包的 `src.zip`；只允许分发 `package_verified_source_archive` 生成并通过 archive gate 的候选包。
 候选包主体固定为 `src/rokae_xmate3_ros2` 的 package root，工作区根只白名单附带 `.gitignore` 和 `colcon_defaults.yaml`。
 工作区根 PDF、`tmp_*` 日志以及缓存/构建产物都会被 archive gate 拒绝。
 候选包旁边会同时生成 `.manifest.txt` 与 `.sha256` sidecar，用来核对“外发包就是刚刚验过的那个包”。
+manifest 会额外记录 `package.xml` 版本号、git commit hash 和 UTC 生成时间，方便后续追溯候选包来源。
 
 默认 `ctest --output-on-failure` 固定为 12 项轻量门禁：
 - 9 个纯单测

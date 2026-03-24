@@ -101,7 +101,8 @@ examples/
 ### 编译
 ```bash
 cd ~/ros2_ws0
-colcon build --packages-select rokae_xmate3_ros2
+src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  colcon build --packages-select rokae_xmate3_ros2
 source install/setup.bash
 ```
 
@@ -116,11 +117,13 @@ ros2 run rokae_xmate3_ros2 example_01_basic_connect
 ### 全量 examples harness
 ```bash
 cd ~/ros2_ws0
-colcon build --packages-select rokae_xmate3_ros2
+src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  colcon build --packages-select rokae_xmate3_ros2
 cd build/rokae_xmate3_ros2
 cmake -DROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
 cmake --build . -j4
-ctest -R gazebo_examples_full --output-on-failure
+../../src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  ctest -R gazebo_examples_full --output-on-failure
 ```
 
 默认 `ctest` 不会包含这条全量 harness。
@@ -181,6 +184,7 @@ ctest -L gazebo_integration_modes --output-on-failure
 
 源码归档发布建议只走经过 `package_verified_source_archive` 校验的候选 zip，不要直接上传未验证的源码包。
 候选包默认只包含 package root 内容，并从工作区根附带 `.gitignore` 与 `colcon_defaults.yaml` 两个 sidecar。
+建议通过 `../tools/clean_build_env.sh` 统一运行 build / test / package 命令，避免 Conda 环境把影子 Python 或系统库路径带进发布流程。
 5. strict Gazebo 集：非默认，覆盖长路径、长时间、blend/lookahead、replay fidelity 与 ownership stability
 
 发布源码归档前，建议执行：

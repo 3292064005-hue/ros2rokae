@@ -137,7 +137,7 @@ void createArchiveFixtureTree(const std::filesystem::path &root, bool dirty_arch
   writeTextFile(root / "src/rokae_xmate3_ros2/CMakeLists.txt",
                 "cmake_minimum_required(VERSION 3.16)\nproject(rokae_xmate3_ros2)\n");
   writeTextFile(root / "src/rokae_xmate3_ros2/package.xml",
-                "<package format=\"3\"><name>rokae_xmate3_ros2</name></package>\n");
+                "<package format=\"3\"><name>rokae_xmate3_ros2</name><version>2.1.0</version></package>\n");
   writeTextFile(root / "src/rokae_xmate3_ros2/src/runtime/owner_arbiter.hpp",
                 "#pragma once\n// archive fixture\n");
   writeTextFile(root / "src/rokae_xmate3_ros2/urdf/xMate3.xacro",
@@ -666,6 +666,9 @@ TEST(RuntimeArchiveVerificationTest, PackagingScriptCreatesVerifiedCleanArchiveF
   const auto manifest_text = readTextFile(manifest_path);
   const auto sha256_text = readTextFile(sha256_path);
   EXPECT_NE(manifest_text.find("archive=candidate.zip"), std::string::npos);
+  EXPECT_NE(manifest_text.find("package_version=2.1.0"), std::string::npos);
+  EXPECT_NE(manifest_text.find("git_commit="), std::string::npos);
+  EXPECT_NE(manifest_text.find("generated_at_utc="), std::string::npos);
   EXPECT_NE(manifest_text.find("file_count="), std::string::npos);
   EXPECT_NE(manifest_text.find(".gitignore"), std::string::npos);
   EXPECT_NE(manifest_text.find("colcon_defaults.yaml"), std::string::npos);

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 
 WORKSPACE_SIDECARS = (
@@ -87,7 +89,35 @@ def _verify_archive(package_root: Path, workspace_root: Path, archive_path: Path
     )
 
 
-def _write_archive_sidecars(archive_path: Path, source_files: list[str]) -> tuple[Path, Path]:
+def _read_package_version(package_root: Path) -> str:
+    package_xml = package_root / "package.xml"
+    if not package_xml.is_file():
+        raise FileNotFoundError(f"package.xml does not exist: {package_xml}")
+    root = ET.parse(package_xml).getroot()
+    version = root.findtext("version", default="").strip()
+    if not version:
+        raise RuntimeError(f"package.xml is missing a <version> entry: {package_xml}")
+    return version
+
+
+def _git_commit(workspace_root: Path) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(workspace_root), "rev-parse", "HEAD"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return "unknown"
+    return completed.stdout.strip() or "unknown"
+
+
+def _write_archive_sidecars(archive_path: Path,
+                            source_files: list[str],
+                            package_version: str,
+                            git_commit: str,
+                            generated_at_utc: str) -> tuple[Path, Path]:
     manifest_path = archive_path.with_suffix(archive_path.suffix + ".manifest.txt")
     sha256_path = archive_path.with_suffix(archive_path.suffix + ".sha256")
 
@@ -96,6 +126,9 @@ def _write_archive_sidecars(archive_path: Path, source_files: list[str]) -> tupl
     manifest_lines = [
         f"archive={archive_path.name}",
         f"sha256={archive_hash}",
+        f"package_version={package_version}",
+        f"git_commit={git_commit}",
+        f"generated_at_utc={generated_at_utc}",
         f"file_count={len(normalized_files)}",
         "files:",
     ]
@@ -125,6 +158,9 @@ def main() -> int:
     source_files = _source_files(package_root, workspace_root)
     if not source_files:
         raise RuntimeError(f"no source files found for package root {package_root}")
+    package_version = _read_package_version(package_root)
+    git_commit = _git_commit(workspace_root)
+    generated_at_utc = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
 
     if archive_path.exists():
         archive_path.unlink()
@@ -135,7 +171,11 @@ def main() -> int:
 
     _verify_archive(package_root, workspace_root, archive_path)
     manifest_path, sha256_path = _write_archive_sidecars(
-        archive_path, [archive_relative for _, archive_relative in source_files]
+        archive_path,
+        [archive_relative for _, archive_relative in source_files],
+        package_version,
+        git_commit,
+        generated_at_utc,
     )
     print(f"verified source archive created: {archive_path}")
     print(f"archive manifest written: {manifest_path}")

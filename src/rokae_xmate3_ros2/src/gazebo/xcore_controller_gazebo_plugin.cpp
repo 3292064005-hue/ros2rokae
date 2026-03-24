@@ -636,15 +636,11 @@ XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
     }
 
     runtime::ShutdownContractView state;
-    state.accepted = runtime_context_ != nullptr;
     if (!runtime_context_) {
         state.owner = runtime::ControlOwner::none;
         state.runtime_phase = runtime::RuntimePhase::faulted;
         state.shutdown_phase = runtime::ShutdownPhase::faulted;
         state.message = "runtime context unavailable";
-        state.owner_none = true;
-        state.runtime_idle = true;
-        state.backend_quiescent = true;
         state.safe_to_delete = false;
         state.safe_to_stop_world = false;
         return state;
@@ -676,7 +672,9 @@ XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
     inputs.backend.message = shutdown_prepared_ ? "shutdown prepared" : "shutdown requested";
 
     state = shutdown_coordinator_.observe(inputs);
-    state.accepted = state.accepted && shutdown_prepared_;
+    if (!shutdown_prepared_ && state.shutdown_phase != runtime::ShutdownPhase::faulted) {
+        state.message = "shutdown not prepared";
+    }
     return state;
 }
 
@@ -891,19 +889,15 @@ void XCoreControllerPlugin::InitROS2() {
         [this](const std::shared_ptr<rokae_xmate3_ros2::srv::PrepareShutdown::Request>,
                std::shared_ptr<rokae_xmate3_ros2::srv::PrepareShutdown::Response> response) {
           const auto state = collectShutdownContractState(true);
-          response->accepted = state.accepted;
-          response->owner_none = state.owner_none;
-          response->runtime_idle = state.runtime_idle;
-          response->backend_quiescent = state.backend_quiescent;
-          response->safe_to_delete = state.safe_to_delete;
-          response->safe_to_stop_world = state.safe_to_stop_world;
+          response->owner = runtime::to_string(state.owner);
+          response->runtime_phase = runtime::to_string(state.runtime_phase);
+          response->shutdown_phase = runtime::to_string(state.shutdown_phase);
           response->active_request_count =
               static_cast<decltype(response->active_request_count)>(state.active_request_count);
           response->active_goal_count =
               static_cast<decltype(response->active_goal_count)>(state.active_goal_count);
-          response->owner = runtime::to_string(state.owner);
-          response->runtime_phase = runtime::to_string(state.runtime_phase);
-          response->shutdown_phase = runtime::to_string(state.shutdown_phase);
+          response->safe_to_delete = state.safe_to_delete;
+          response->safe_to_stop_world = state.safe_to_stop_world;
           response->message = state.message;
           RCLCPP_INFO(
               node_->get_logger(),

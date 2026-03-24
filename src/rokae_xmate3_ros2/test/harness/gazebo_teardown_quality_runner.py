@@ -126,8 +126,7 @@ class TeardownQualityProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin, Run
 
             shutdown_phases.append(response.shutdown_phase)
             final_detail = (
-                f"accepted={response.accepted} owner={response.owner} owner_none={response.owner_none} "
-                f"runtime_idle={response.runtime_idle} backend_quiescent={response.backend_quiescent} "
+                f"owner={response.owner} "
                 f"safe_to_delete={response.safe_to_delete} safe_to_stop_world={response.safe_to_stop_world} "
                 f"active_request_count={response.active_request_count} "
                 f"active_goal_count={response.active_goal_count} "
@@ -138,11 +137,7 @@ class TeardownQualityProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin, Run
             sys.stdout.flush()
 
             if (
-                response.accepted
-                and response.owner_none
-                and response.runtime_idle
-                and response.backend_quiescent
-                and response.safe_to_delete
+                response.safe_to_delete
                 and response.safe_to_stop_world
                 and response.active_request_count == 0
                 and response.active_goal_count == 0

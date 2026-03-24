@@ -343,7 +343,6 @@ TEST(MotionRuntimeStateTest, ShutdownCoordinatorExposesMonotonicPhaseProgression
   inputs.backend.backend_quiescent = false;
 
   const auto draining = coordinator.observe(inputs);
-  EXPECT_TRUE(draining.accepted);
   EXPECT_EQ(draining.owner, rt::ControlOwner::trajectory);
   EXPECT_EQ(draining.runtime_phase, rt::RuntimePhase::executing);
   EXPECT_EQ(draining.shutdown_phase, rt::ShutdownPhase::draining);

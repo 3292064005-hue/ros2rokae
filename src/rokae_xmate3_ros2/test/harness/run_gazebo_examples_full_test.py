@@ -383,16 +383,8 @@ def _prepare_plugin_shutdown(sink) -> bool:
                 sink.flush()
                 return False
             sink.write(
-                "[harness] prepare shutdown: accepted="
-                + str(response.accepted)
-                + " owner="
+                "[harness] prepare shutdown: owner="
                 + str(response.owner)
-                + " owner_none="
-                + str(response.owner_none)
-                + " runtime_idle="
-                + str(response.runtime_idle)
-                + " backend_quiescent="
-                + str(response.backend_quiescent)
                 + " safe_to_delete="
                 + str(response.safe_to_delete)
                 + " safe_to_stop_world="
@@ -410,7 +402,7 @@ def _prepare_plugin_shutdown(sink) -> bool:
                 + "\n"
             )
             sink.flush()
-            if response.accepted and response.safe_to_delete:
+            if response.safe_to_delete:
                 return True
             time.sleep(0.25)
         sink.write("[harness] prepare shutdown never reached safe_to_delete\n")
