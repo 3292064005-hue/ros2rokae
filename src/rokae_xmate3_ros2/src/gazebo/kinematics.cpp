@@ -154,136 +154,30 @@ xMate3Kinematics::SingularityAnalysis::SingularityAnalysis()
 std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolution(
         const std::vector<double>& target,
         const std::vector<double>& current_joints) {
-    Matrix4d T_target = rpyToTransform(target);
-
-    if (backend_) {
-        auto request = makeSeededIkRequest(
-            T_target,
-            current_joints,
-            joint_limits_min_,
-            joint_limits_max_,
-            16,
-            1e-5,
-            1e-3,
-            0.8,
-            0.05,
-            0.02,
-            0.5,
-            5e-3);
-        const auto backend_solutions = backend_->inverseKinematicsMultiBranch(request);
-        if (!backend_solutions.empty()) {
-            return backend_solutions;
-        }
+    if (!backend_ || target.size() < 6 || current_joints.size() < 6) {
+        return {};
     }
 
-    const double orientation_weight = 0.8;
-    const double duplicate_threshold = 0.05;
-
-    auto solveFromSeed = [&](std::vector<double> joints) -> std::pair<std::vector<double>, double> {
-        auto solved = inverseKinematicsSeededFast(target, joints);
-        if (solved.empty()) {
-            return {{}, std::numeric_limits<double>::infinity()};
-        }
-
-        Matrix4d T_final = forwardKinematics(solved);
-        Vector6d final_error = computePoseError(T_target, T_final);
-        const double score = final_error.head<3>().norm() + orientation_weight * final_error.tail<3>().norm();
-        return {solved, score};
-    };
-
-    std::vector<std::vector<double>> seeds;
-    {
-        std::vector<double> seed = current_joints;
-        if (analyzeSingularity(seed).near_singularity) {
-            avoidSingularity(seed);
-        }
-        seeds.push_back(seed);
+    const auto request = makeSeededIkRequest(
+        rpyToTransform(target),
+        current_joints,
+        joint_limits_min_,
+        joint_limits_max_,
+        16,
+        1e-5,
+        1e-3,
+        0.8,
+        0.05,
+        0.02,
+        0.5,
+        5e-3);
+    const auto solved = backend_->solveMultiBranch(request);
+    std::vector<std::vector<double>> candidates;
+    candidates.reserve(solved.candidates.size());
+    for (const auto &candidate : solved.candidates) {
+        candidates.push_back(candidate.joints);
     }
-    {
-        std::vector<double> seed_shoulder_left = current_joints;
-        seed_shoulder_left[0] = std::clamp(2.0, joint_limits_min_[0], joint_limits_max_[0]);
-        seed_shoulder_left[4] = 0.3;
-        seeds.push_back(seed_shoulder_left);
-    }
-    {
-        std::vector<double> seed_shoulder_right = current_joints;
-        seed_shoulder_right[0] = std::clamp(-2.0, joint_limits_min_[0], joint_limits_max_[0]);
-        seed_shoulder_right[4] = -0.3;
-        seeds.push_back(seed_shoulder_right);
-    }
-    {
-        std::vector<double> seed_elbow_up = current_joints;
-        seed_elbow_up[2] = std::clamp(1.5, joint_limits_min_[2], joint_limits_max_[2]);
-        seed_elbow_up[4] = 0.4;
-        seeds.push_back(seed_elbow_up);
-    }
-    {
-        std::vector<double> seed_elbow_down = current_joints;
-        seed_elbow_down[2] = std::clamp(-1.5, joint_limits_min_[2], joint_limits_max_[2]);
-        seed_elbow_down[4] = -0.4;
-        seeds.push_back(seed_elbow_down);
-    }
-    {
-        std::vector<double> seed_sing_avoid1 = current_joints;
-        seed_sing_avoid1[4] = 0.5;
-        seeds.push_back(seed_sing_avoid1);
-    }
-    {
-        std::vector<double> seed_sing_avoid2 = current_joints;
-        seed_sing_avoid2[4] = -0.5;
-        seeds.push_back(seed_sing_avoid2);
-    }
-    {
-        std::vector<double> seed_wrist_flip = current_joints;
-        seed_wrist_flip[5] = std::clamp(M_PI, joint_limits_min_[5], joint_limits_max_[5]);
-        seed_wrist_flip[4] = 0.25;
-        seeds.push_back(seed_wrist_flip);
-    }
-    {
-        std::vector<double> seed_wrist_noflip = current_joints;
-        seed_wrist_noflip[5] = std::clamp(0.0, joint_limits_min_[5], joint_limits_max_[5]);
-        seed_wrist_noflip[4] = -0.25;
-        seeds.push_back(seed_wrist_noflip);
-    }
-    std::vector<std::vector<double>> candidate_solutions;
-    for (const auto& seed : seeds) {
-        auto [candidate_joints, score] = solveFromSeed(seed);
-        if (score < std::numeric_limits<double>::infinity()) {
-            candidate_solutions.push_back(candidate_joints);
-        }
-    }
-
-    std::vector<std::vector<double>> unique_solutions;
-    for (const auto& sol : candidate_solutions) {
-        bool is_duplicate = false;
-        for (const auto& unique_sol : unique_solutions) {
-            double diff_norm = 0.0;
-            for (int i = 0; i < 6; ++i) {
-                diff_norm += std::pow(sol[i] - unique_sol[i], 2);
-            }
-            diff_norm = std::sqrt(diff_norm);
-            if (diff_norm < duplicate_threshold) {
-                is_duplicate = true;
-                break;
-            }
-        }
-        if (!is_duplicate) {
-            unique_solutions.push_back(sol);
-        }
-    }
-
-    std::sort(unique_solutions.begin(), unique_solutions.end(),
-        [&current_joints](const std::vector<double>& a, const std::vector<double>& b) {
-            double dist_a = 0.0;
-            double dist_b = 0.0;
-            for (int i = 0; i < 6; ++i) {
-                dist_a += std::fabs(a[i] - current_joints[i]);
-                dist_b += std::fabs(b[i] - current_joints[i]);
-            }
-            return dist_a < dist_b;
-        });
-
-    return unique_solutions;
+    return candidates;
 }
 
 std::vector<double> xMate3Kinematics::inverseKinematics(
@@ -299,112 +193,24 @@ std::vector<double> xMate3Kinematics::inverseKinematics(
 std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
         const std::vector<double>& target,
         const std::vector<double>& seed_joints) {
-    if (target.size() < 6 || seed_joints.size() < 6) {
+    if (!backend_ || target.size() < 6 || seed_joints.size() < 6) {
         return {};
     }
 
-    Matrix4d T_target = rpyToTransform(target);
-    const int max_iter = 16;
-    const double position_tolerance = 1e-5;
-    const double orientation_tolerance = 1e-3;
-    const double orientation_weight = 0.8;
-    const double max_joint_step = 0.05;
-    const double min_lambda = 0.02;
-    const double max_lambda = 0.5;
-    const double solution_valid_threshold = 5e-3;
-
-    if (backend_) {
-        auto request = makeSeededIkRequest(
-            T_target,
-            seed_joints,
-            joint_limits_min_,
-            joint_limits_max_,
-            max_iter,
-            position_tolerance,
-            orientation_tolerance,
-            orientation_weight,
-            max_joint_step,
-            min_lambda,
-            max_lambda,
-            solution_valid_threshold);
-        auto solved = backend_->inverseKinematicsSeeded(request);
-        if (!solved.empty()) {
-            return solved;
-        }
-    }
-
-    std::vector<double> joints = seed_joints;
-    if (analyzeSingularity(joints).near_singularity) {
-        avoidSingularity(joints);
-    }
-
-    double best_score = std::numeric_limits<double>::infinity();
-    std::vector<double> best_joints = joints;
-
-    for (int iter = 0; iter < max_iter; ++iter) {
-        Matrix4d T_current = forwardKinematics(joints);
-        Vector6d error = computePoseError(T_target, T_current);
-
-        const double pos_err = error.head<3>().norm();
-        const double ori_err = error.tail<3>().norm();
-        const double current_score = pos_err + orientation_weight * ori_err;
-        if (current_score < best_score) {
-            best_score = current_score;
-            best_joints = joints;
-        }
-        if (pos_err < position_tolerance && ori_err < orientation_tolerance) {
-            break;
-        }
-
-        const auto singularity = analyzeSingularity(joints);
-        Matrix6d W = Matrix6d::Identity();
-        W(3,3) = W(4,4) = W(5,5) = orientation_weight;
-        if (singularity.near_singularity) {
-            W(3,3) *= 0.3;
-            W(4,4) *= 0.3;
-            W(5,5) *= 0.3;
-        }
-
-        Vector6d err_w = error;
-        err_w.tail<3>() *= W(3,3);
-        const Matrix6d Jw = W * singularity.jacobian;
-        const double lambda_base = min_lambda + max_lambda * (1.0 - static_cast<double>(iter) / max_iter);
-        const double lambda = lambda_base * (1.0 + 2.0 * singularity.singularity_measure);
-        const Matrix6d JJt = Jw * Jw.transpose();
-        Vector6d delta_q =
-            Jw.transpose() * (JJt + lambda * lambda * Matrix6d::Identity()).inverse() * err_w;
-
-        const double step_scale = singularity.near_singularity ? 0.6 : 1.0;
-        for (int i = 0; i < 6; ++i) {
-            double step = delta_q(i);
-            step = std::clamp(step, -max_joint_step * step_scale, max_joint_step * step_scale);
-            joints[i] += step;
-            joints[i] = std::clamp(joints[i], joint_limits_min_[i], joint_limits_max_[i]);
-        }
-    }
-
-    Matrix4d T_final = forwardKinematics(joints);
-    Vector6d final_error = computePoseError(T_target, T_final);
-    double final_pos_err = final_error.head<3>().norm();
-    double final_ori_err = final_error.tail<3>().norm();
-    double final_score = final_pos_err + orientation_weight * final_ori_err;
-
-    Matrix4d T_best = forwardKinematics(best_joints);
-    Vector6d best_error = computePoseError(T_target, T_best);
-    const double best_pos_err = best_error.head<3>().norm();
-    const double best_ori_err = best_error.tail<3>().norm();
-    const double best_final_score = best_pos_err + orientation_weight * best_ori_err;
-    if (best_final_score < final_score) {
-        joints = best_joints;
-        final_pos_err = best_pos_err;
-        final_ori_err = best_ori_err;
-    }
-
-    if (final_pos_err > solution_valid_threshold || final_ori_err > solution_valid_threshold) {
-        return {};
-    }
-
-    return joints;
+    const auto request = makeSeededIkRequest(
+        rpyToTransform(target),
+        seed_joints,
+        joint_limits_min_,
+        joint_limits_max_,
+        16,
+        1e-5,
+        1e-3,
+        0.8,
+        0.05,
+        0.02,
+        0.5,
+        5e-3);
+    return backend_->solveSeeded(request).joints;
 }
 
 xMate3Kinematics::Matrix6d xMate3Kinematics::computeJacobian(const std::vector<double>& joints) {
@@ -430,30 +236,28 @@ xMate3Kinematics::Matrix6d xMate3Kinematics::computeJacobian(const std::vector<d
 
 xMate3Kinematics::SingularityAnalysis xMate3Kinematics::analyzeSingularity(const std::vector<double>& joints) {
     SingularityAnalysis analysis;
-    if (joints.size() < 6) {
+    if (!backend_ || joints.size() < 6) {
         return analysis;
-    }
-
-    double wrist_measure = 0.0;
-    const double j5 = std::fabs(joints[4]);
-    if (j5 < WRIST_SINGULARITY_THRESHOLD) {
-        wrist_measure = 1.0 - (j5 / WRIST_SINGULARITY_THRESHOLD);
     }
 
     analysis.jacobian = computeJacobian(joints);
     ++debug_counters_.svd_calls;
-    analysis.svd = JacobiSVD<Matrix6d>(analysis.jacobian, ComputeFullU | ComputeFullV);
-    if (analysis.svd.singularValues().size() == 0) {
-        return analysis;
-    }
-
-    analysis.min_sigma = analysis.svd.singularValues().tail<1>()(0);
-    const double jacobian_measure = std::clamp(
-        1.0 - (analysis.min_sigma / JACOBIAN_SINGULARITY_THRESHOLD), 0.0, 1.0);
-    analysis.singularity_measure = std::max(wrist_measure, jacobian_measure);
-    analysis.near_singularity =
-        std::fabs(joints[4]) < WRIST_SINGULARITY_THRESHOLD ||
-        analysis.min_sigma < JACOBIAN_SINGULARITY_THRESHOLD;
+    const auto request = makeSeededIkRequest(
+        forwardKinematics(joints),
+        joints,
+        joint_limits_min_,
+        joint_limits_max_,
+        16,
+        1e-5,
+        1e-3,
+        0.8,
+        0.05,
+        0.02,
+        0.5,
+        5e-3);
+    const auto metrics = backend_->evaluateSeededIkCandidate(request, joints);
+    analysis.singularity_measure = metrics.singularity_metric;
+    analysis.near_singularity = metrics.near_singularity;
     return analysis;
 }
 

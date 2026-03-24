@@ -11,6 +11,31 @@
 namespace rokae_xmate3_ros2::runtime {
 namespace {
 
+struct QuinticBlendSample {
+  double position = 0.0;
+  double velocity = 0.0;
+  double acceleration = 0.0;
+};
+
+[[nodiscard]] QuinticBlendSample sample_quintic_blend(double u, double total_scale, double total_time) {
+  const double clamped_u = std::clamp(u, 0.0, 1.0);
+  const double u2 = clamped_u * clamped_u;
+  const double u3 = u2 * clamped_u;
+  const double u4 = u3 * clamped_u;
+  const double u5 = u4 * clamped_u;
+  const double blend = 10.0 * u3 - 15.0 * u4 + 6.0 * u5;
+  const double blend_dot = 30.0 * u2 - 60.0 * u3 + 30.0 * u4;
+  const double blend_ddot = 60.0 * clamped_u - 180.0 * u2 + 120.0 * u3;
+
+  QuinticBlendSample sample;
+  sample.position = total_scale * blend;
+  if (total_time > 1e-9) {
+    sample.velocity = total_scale * blend_dot / total_time;
+    sample.acceleration = total_scale * blend_ddot / (total_time * total_time);
+  }
+  return sample;
+}
+
 std::array<double, 6> uniform_axis_limits(double value, double minimum_limit) {
   std::array<double, 6> limits{};
   const double resolved = std::max(value, minimum_limit);
@@ -58,6 +83,193 @@ struct ReplayVectorSample {
     return fallback_time;
   }
   return std::max(requested, fallback_time - min_step);
+}
+
+[[nodiscard]] double joint_segment_length(const std::vector<double> &lhs,
+                                          const std::vector<double> &rhs) {
+  double sum_sq = 0.0;
+  for (std::size_t index = 0; index < lhs.size() && index < rhs.size(); ++index) {
+    const double delta = rhs[index] - lhs[index];
+    sum_sq += delta * delta;
+  }
+  return std::sqrt(sum_sq);
+}
+
+[[nodiscard]] std::vector<std::vector<double>> normalize_joint_waypoints(
+    const std::vector<std::vector<double>> &waypoints) {
+  std::vector<std::vector<double>> normalized;
+  normalized.reserve(waypoints.size());
+  for (const auto &waypoint : waypoints) {
+    if (waypoint.empty()) {
+      continue;
+    }
+    if (!normalized.empty() && joint_segment_length(normalized.back(), waypoint) < 1e-9) {
+      continue;
+    }
+    normalized.push_back(waypoint);
+  }
+  return normalized;
+}
+
+[[nodiscard]] std::array<double, 6> joint_path_axis_travel(
+    const std::vector<std::vector<double>> &waypoints) {
+  std::array<double, 6> travel{};
+  for (std::size_t point_index = 1; point_index < waypoints.size(); ++point_index) {
+    const auto &lhs = waypoints[point_index - 1];
+    const auto &rhs = waypoints[point_index];
+    for (std::size_t axis = 0; axis < 6 && axis < lhs.size() && axis < rhs.size(); ++axis) {
+      travel[axis] += std::fabs(rhs[axis] - lhs[axis]);
+    }
+  }
+  return travel;
+}
+
+[[nodiscard]] std::vector<double> cumulative_joint_path_lengths(
+    const std::vector<std::vector<double>> &waypoints) {
+  std::vector<double> cumulative(waypoints.size(), 0.0);
+  for (std::size_t point_index = 1; point_index < waypoints.size(); ++point_index) {
+    cumulative[point_index] =
+        cumulative[point_index - 1] + joint_segment_length(waypoints[point_index - 1], waypoints[point_index]);
+  }
+  return cumulative;
+}
+
+[[nodiscard]] int determine_path_interval_count(double total_time,
+                                                double requested_dt,
+                                                double total_axis_travel,
+                                                double max_joint_step_rad,
+                                                double min_sample_dt,
+                                                double max_sample_dt) {
+  if (total_time <= 1e-9) {
+    return 1;
+  }
+
+  const double clamped_max_dt = std::clamp(requested_dt, min_sample_dt, max_sample_dt);
+  const int time_intervals = std::max(1, static_cast<int>(std::ceil(total_time / clamped_max_dt)));
+  const int path_intervals = max_joint_step_rad > 1e-9
+                                 ? std::max(1, static_cast<int>(std::ceil(total_axis_travel / max_joint_step_rad)))
+                                 : 1;
+  const int min_dt_intervals = std::max(1, static_cast<int>(std::ceil(total_time / min_sample_dt)));
+  return std::clamp(std::max(time_intervals, path_intervals), 1, min_dt_intervals);
+}
+
+struct JointPathInterpolation {
+  std::vector<double> position;
+  std::vector<double> tangent;
+};
+
+[[nodiscard]] JointPathInterpolation interpolate_joint_path(
+    const std::vector<std::vector<double>> &waypoints,
+    const std::vector<double> &cumulative_lengths,
+    double path_length) {
+  JointPathInterpolation sample;
+  if (waypoints.empty()) {
+    return sample;
+  }
+  if (waypoints.size() == 1 || cumulative_lengths.empty()) {
+    sample.position = waypoints.front();
+    sample.tangent.assign(sample.position.size(), 0.0);
+    return sample;
+  }
+
+  const double clamped_path_length =
+      std::clamp(path_length, 0.0, cumulative_lengths.back());
+  auto upper = std::lower_bound(cumulative_lengths.begin(), cumulative_lengths.end(), clamped_path_length);
+  std::size_t segment_index = 0;
+  if (upper == cumulative_lengths.begin()) {
+    segment_index = 0;
+  } else if (upper == cumulative_lengths.end()) {
+    segment_index = cumulative_lengths.size() - 2;
+  } else {
+    segment_index = static_cast<std::size_t>(std::distance(cumulative_lengths.begin(), upper) - 1);
+  }
+
+  while (segment_index + 1 < waypoints.size()) {
+    const double segment_length = cumulative_lengths[segment_index + 1] - cumulative_lengths[segment_index];
+    if (segment_length > 1e-9) {
+      const double alpha =
+          std::clamp((clamped_path_length - cumulative_lengths[segment_index]) / segment_length, 0.0, 1.0);
+      sample.position.assign(waypoints[segment_index].size(), 0.0);
+      sample.tangent.assign(waypoints[segment_index].size(), 0.0);
+      for (std::size_t axis = 0; axis < waypoints[segment_index].size() &&
+                                 axis < waypoints[segment_index + 1].size();
+           ++axis) {
+        const double lhs = waypoints[segment_index][axis];
+        const double rhs = waypoints[segment_index + 1][axis];
+        sample.position[axis] = lhs + alpha * (rhs - lhs);
+        sample.tangent[axis] = (rhs - lhs) / segment_length;
+      }
+      return sample;
+    }
+    ++segment_index;
+  }
+
+  sample.position = waypoints.back();
+  sample.tangent.assign(sample.position.size(), 0.0);
+  return sample;
+}
+
+[[nodiscard]] double cartesian_segment_length(const std::vector<double> &lhs,
+                                              const std::vector<double> &rhs) {
+  const Eigen::Vector3d lhs_position(lhs[0], lhs[1], lhs[2]);
+  const Eigen::Vector3d rhs_position(rhs[0], rhs[1], rhs[2]);
+  const double position_length = (rhs_position - lhs_position).norm();
+  const double orientation_length = pose_utils::angularDistance(lhs, rhs);
+  return position_length + 0.1 * orientation_length;
+}
+
+[[nodiscard]] std::vector<double> cumulative_cartesian_path_lengths(
+    const std::vector<std::vector<double>> &poses) {
+  std::vector<double> cumulative(poses.size(), 0.0);
+  for (std::size_t point_index = 1; point_index < poses.size(); ++point_index) {
+    cumulative[point_index] =
+        cumulative[point_index - 1] + cartesian_segment_length(poses[point_index - 1], poses[point_index]);
+  }
+  return cumulative;
+}
+
+[[nodiscard]] std::vector<double> interpolate_cartesian_pose(
+    const std::vector<std::vector<double>> &poses,
+    const std::vector<double> &cumulative_lengths,
+    double path_length) {
+  if (poses.empty()) {
+    return {};
+  }
+  if (poses.size() == 1 || cumulative_lengths.empty()) {
+    return poses.front();
+  }
+
+  const double clamped_path_length =
+      std::clamp(path_length, 0.0, cumulative_lengths.back());
+  auto upper = std::lower_bound(cumulative_lengths.begin(), cumulative_lengths.end(), clamped_path_length);
+  std::size_t segment_index = 0;
+  if (upper == cumulative_lengths.begin()) {
+    segment_index = 0;
+  } else if (upper == cumulative_lengths.end()) {
+    segment_index = cumulative_lengths.size() - 2;
+  } else {
+    segment_index = static_cast<std::size_t>(std::distance(cumulative_lengths.begin(), upper) - 1);
+  }
+
+  while (segment_index + 1 < poses.size()) {
+    const double segment_length = cumulative_lengths[segment_index + 1] - cumulative_lengths[segment_index];
+    if (segment_length > 1e-9) {
+      const double alpha =
+          std::clamp((clamped_path_length - cumulative_lengths[segment_index]) / segment_length, 0.0, 1.0);
+      const auto lhs = pose_utils::poseToIsometry(poses[segment_index]);
+      const auto rhs = pose_utils::poseToIsometry(poses[segment_index + 1]);
+      Eigen::Isometry3d interpolated = Eigen::Isometry3d::Identity();
+      interpolated.translation() =
+          lhs.translation() + alpha * (rhs.translation() - lhs.translation());
+      const Eigen::Quaterniond lhs_q(lhs.linear());
+      const Eigen::Quaterniond rhs_q(rhs.linear());
+      interpolated.linear() = lhs_q.slerp(alpha, rhs_q).toRotationMatrix();
+      return pose_utils::isometryToPose(interpolated);
+    }
+    ++segment_index;
+  }
+
+  return poses.back();
 }
 
 [[nodiscard]] std::vector<ReplayVectorSample> normalize_replay_samples(const ReplayPathAsset &asset,
@@ -184,32 +396,183 @@ UnifiedRetimerLimits makeUnifiedRetimerLimits(double max_velocity,
   return limits;
 }
 
-QuinticRetimerResult retimeJointWithUnifiedConfig(const std::vector<double> &start,
-                                                  const std::vector<double> &target,
-                                                  double sample_dt,
-                                                  double max_velocity,
-                                                  double max_acceleration,
-                                                  double blend_radius) {
+UnifiedTrajectoryResult retimeJointWithUnifiedConfig(const std::vector<double> &start,
+                                                     const std::vector<double> &target,
+                                                     double sample_dt,
+                                                     double max_velocity,
+                                                     double max_acceleration,
+                                                     double blend_radius) {
+  return retimeJointPathWithUnifiedConfig(
+      {start, target}, sample_dt, max_velocity, max_acceleration, blend_radius);
+}
+
+UnifiedTrajectoryResult retimeJointWithUnifiedLimits(const std::vector<double> &start,
+                                                     const std::vector<double> &target,
+                                                     double sample_dt,
+                                                     const std::array<double, 6> &velocity_limits,
+                                                     const std::array<double, 6> &acceleration_limits) {
+  return retimeJointPathWithUnifiedLimits({start, target}, sample_dt, velocity_limits, acceleration_limits);
+}
+
+std::array<double, 6> scaledUnifiedVelocityLimits(double speed_mm_per_s) {
+  const auto planner_config = ::gazebo::TrajectoryPlanner::config();
+  auto limits = planner_config.joint_speed_limits_rad_per_sec;
+  const double scale = std::max(
+      std::clamp(speed_mm_per_s,
+                 planner_config.min_nrt_speed_mm_per_s,
+                 planner_config.max_nrt_speed_mm_per_s) /
+          planner_config.max_nrt_speed_mm_per_s,
+      0.05);
+  for (double &value : limits) {
+    value *= scale;
+  }
+  return limits;
+}
+
+std::array<double, 6> scaledUnifiedAccelerationLimits(double speed_mm_per_s) {
+  const auto planner_config = ::gazebo::TrajectoryPlanner::config();
+  auto limits = planner_config.joint_acc_limits_rad_per_sec2;
+  const double scale = std::max(
+      std::clamp(speed_mm_per_s,
+                 planner_config.min_nrt_speed_mm_per_s,
+                 planner_config.max_nrt_speed_mm_per_s) /
+          planner_config.max_nrt_speed_mm_per_s,
+      0.05);
+  for (double &value : limits) {
+    value *= scale * scale;
+  }
+  return limits;
+}
+
+UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
+    const std::vector<std::vector<double>> &waypoints,
+    double sample_dt,
+    const std::array<double, 6> &velocity_limits,
+    const std::array<double, 6> &acceleration_limits) {
+  UnifiedTrajectoryResult result;
+  const auto normalized_waypoints = normalize_joint_waypoints(waypoints);
+  if (normalized_waypoints.empty()) {
+    result.error_message = "joint path is empty";
+    return result;
+  }
+
+  if (normalized_waypoints.size() == 1) {
+    result.positions = normalized_waypoints;
+    result.velocities.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
+    result.accelerations.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
+    result.sample_dt = std::max(sample_dt, 1e-3);
+    result.total_time = 0.0;
+    return result;
+  }
+
   const auto config = makeUnifiedRetimerConfig(sample_dt);
+  const auto cumulative_lengths = cumulative_joint_path_lengths(normalized_waypoints);
+  const double total_path_length = cumulative_lengths.empty() ? 0.0 : cumulative_lengths.back();
+  if (total_path_length <= 1e-9) {
+    result.positions = {normalized_waypoints.front()};
+    result.velocities.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
+    result.accelerations.assign(1, std::vector<double>(normalized_waypoints.front().size(), 0.0));
+    result.sample_dt = std::clamp(config.sample_dt, config.min_sample_dt, config.max_sample_dt);
+    result.total_time = 0.0;
+    return result;
+  }
+
+  std::vector<double> path_start(6, 0.0);
+  const auto axis_travel = joint_path_axis_travel(normalized_waypoints);
+  const std::vector<double> path_target(axis_travel.begin(), axis_travel.end());
+  result.total_time = computeJointRetimerDuration(path_start, path_target, velocity_limits, acceleration_limits);
+  const double max_axis_travel =
+      *std::max_element(axis_travel.begin(), axis_travel.end());
+  const int interval_count = determine_path_interval_count(
+      result.total_time,
+      config.sample_dt,
+      max_axis_travel,
+      config.max_joint_step_rad,
+      config.min_sample_dt,
+      config.max_sample_dt);
+  result.sample_dt = result.total_time / static_cast<double>(interval_count);
+  result.positions.reserve(static_cast<std::size_t>(interval_count) + 1);
+  result.velocities.reserve(static_cast<std::size_t>(interval_count) + 1);
+  result.accelerations.reserve(static_cast<std::size_t>(interval_count) + 1);
+
+  for (int index = 0; index <= interval_count; ++index) {
+    const double u = static_cast<double>(index) / static_cast<double>(interval_count);
+    const auto path_sample = sample_quintic_blend(u, total_path_length, result.total_time);
+    const auto interpolated =
+        interpolate_joint_path(normalized_waypoints, cumulative_lengths, path_sample.position);
+    if (interpolated.position.empty()) {
+      continue;
+    }
+
+    std::vector<double> velocity(interpolated.position.size(), 0.0);
+    std::vector<double> acceleration(interpolated.position.size(), 0.0);
+    for (std::size_t axis = 0; axis < interpolated.position.size() && axis < interpolated.tangent.size(); ++axis) {
+      velocity[axis] = interpolated.tangent[axis] * path_sample.velocity;
+      acceleration[axis] = interpolated.tangent[axis] * path_sample.acceleration;
+    }
+
+    result.positions.push_back(interpolated.position);
+    result.velocities.push_back(std::move(velocity));
+    result.accelerations.push_back(std::move(acceleration));
+  }
+
+  result.total_time =
+      result.positions.size() > 1 ? result.sample_dt * static_cast<double>(result.positions.size() - 1) : 0.0;
+  if (!result.positions.empty()) {
+    result.positions.front() = normalized_waypoints.front();
+    result.positions.back() = normalized_waypoints.back();
+  }
+  return result;
+}
+
+UnifiedTrajectoryResult retimeJointPathWithUnifiedConfig(const std::vector<std::vector<double>> &waypoints,
+                                                         double sample_dt,
+                                                         double max_velocity,
+                                                         double max_acceleration,
+                                                         double blend_radius) {
   const auto limits = makeUnifiedRetimerLimits(max_velocity, max_acceleration, blend_radius);
-  return retimeJointQuintic(
-      start, target, config, limits.velocity_limits, limits.acceleration_limits);
+  return retimeJointPathWithUnifiedLimits(
+      waypoints, sample_dt, limits.velocity_limits, limits.acceleration_limits);
 }
 
-QuinticRetimerResult retimeJointWithUnifiedLimits(const std::vector<double> &start,
-                                                  const std::vector<double> &target,
-                                                  double sample_dt,
-                                                  const std::array<double, 6> &velocity_limits,
-                                                  const std::array<double, 6> &acceleration_limits) {
-  const auto config = makeUnifiedRetimerConfig(sample_dt);
-  return retimeJointQuintic(start, target, config, velocity_limits, acceleration_limits);
+UnifiedTrajectoryResult retimeJointPathWithUnifiedSpeed(const std::vector<std::vector<double>> &waypoints,
+                                                        double sample_dt,
+                                                        double speed_mm_per_s) {
+  return retimeJointPathWithUnifiedLimits(
+      waypoints, sample_dt, scaledUnifiedVelocityLimits(speed_mm_per_s), scaledUnifiedAccelerationLimits(speed_mm_per_s));
 }
 
-ApproximateCartesianRetimerResult buildApproximateCartesianSTrajectory(
+std::vector<std::vector<double>> resampleCartesianPosePath(const std::vector<std::vector<double>> &poses,
+                                                           std::size_t sample_count) {
+  if (poses.empty()) {
+    return {};
+  }
+  if (sample_count <= 1 || poses.size() == 1) {
+    return {poses.front()};
+  }
+
+  const auto cumulative_lengths = cumulative_cartesian_path_lengths(poses);
+  const double total_path_length = cumulative_lengths.empty() ? 0.0 : cumulative_lengths.back();
+  if (total_path_length <= 1e-9) {
+    return std::vector<std::vector<double>>(sample_count, poses.front());
+  }
+
+  std::vector<std::vector<double>> out;
+  out.reserve(sample_count);
+  for (std::size_t index = 0; index < sample_count; ++index) {
+    const double alpha = sample_count > 1 ? static_cast<double>(index) / static_cast<double>(sample_count - 1) : 0.0;
+    out.push_back(interpolate_cartesian_pose(poses, cumulative_lengths, alpha * total_path_length));
+  }
+  out.front() = poses.front();
+  out.back() = poses.back();
+  return out;
+}
+
+UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
     ::gazebo::xMate3Kinematics &kinematics,
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &request,
     double sample_dt) {
-  ApproximateCartesianRetimerResult result;
+  UnifiedTrajectoryResult result;
 
   std::vector<double> start(request.start_joint_pos.begin(), request.start_joint_pos.end());
   std::vector<double> target(request.target_joint_pos.begin(), request.target_joint_pos.end());
@@ -232,39 +595,50 @@ ApproximateCartesianRetimerResult buildApproximateCartesianSTrajectory(
                                              true,
                                              false,
                                              disabled_soft_limits(),
-                                             result.joint_trajectory,
+                                             result.positions,
                                              last_joints,
                                              result.error_message)) {
     return result;
   }
 
-  if (result.joint_trajectory.empty()) {
+  if (result.positions.empty()) {
     result.error_message = "cartesian joint sampling produced no trajectory points";
     return result;
   }
 
-  result.joint_trajectory.front() = start;
-  result.joint_trajectory.back() = target;
-  result.sample_dt = sample_dt;
-  if (!project_joint_derivatives_from_cartesian(kinematics,
-                                                cartesian_samples.points,
-                                                result.joint_trajectory,
-                                                sample_dt,
-                                                result.joint_velocity_trajectory,
-                                                result.joint_acceleration_trajectory)) {
-    result.joint_velocity_trajectory.assign(
-        result.joint_trajectory.size(), std::vector<double>(result.joint_trajectory.front().size(), 0.0));
-    result.joint_acceleration_trajectory.assign(
-        result.joint_trajectory.size(), std::vector<double>(result.joint_trajectory.front().size(), 0.0));
+  result.positions.front() = start;
+  result.positions.back() = target;
+
+  auto retimed = retimeJointPathWithUnifiedConfig(
+      result.positions, sample_dt, request.max_velocity, request.max_acceleration, request.blend_radius);
+  if (retimed.empty()) {
+    retimed.error_message = retimed.error_message.empty() ? "cartesian unified retimer failed" : retimed.error_message;
+    return retimed;
   }
-  result.total_time = cartesian_samples.total_time;
-  return result;
+
+  const auto resampled_cartesian =
+      resampleCartesianPosePath(cartesian_samples.points, retimed.positions.size());
+  if (!project_joint_derivatives_from_cartesian(kinematics,
+                                                resampled_cartesian,
+                                                retimed.positions,
+                                                retimed.sample_dt,
+                                                retimed.velocities,
+                                                retimed.accelerations)) {
+    if (retimed.velocities.size() != retimed.positions.size()) {
+      retimed.velocities.assign(retimed.positions.size(), std::vector<double>(retimed.positions.front().size(), 0.0));
+    }
+    if (retimed.accelerations.size() != retimed.positions.size()) {
+      retimed.accelerations.assign(
+          retimed.positions.size(), std::vector<double>(retimed.positions.front().size(), 0.0));
+    }
+  }
+  return retimed;
 }
 
-QuinticRetimerResult retimeReplayWithUnifiedConfig(const ReplayPathAsset &asset,
-                                                   double rate,
-                                                   double sample_dt) {
-  QuinticRetimerResult result;
+UnifiedTrajectoryResult retimeReplayWithUnifiedConfig(const ReplayPathAsset &asset,
+                                                      double rate,
+                                                      double sample_dt) {
+  UnifiedTrajectoryResult result;
   if (asset.samples.empty()) {
     return result;
   }

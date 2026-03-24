@@ -509,9 +509,13 @@ void QueryFacade::handleCalcIk(const rokae_xmate3_ros2::srv::CalcIk::Request &re
     candidates.insert(candidates.begin(), seeded_fast);
   }
   const auto soft_limit = motion_options_state_.softLimit();
-  const auto selected = select_ik_solution(
-      kinematics_, candidates, target, current, req.conf_data,
-      motion_options_state_.defaultConfOptForced(), true, soft_limit.enabled, soft_limit.limits);
+  ::gazebo::xMate3Kinematics::CartesianIkOptions ik_options;
+  ik_options.requested_conf.assign(req.conf_data.begin(), req.conf_data.end());
+  ik_options.strict_conf = motion_options_state_.defaultConfOptForced();
+  ik_options.avoid_singularity = true;
+  ik_options.soft_limit_enabled = soft_limit.enabled;
+  ik_options.soft_limits = soft_limit.limits;
+  const auto selected = kinematics_.selectBestIkSolution(candidates, target, current, ik_options);
   if (!selected.success) {
     res.success = false;
     res.message = selected.message;
@@ -667,7 +671,7 @@ void QueryFacade::handleGenerateSTrajectory(
     if (cartesian_retimed.empty()) {
       cartesian_fallback_to_joint = true;
     } else {
-      trajectory_positions = cartesian_retimed.joint_trajectory;
+      trajectory_positions = cartesian_retimed.positions;
       total_time = cartesian_retimed.total_time;
     }
   }

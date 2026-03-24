@@ -9,25 +9,8 @@
 
 namespace rokae_xmate3_ros2::runtime {
 
-struct IkSelection {
-  bool success = false;
-  std::vector<double> joints;
-  std::string message;
-};
-
 [[nodiscard]] double max_joint_step(const std::vector<double> &lhs,
                                     const std::vector<double> &rhs);
-
-[[nodiscard]] IkSelection select_ik_solution(
-    ::gazebo::xMate3Kinematics &kinematics,
-    const std::vector<std::vector<double>> &candidates,
-    const std::vector<double> &target_pose,
-    const std::vector<double> &seed_joints,
-    const std::vector<int> &requested_conf,
-    bool strict_conf,
-    bool avoid_singularity,
-    bool soft_limit_enabled,
-    const std::array<std::array<double, 2>, 6> &soft_limits);
 
 [[nodiscard]] bool build_joint_trajectory_from_cartesian(
     ::gazebo::xMate3Kinematics &kinematics,

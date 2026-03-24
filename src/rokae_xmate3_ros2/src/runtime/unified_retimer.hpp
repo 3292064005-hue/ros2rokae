@@ -17,16 +17,7 @@ struct UnifiedRetimerLimits {
   std::array<double, 6> acceleration_limits{};
 };
 
-struct ApproximateCartesianRetimerResult {
-  std::vector<std::vector<double>> joint_trajectory;
-  std::vector<std::vector<double>> joint_velocity_trajectory;
-  std::vector<std::vector<double>> joint_acceleration_trajectory;
-  double sample_dt = 0.0;
-  double total_time = 0.0;
-  std::string error_message;
-
-  [[nodiscard]] bool empty() const noexcept { return joint_trajectory.empty(); }
-};
+using UnifiedTrajectoryResult = QuinticRetimerResult;
 
 [[nodiscard]] JointRetimerConfig makeUnifiedRetimerConfig(double sample_dt);
 
@@ -49,12 +40,38 @@ struct ApproximateCartesianRetimerResult {
     const std::array<double, 6> &velocity_limits,
     const std::array<double, 6> &acceleration_limits);
 
-[[nodiscard]] ApproximateCartesianRetimerResult buildApproximateCartesianSTrajectory(
+[[nodiscard]] std::array<double, 6> scaledUnifiedVelocityLimits(double speed_mm_per_s);
+
+[[nodiscard]] std::array<double, 6> scaledUnifiedAccelerationLimits(double speed_mm_per_s);
+
+[[nodiscard]] UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
+    const std::vector<std::vector<double>> &waypoints,
+    double sample_dt,
+    const std::array<double, 6> &velocity_limits,
+    const std::array<double, 6> &acceleration_limits);
+
+[[nodiscard]] UnifiedTrajectoryResult retimeJointPathWithUnifiedConfig(
+    const std::vector<std::vector<double>> &waypoints,
+    double sample_dt,
+    double max_velocity,
+    double max_acceleration,
+    double blend_radius);
+
+[[nodiscard]] UnifiedTrajectoryResult retimeJointPathWithUnifiedSpeed(
+    const std::vector<std::vector<double>> &waypoints,
+    double sample_dt,
+    double speed_mm_per_s);
+
+[[nodiscard]] std::vector<std::vector<double>> resampleCartesianPosePath(
+    const std::vector<std::vector<double>> &poses,
+    std::size_t sample_count);
+
+[[nodiscard]] UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
     ::gazebo::xMate3Kinematics &kinematics,
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &request,
     double sample_dt);
 
-[[nodiscard]] QuinticRetimerResult retimeReplayWithUnifiedConfig(
+[[nodiscard]] UnifiedTrajectoryResult retimeReplayWithUnifiedConfig(
     const ReplayPathAsset &asset,
     double rate,
     double sample_dt);

@@ -2,6 +2,7 @@
 #define ROKAE_XMATE3_ROS2_RUNTIME_JOINT_RETIMER_HPP
 
 #include <array>
+#include <string>
 #include <vector>
 
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
@@ -37,6 +38,7 @@ struct QuinticRetimerResult {
   std::vector<std::vector<double>> accelerations;
   double sample_dt = 0.001;
   double total_time = 0.0;
+  std::string error_message;
 
   [[nodiscard]] bool empty() const noexcept { return positions.empty(); }
 };

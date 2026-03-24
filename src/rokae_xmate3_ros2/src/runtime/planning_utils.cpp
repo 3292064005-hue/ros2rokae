@@ -13,27 +13,6 @@ double max_joint_step(const std::vector<double> &lhs, const std::vector<double> 
   return max_step;
 }
 
-IkSelection select_ik_solution(
-    ::gazebo::xMate3Kinematics &kinematics,
-    const std::vector<std::vector<double>> &candidates,
-    const std::vector<double> &target_pose,
-    const std::vector<double> &seed_joints,
-    const std::vector<int> &requested_conf,
-    bool strict_conf,
-    bool avoid_singularity,
-    bool soft_limit_enabled,
-    const std::array<std::array<double, 2>, 6> &soft_limits) {
-  ::gazebo::xMate3Kinematics::CartesianIkOptions options;
-  options.requested_conf = requested_conf;
-  options.strict_conf = strict_conf;
-  options.avoid_singularity = avoid_singularity;
-  options.soft_limit_enabled = soft_limit_enabled;
-  options.soft_limits = soft_limits;
-
-  const auto selected = kinematics.selectBestIkSolution(candidates, target_pose, seed_joints, options);
-  return {selected.success, selected.joints, selected.message};
-}
-
 bool build_joint_trajectory_from_cartesian(
     ::gazebo::xMate3Kinematics &kinematics,
     const std::vector<std::vector<double>> &cartesian_trajectory,

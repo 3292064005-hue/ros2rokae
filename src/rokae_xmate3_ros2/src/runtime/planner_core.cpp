@@ -10,6 +10,7 @@
 
 #include "runtime/planning_utils.hpp"
 #include "runtime/pose_utils.hpp"
+#include "runtime/unified_retimer.hpp"
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
@@ -34,6 +35,14 @@ bool move_absj_violates_soft_limit(const std::vector<double> &joints,
     }
   }
   return false;
+}
+
+void apply_unified_trajectory(PlannedSegment &segment, const UnifiedTrajectoryResult &trajectory) {
+  segment.joint_trajectory = trajectory.positions;
+  segment.joint_velocity_trajectory = trajectory.velocities;
+  segment.joint_acceleration_trajectory = trajectory.accelerations;
+  segment.trajectory_dt = trajectory.sample_dt;
+  segment.trajectory_total_time = trajectory.total_time;
 }
 
 enum class BlendFamily { none, joint, cartesian_lookahead };
@@ -667,16 +676,26 @@ bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
       return false;
     }
 
+    const auto retimed = retimeJointPathWithUnifiedSpeed(
+        run_segment.segment.joint_trajectory, run_segment.segment.trajectory_dt, run_segment.segment.speed);
+    if (retimed.empty()) {
+      error_message = retimed.error_message.empty() ? "failed to retime Cartesian joint path"
+                                                    : retimed.error_message;
+      return false;
+    }
+    apply_unified_trajectory(run_segment.segment, retimed);
     run_segment.segment.target_joints = last_joints;
     run_segment.segment.target_cartesian = vector_from_pose(segment_final_pose(run_segment));
+    const auto retimed_cartesian_points =
+        resampleCartesianPosePath(cartesian_points, run_segment.segment.joint_trajectory.size());
     if (!project_joint_derivatives_from_cartesian(kinematics,
-                                                  cartesian_points,
+                                                  retimed_cartesian_points,
                                                   run_segment.segment.joint_trajectory,
                                                   run_segment.segment.trajectory_dt,
                                                   run_segment.segment.joint_velocity_trajectory,
                                                   run_segment.segment.joint_acceleration_trajectory)) {
-      run_segment.segment.joint_velocity_trajectory.clear();
-      run_segment.segment.joint_acceleration_trajectory.clear();
+      run_segment.segment.joint_velocity_trajectory = retimed.velocities;
+      run_segment.segment.joint_acceleration_trajectory = retimed.accelerations;
     }
     ik_seed = last_joints;
     current_joints = last_joints;
@@ -970,39 +989,40 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
           plan.error_message = "MoveAbsJ target violates soft limit";
           return plan;
         }
-        const auto trajectory = TrajectoryPlanner::planJointMove(
-            current_joints, segment.target_joints, segment.speed, request.trajectory_dt);
-        segment.joint_trajectory = trajectory.points;
-        segment.joint_velocity_trajectory = trajectory.velocities;
-        segment.joint_acceleration_trajectory = trajectory.accelerations;
-        segment.trajectory_dt = trajectory.sample_dt;
-        segment.trajectory_total_time = trajectory.total_time;
+        const auto trajectory = retimeJointPathWithUnifiedSpeed(
+            {current_joints, segment.target_joints}, request.trajectory_dt, segment.speed);
+        if (trajectory.empty()) {
+          plan.error_message =
+              trajectory.error_message.empty() ? "MoveAbsJ retiming failed" : trajectory.error_message;
+          return plan;
+        }
+        apply_unified_trajectory(segment, trajectory);
         break;
       }
       case MotionKind::move_j: {
         const auto candidate_solutions =
             kinematics_->inverseKinematicsMultiSolution(cmd.target_cartesian, current_joints);
-        const auto selected = select_ik_solution(*kinematics_,
-                                                 candidate_solutions,
-                                                 cmd.target_cartesian,
-                                                 current_joints,
-                                                 cmd.requested_conf,
-                                                 request.strict_conf,
-                                                 request.avoid_singularity,
-                                                 request.soft_limit_enabled,
-                                                 request.soft_limits);
+        ::gazebo::xMate3Kinematics::CartesianIkOptions ik_options;
+        ik_options.requested_conf = cmd.requested_conf;
+        ik_options.strict_conf = request.strict_conf;
+        ik_options.avoid_singularity = request.avoid_singularity;
+        ik_options.soft_limit_enabled = request.soft_limit_enabled;
+        ik_options.soft_limits = request.soft_limits;
+        const auto selected =
+            kinematics_->selectBestIkSolution(candidate_solutions, cmd.target_cartesian, current_joints, ik_options);
         if (!selected.success) {
           plan.error_message = "MoveJ planning failed: " + selected.message;
           return plan;
         }
         segment.target_joints = selected.joints;
-        const auto trajectory = TrajectoryPlanner::planJointMove(
-            current_joints, segment.target_joints, segment.speed, request.trajectory_dt);
-        segment.joint_trajectory = trajectory.points;
-        segment.joint_velocity_trajectory = trajectory.velocities;
-        segment.joint_acceleration_trajectory = trajectory.accelerations;
-        segment.trajectory_dt = trajectory.sample_dt;
-        segment.trajectory_total_time = trajectory.total_time;
+        const auto trajectory = retimeJointPathWithUnifiedSpeed(
+            {current_joints, segment.target_joints}, request.trajectory_dt, segment.speed);
+        if (trajectory.empty()) {
+          plan.error_message =
+              trajectory.error_message.empty() ? "MoveJ retiming failed" : trajectory.error_message;
+          return plan;
+        }
+        apply_unified_trajectory(segment, trajectory);
         break;
       }
       case MotionKind::move_sp: {
@@ -1033,6 +1053,27 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
                                                    error_message)) {
           plan.error_message = "MoveSP planning failed: " + error_message;
           return plan;
+        }
+        const auto retimed = retimeJointPathWithUnifiedSpeed(
+            segment.joint_trajectory, request.trajectory_dt, segment.speed);
+        if (retimed.empty()) {
+          plan.error_message =
+              "MoveSP retiming failed: " +
+              (retimed.error_message.empty() ? std::string("unified retimer produced no samples")
+                                             : retimed.error_message);
+          return plan;
+        }
+        apply_unified_trajectory(segment, retimed);
+        const auto retimed_cartesian_points =
+            resampleCartesianPosePath(cart_trajectory.points, segment.joint_trajectory.size());
+        if (!project_joint_derivatives_from_cartesian(*kinematics_,
+                                                      retimed_cartesian_points,
+                                                      segment.joint_trajectory,
+                                                      segment.trajectory_dt,
+                                                      segment.joint_velocity_trajectory,
+                                                      segment.joint_acceleration_trajectory)) {
+          segment.joint_velocity_trajectory = retimed.velocities;
+          segment.joint_acceleration_trajectory = retimed.accelerations;
         }
         segment.target_joints = last_joints;
         segment.path_length_m = 0.0;

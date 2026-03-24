@@ -7,6 +7,7 @@
 #include "runtime/joint_retimer.hpp"
 #include "runtime/planner_core.hpp"
 #include "runtime/planning_utils.hpp"
+#include "runtime/unified_retimer.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 
 namespace rt = rokae_xmate3_ros2::runtime;
@@ -53,6 +54,8 @@ TEST(MotionPlannerCoreTest, PlansReachableCartesianLookaheadSequence) {
   for (const auto &segment : plan.segments) {
     EXPECT_FALSE(segment.joint_trajectory.empty());
     ASSERT_EQ(segment.target_joints.size(), 6u);
+    EXPECT_EQ(segment.joint_velocity_trajectory.size(), segment.joint_trajectory.size());
+    EXPECT_EQ(segment.joint_acceleration_trajectory.size(), segment.joint_trajectory.size());
   }
   EXPECT_TRUE(plan.segments.front().blend_to_next);
   EXPECT_TRUE(plan.segments.front().path_blended);
@@ -71,6 +74,48 @@ TEST(MotionPlannerCoreTest, PlansReachableCartesianLookaheadSequence) {
                 plan.segments.back().joint_trajectory.front()[i],
                 2e-5);
   }
+}
+
+TEST(MotionPlannerCoreTest, UnifiedPathRetimerKeepsIntermediatePathMotionContinuous) {
+  const std::vector<std::vector<double>> waypoints = {
+      {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926},
+      {0.02, 0.18, 1.50, 0.01, 1.30, 3.10},
+      {0.05, 0.22, 1.42, 0.03, 1.24, 3.02},
+  };
+
+  const auto retimed = rt::retimeJointPathWithUnifiedSpeed(waypoints, 0.01, 220.0);
+  ASSERT_FALSE(retimed.empty()) << retimed.error_message;
+  ASSERT_GT(retimed.positions.size(), waypoints.size());
+  EXPECT_EQ(retimed.positions.front(), waypoints.front());
+  EXPECT_EQ(retimed.positions.back(), waypoints.back());
+  EXPECT_EQ(retimed.velocities.size(), retimed.positions.size());
+  EXPECT_EQ(retimed.accelerations.size(), retimed.positions.size());
+
+  double peak_mid_velocity = 0.0;
+  for (std::size_t point_index = 1; point_index + 1 < retimed.velocities.size(); ++point_index) {
+    double point_norm = 0.0;
+    for (double value : retimed.velocities[point_index]) {
+      point_norm += std::fabs(value);
+    }
+    peak_mid_velocity = std::max(peak_mid_velocity, point_norm);
+  }
+  EXPECT_GT(peak_mid_velocity, 0.0);
+}
+
+TEST(MotionPlannerCoreTest, UnifiedSingleJointWrapperMatchesCanonicalPathRetimer) {
+  const std::vector<double> start = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  const std::vector<double> target = {0.06, 0.20, 1.48, 0.02, 1.28, 3.08};
+
+  const auto wrapped = rt::retimeJointWithUnifiedConfig(start, target, 0.01, 1.0, 2.0, 0.1);
+  const auto canonical = rt::retimeJointPathWithUnifiedConfig({start, target}, 0.01, 1.0, 2.0, 0.1);
+
+  ASSERT_FALSE(wrapped.empty()) << wrapped.error_message;
+  ASSERT_FALSE(canonical.empty()) << canonical.error_message;
+  EXPECT_EQ(wrapped.positions, canonical.positions);
+  EXPECT_EQ(wrapped.velocities, canonical.velocities);
+  EXPECT_EQ(wrapped.accelerations, canonical.accelerations);
+  EXPECT_DOUBLE_EQ(wrapped.sample_dt, canonical.sample_dt);
+  EXPECT_DOUBLE_EQ(wrapped.total_time, canonical.total_time);
 }
 
 
@@ -113,6 +158,8 @@ TEST(MotionPlannerCoreTest, AppliesJointZoneBlendAndPreservesTimingMetadata) {
                 plan.segments.back().joint_trajectory.front()[i],
                 1e-6);
   }
+  EXPECT_EQ(plan.segments.front().joint_velocity_trajectory.size(), plan.segments.front().joint_trajectory.size());
+  EXPECT_EQ(plan.segments.back().joint_velocity_trajectory.size(), plan.segments.back().joint_trajectory.size());
 }
 
 TEST(MotionPlannerCoreTest, MixedModeZoneFallsBackToStopPointWithPlanNote) {

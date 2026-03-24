@@ -9,6 +9,7 @@
 #include "runtime/motion_runtime.hpp"
 #include "runtime/pose_utils.hpp"
 #include "runtime/service_facade.hpp"
+#include "runtime/unified_retimer.hpp"
 #include "rokae_xmate3_ros2/gazebo/approximate_model.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 
@@ -313,24 +314,10 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   ASSERT_TRUE(traj_res.success);
   EXPECT_GT(traj_res.total_time, 0.0);
   ASSERT_GT(traj_res.trajectory_points.size(), 2u);
-  const auto planner_config = gazebo::TrajectoryPlanner::config();
-  rt::JointRetimerConfig retimer_config;
-  retimer_config.joint_speed_limits_rad_per_sec = planner_config.joint_speed_limits_rad_per_sec;
-  retimer_config.joint_acc_limits_rad_per_sec2 = planner_config.joint_acc_limits_rad_per_sec2;
-  retimer_config.sample_dt = 0.01;
-  retimer_config.min_sample_dt = planner_config.min_sample_dt;
-  retimer_config.max_sample_dt = planner_config.max_sample_dt;
-  retimer_config.max_joint_step_rad = planner_config.max_joint_step_rad;
   std::vector<double> start_joint(traj_req.start_joint_pos.begin(), traj_req.start_joint_pos.end());
   std::vector<double> target_joint(traj_req.target_joint_pos.begin(), traj_req.target_joint_pos.end());
-  std::array<double, 6> velocity_limits{};
-  std::array<double, 6> acceleration_limits{};
-  const double smoothing_scale = 1.0 / (1.0 + 0.25 * std::clamp(traj_req.blend_radius, 0.0, 1.0));
-  velocity_limits.fill(std::clamp(traj_req.max_velocity, 0.05, M_PI) * smoothing_scale);
-  acceleration_limits.fill(
-      std::clamp(traj_req.max_acceleration, 0.05, 10.0 * M_PI) * smoothing_scale * smoothing_scale);
-  const auto retimed =
-      rt::retimeJointQuintic(start_joint, target_joint, retimer_config, velocity_limits, acceleration_limits);
+  const auto retimed = rt::retimeJointPathWithUnifiedConfig(
+      {start_joint, target_joint}, 0.01, traj_req.max_velocity, traj_req.max_acceleration, traj_req.blend_radius);
   EXPECT_NEAR(traj_res.total_time, retimed.total_time, 1e-9);
   EXPECT_EQ(traj_res.trajectory_points.size(), retimed.positions.size());
   EXPECT_DOUBLE_EQ(traj_res.trajectory_points.front().pos[0], retimed.positions.front()[0]);

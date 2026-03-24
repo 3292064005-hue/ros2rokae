@@ -41,6 +41,7 @@ class KinematicsBackend {
     double joint_limit_weight = 0.01;
     double singularity_weight = 0.1;
   };
+  using IKRequest = SeededIkRequest;
 
   struct SeededIkCandidateMetrics {
     double branch_distance = std::numeric_limits<double>::infinity();
@@ -54,6 +55,20 @@ class KinematicsBackend {
     [[nodiscard]] double totalCost() const noexcept {
       return continuity_cost + joint_limit_penalty + singularity_cost;
     }
+  };
+
+  struct IKCandidate {
+    VectorJ joints;
+    double pose_error_score = std::numeric_limits<double>::infinity();
+    double branch_distance = std::numeric_limits<double>::infinity();
+    double continuity_cost = std::numeric_limits<double>::infinity();
+    double singularity_metric = 1.0;
+    double joint_limit_penalty = std::numeric_limits<double>::infinity();
+    double conf_penalty = 0.0;
+    double total_cost = std::numeric_limits<double>::infinity();
+    bool valid = false;
+    std::string branch_id;
+    std::string message;
   };
 
   struct CartesianIkOptions {
@@ -74,9 +89,48 @@ class KinematicsBackend {
     double branch_jump_threshold = 0.75;
   };
 
+  struct IkScoringConfig {
+    double pose_error_weight = 1.0;
+    double branch_distance_weight = 2.0;
+    double conf_penalty_weight = 1.0;
+    double singularity_weight = 40.0;
+    double joint_limit_weight = 10.0;
+    double branch_switch_penalty = 2.0;
+    double wrist_flip_penalty = 4.0;
+    double hard_wrist_singularity_threshold = 0.075;
+    double hard_jacobian_singularity_threshold = 0.04;
+  };
+
   struct CartesianIkSelectionResult {
     bool success = false;
     VectorJ joints;
+    std::string message;
+  };
+
+  struct IKResult {
+    bool success = false;
+    VectorJ joints;
+    std::vector<IKCandidate> candidates;
+    std::string chosen_branch;
+    double singularity_metric = 1.0;
+    std::string message;
+  };
+
+  struct IKTrajectoryRequest {
+    std::vector<Matrix4d> target_transforms;
+    VectorJ initial_seed;
+    CartesianIkOptions options;
+    std::size_t dp_window = 32;
+    std::size_t dp_overlap = 8;
+    std::size_t max_candidates_per_point = 8;
+  };
+
+  struct IKTrajectoryResult {
+    bool success = false;
+    std::vector<VectorJ> q_path;
+    std::vector<double> singularity_metric_path;
+    std::vector<std::string> chosen_branch_path;
+    std::size_t failed_index = std::numeric_limits<std::size_t>::max();
     std::string message;
   };
 
@@ -99,6 +153,9 @@ class KinematicsBackend {
   [[nodiscard]] virtual double singularityMetric(const SeededIkRequest &request, const VectorJ &candidate) const = 0;
   [[nodiscard]] virtual SeededIkCandidateMetrics evaluateSeededIkCandidate(const SeededIkRequest &request,
                                                                            const VectorJ &candidate) const = 0;
+  [[nodiscard]] virtual IKResult solveSeeded(const IKRequest &request) const = 0;
+  [[nodiscard]] virtual IKResult solveMultiBranch(const IKRequest &request) const = 0;
+  [[nodiscard]] virtual IKTrajectoryResult solveTrajectory(const IKTrajectoryRequest &request) const = 0;
   [[nodiscard]] virtual VectorJ inverseKinematicsSeeded(const SeededIkRequest &request) const = 0;
   [[nodiscard]] virtual std::vector<VectorJ> inverseKinematicsMultiBranch(const SeededIkRequest &request) const = 0;
   [[nodiscard]] virtual CartesianIkSelectionResult selectBestCartesianIkSolution(

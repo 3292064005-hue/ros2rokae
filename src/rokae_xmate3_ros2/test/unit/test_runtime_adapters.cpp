@@ -515,6 +515,77 @@ TEST(RuntimeSdkShimModelTest, MultiBranchIkReturnsContinuousCandidatesForSamePos
   EXPECT_LT(fk_error.tail<3>().norm(), 1e-3);
 }
 
+TEST(RuntimeSdkShimModelTest, MultiBranchIkDedupesCanonicalCandidates) {
+  gazebo::xMate3Kinematics kinematics;
+  const std::vector<double> q{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  const auto target = kinematics.forwardKinematicsRPY(q);
+  const auto solutions = kinematics.inverseKinematicsMultiSolution(target, q);
+
+  ASSERT_FALSE(solutions.empty());
+  EXPECT_LE(solutions.size(), 8u);
+  for (std::size_t lhs = 0; lhs < solutions.size(); ++lhs) {
+    for (std::size_t rhs = lhs + 1; rhs < solutions.size(); ++rhs) {
+      EXPECT_GE(kinematics.branchDistance(solutions[lhs], solutions[rhs]), 0.05 - 1e-6);
+    }
+  }
+}
+
+TEST(RuntimeSdkShimModelTest, CartesianTrajectorySolveKeepsBranchStableAndProjectsDerivatives) {
+  gazebo::xMate3Kinematics kinematics;
+  const std::vector<double> start_joints{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
+
+  std::vector<std::vector<double>> cartesian_path;
+  for (int index = 0; index < 24; ++index) {
+    auto pose = start_pose;
+    pose[0] -= 0.0006 * static_cast<double>(index);
+    pose[1] += 0.0002 * static_cast<double>(index);
+    pose[2] -= 0.0004 * static_cast<double>(index);
+    cartesian_path.push_back(std::move(pose));
+  }
+
+  gazebo::xMate3Kinematics::CartesianIkOptions options;
+  options.avoid_singularity = true;
+  std::vector<std::vector<double>> joint_path;
+  std::vector<double> last_joints;
+  std::string error_message;
+  ASSERT_TRUE(kinematics.buildCartesianJointTrajectory(
+                  cartesian_path, start_joints, options, joint_path, last_joints, error_message))
+      << error_message;
+  ASSERT_EQ(joint_path.size(), cartesian_path.size());
+
+  auto branch_signature = [](const std::vector<double> &joints) {
+    const char shoulder = joints[0] >= 0.0 ? 'L' : 'R';
+    const char elbow = joints[2] >= 0.0 ? 'U' : 'D';
+    const char wrist = std::fabs(std::remainder(joints[5], 2.0 * M_PI)) > (M_PI / 2.0) ? 'F' : 'N';
+    std::string signature = "S";
+    signature.push_back(shoulder);
+    signature += "_E";
+    signature.push_back(elbow);
+    signature += "_W";
+    signature.push_back(wrist);
+    return signature;
+  };
+
+  const auto expected_signature = branch_signature(joint_path.front());
+  for (std::size_t index = 1; index < joint_path.size(); ++index) {
+    EXPECT_LT(kinematics.branchDistance(joint_path[index - 1], joint_path[index]), 0.75);
+    EXPECT_EQ(branch_signature(joint_path[index]), expected_signature);
+  }
+
+  std::vector<std::vector<double>> joint_velocity_path;
+  std::vector<std::vector<double>> joint_acceleration_path;
+  ASSERT_TRUE(kinematics.projectCartesianJointDerivatives(
+      cartesian_path, joint_path, 0.01, joint_velocity_path, joint_acceleration_path));
+  ASSERT_EQ(joint_velocity_path.size(), joint_path.size());
+  ASSERT_EQ(joint_acceleration_path.size(), joint_path.size());
+  for (const auto &velocity : joint_velocity_path) {
+    for (double value : velocity) {
+      EXPECT_TRUE(std::isfinite(value));
+    }
+  }
+}
+
 TEST(RuntimeArchiveVerificationTest, RejectsForbiddenArtifactsInSourceArchive) {
   const auto temp_root = std::filesystem::temp_directory_path() /
                          ("rokae_archive_verify_" +
