@@ -7,7 +7,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include "rokae_xmate3_ros2/gazebo/approximate_model.hpp"
+#include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 namespace {
@@ -73,7 +73,7 @@ bool detect_collision_event(const RobotSnapshot &snapshot,
   }
 
   const auto expected =
-      rokae_xmate3_ros2::gazebo_model::configuredModelFacade(
+      rokae_xmate3_ros2::gazebo_model::makeModelFacade(
           kinematics,
           {toolset.tool_pose[0], toolset.tool_pose[1], toolset.tool_pose[2],
            toolset.tool_pose[3], toolset.tool_pose[4], toolset.tool_pose[5]},

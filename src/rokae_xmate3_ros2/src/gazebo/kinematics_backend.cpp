@@ -20,11 +20,18 @@
 #include <utility>
 
 namespace gazebo::detail {
+
+const KinematicsBackend::IKBackendConfig &backendConfig() noexcept {
+  static const KinematicsBackend::IKBackendConfig config{};
+  return config;
+}
+
 namespace {
 
 using Matrix4d = Eigen::Matrix4d;
 using Matrix6d = Eigen::Matrix<double, 6, 6>;
 using Vector6d = Eigen::Matrix<double, 6, 1>;
+using IKBackendConfig = KinematicsBackend::IKBackendConfig;
 
 constexpr std::array<double, 6> kDhA{0.0, 0.0, 0.394, 0.0, 0.0, 0.0};
 constexpr std::array<double, 6> kDhAlpha{
@@ -50,29 +57,6 @@ struct ConfScore {
   bool strict_match = true;
   bool has_request = false;
 };
-
-struct IKBackendConfig {
-  double weight_pose = 1.0;
-  double weight_continuity = 2.0;
-  double weight_singularity = 1.5;
-  double weight_limit = 1.0;
-  double weight_preference = 0.5;
-
-  double singularity_hard_reject = 1e-4;
-  double wrist_singularity_soft_threshold = 0.15;
-  double jacobian_singularity_soft_threshold = 0.08;
-  double wrist_singularity_hard_threshold = 0.02;
-  double jacobian_singularity_hard_threshold = 0.005;
-  double joint_branch_jump_threshold = 0.75;
-  double shoulder_elbow_branch_switch_penalty = 2.0;
-  double wrist_flip_branch_switch_penalty = 4.0;
-  std::size_t max_candidates_per_point = 6;
-};
-
-[[nodiscard]] const IKBackendConfig &backendConfig() {
-  static const IKBackendConfig config{};
-  return config;
-}
 
 Matrix4d legacyDhTransform(std::size_t index, double theta) {
   Matrix4d transform = Matrix4d::Identity();
@@ -206,26 +190,23 @@ KinematicsBackend::VectorJ defaultJointLimitVector(const std::vector<double> &ca
   return KinematicsBackend::VectorJ(fallback.begin(), fallback.end());
 }
 
-KinematicsBackend::SeededIkRequest makeCartesianSeededIkRequest(
+KinematicsBackend::IKRequest makeCartesianSeededIkRequest(
     const Matrix4d &target_transform,
     const KinematicsBackend::VectorJ &seed_joints,
     const KinematicsBackend::CartesianIkOptions &options) {
-  const auto &config = backendConfig();
-  KinematicsBackend::SeededIkRequest request;
+  KinematicsBackend::IKRequest request;
   request.target_transform = target_transform;
   request.seed_joints = seed_joints;
   request.joint_limits_min = defaultJointLimitVector(options.joint_limits_min, kJointLimitsMin);
   request.joint_limits_max = defaultJointLimitVector(options.joint_limits_max, kJointLimitsMax);
-  request.max_iter = 16;
-  request.position_tolerance = 1e-5;
-  request.orientation_tolerance = 1e-3;
-  request.orientation_weight = 0.8;
-  request.max_joint_step = 0.05;
-  request.min_lambda = 0.02;
-  request.max_lambda = 0.5;
-  request.solution_valid_threshold = 5e-3;
-  request.wrist_singularity_threshold = config.wrist_singularity_soft_threshold;
-  request.jacobian_singularity_threshold = config.jacobian_singularity_soft_threshold;
+  return request;
+}
+
+KinematicsBackend::IKRequest makeCurrentStateIkRequest(const KinematicsBackend::VectorJ &joints) {
+  KinematicsBackend::IKRequest request;
+  request.seed_joints = joints;
+  request.joint_limits_min = KinematicsBackend::VectorJ(kJointLimitsMin.begin(), kJointLimitsMin.end());
+  request.joint_limits_max = KinematicsBackend::VectorJ(kJointLimitsMax.begin(), kJointLimitsMax.end());
   return request;
 }
 
@@ -371,16 +352,17 @@ struct SeededIkAnalysis {
 };
 
 SeededIkAnalysis analyzeSeededIk(const KinematicsBackend &backend,
-                                 const KinematicsBackend::SeededIkRequest &request,
+                                 const KinematicsBackend::SeededIkRequest &,
                                  const std::vector<double> &joints) {
+  const auto &config = backendConfig();
   SeededIkAnalysis analysis;
   if (joints.size() < 6) {
     return analysis;
   }
   const double j5 = std::fabs(joints[4]);
   double wrist_measure = 0.0;
-  if (j5 < request.wrist_singularity_threshold) {
-    wrist_measure = 1.0 - (j5 / std::max(request.wrist_singularity_threshold, 1e-6));
+  if (j5 < config.wrist_singularity_soft_threshold) {
+    wrist_measure = 1.0 - (j5 / std::max(config.wrist_singularity_soft_threshold, 1e-6));
   }
 
   analysis.jacobian = backend.computeJacobian(joints);
@@ -391,10 +373,10 @@ SeededIkAnalysis analyzeSeededIk(const KinematicsBackend &backend,
 
   analysis.min_sigma = svd.singularValues().tail<1>()(0);
   const double jacobian_measure = std::clamp(
-      1.0 - (analysis.min_sigma / std::max(request.jacobian_singularity_threshold, 1e-6)), 0.0, 1.0);
+      1.0 - (analysis.min_sigma / std::max(config.jacobian_singularity_soft_threshold, 1e-6)), 0.0, 1.0);
   analysis.singularity_measure = std::max(wrist_measure, jacobian_measure);
-  analysis.near_singularity = std::fabs(joints[4]) < request.wrist_singularity_threshold ||
-                              analysis.min_sigma < request.jacobian_singularity_threshold;
+  analysis.near_singularity = std::fabs(joints[4]) < config.wrist_singularity_soft_threshold ||
+                              analysis.min_sigma < config.jacobian_singularity_soft_threshold;
   return analysis;
 }
 
@@ -444,7 +426,6 @@ KinematicsBackend::CartesianIkOptions optionsFromRequest(const KinematicsBackend
   options.avoid_singularity = true;
   options.joint_limits_min = request.joint_limits_min;
   options.joint_limits_max = request.joint_limits_max;
-  options.branch_jump_threshold = backendConfig().joint_branch_jump_threshold;
   return options;
 }
 
@@ -634,7 +615,7 @@ KinematicsBackend::IKTrajectoryResult solveTrajectoryIk(const KinematicsBackend 
         point_request,
         request.options,
         previous_candidates,
-        std::max<std::size_t>(1, std::min(request.max_candidates_per_point, config.max_candidates_per_point)));
+        std::max<std::size_t>(1, config.max_candidates_per_point));
     if (point_candidates.empty()) {
       result.failed_index = point_index;
       result.message = "no valid IK candidate at cartesian point " + std::to_string(point_index);
@@ -893,12 +874,13 @@ bool projectCartesianJointDerivatives(const KinematicsBackend &backend,
 }
 
 bool nudgeAwayFromSingularity(const KinematicsBackend::SeededIkRequest &request, std::vector<double> &joints) {
+  const auto &config = backendConfig();
   if (joints.size() < 6 || request.joint_limits_min.size() < 6 || request.joint_limits_max.size() < 6) {
     return false;
   }
 
   const double current_j5 = joints[4];
-  const double target_offset = request.singularity_avoidance_offset;
+  const double target_offset = config.singularity_avoidance_offset;
   joints[4] = current_j5 >= 0.0 ? std::max(target_offset, request.joint_limits_min[4])
                                 : std::min(-target_offset, request.joint_limits_max[4]);
   joints[4] = std::clamp(joints[4], request.joint_limits_min[4], request.joint_limits_max[4]);
@@ -913,6 +895,7 @@ bool nudgeAwayFromSingularity(const KinematicsBackend::SeededIkRequest &request,
 
 std::vector<double> solveSeededIk(const KinematicsBackend &backend,
                                   const KinematicsBackend::SeededIkRequest &request) {
+  const auto &config = backendConfig();
   if (request.seed_joints.size() < 6 || request.joint_limits_min.size() < 6 || request.joint_limits_max.size() < 6) {
     return {};
   }
@@ -926,7 +909,7 @@ std::vector<double> solveSeededIk(const KinematicsBackend &backend,
   double best_score = std::numeric_limits<double>::infinity();
   std::vector<double> best_joints = joints;
 
-  for (int iter = 0; iter < request.max_iter; ++iter) {
+  for (int iter = 0; iter < config.seed_solver_max_iter; ++iter) {
     const Matrix4d current_transform = backend.computeForwardTransform(joints);
     const Vector6d error = poseError(request.target_transform, current_transform);
 
@@ -935,20 +918,21 @@ std::vector<double> solveSeededIk(const KinematicsBackend &backend,
     const double pos_err = error.head<3>().norm();
     const double ori_err = error.tail<3>().norm();
     const double current_score =
-        pos_err + request.orientation_weight * ori_err +
-        request.continuity_weight * candidate_metrics.continuity_cost +
-        request.joint_limit_weight * candidate_metrics.joint_limit_penalty +
-        request.singularity_weight * candidate_metrics.singularity_cost;
+        pos_err + config.seed_solver_orientation_weight * ori_err +
+        config.seed_solver_continuity_weight * candidate_metrics.continuity_cost +
+        config.seed_solver_limit_weight * candidate_metrics.joint_limit_penalty +
+        config.seed_solver_singularity_weight * candidate_metrics.singularity_cost;
     if (current_score < best_score) {
       best_score = current_score;
       best_joints = joints;
     }
-    if (pos_err < request.position_tolerance && ori_err < request.orientation_tolerance) {
+    if (pos_err < config.seed_solver_position_tolerance &&
+        ori_err < config.seed_solver_orientation_tolerance) {
       break;
     }
 
     Matrix6d weight = Matrix6d::Identity();
-    weight(3, 3) = weight(4, 4) = weight(5, 5) = request.orientation_weight;
+    weight(3, 3) = weight(4, 4) = weight(5, 5) = config.seed_solver_orientation_weight;
     if (singularity.near_singularity) {
       weight(3, 3) *= 0.3;
       weight(4, 4) *= 0.3;
@@ -959,7 +943,9 @@ std::vector<double> solveSeededIk(const KinematicsBackend &backend,
     weighted_error.tail<3>() *= weight(3, 3);
     const Matrix6d weighted_jacobian = weight * singularity.jacobian;
     const double lambda_base =
-        request.min_lambda + request.max_lambda * (1.0 - static_cast<double>(iter) / std::max(request.max_iter, 1));
+        config.seed_solver_min_lambda +
+        config.seed_solver_max_lambda *
+            (1.0 - static_cast<double>(iter) / std::max(config.seed_solver_max_iter, 1));
     const double lambda = lambda_base * (1.0 + 2.0 * singularity.singularity_measure);
     const Matrix6d jj_t = weighted_jacobian * weighted_jacobian.transpose();
     Vector6d delta_q =
@@ -968,7 +954,10 @@ std::vector<double> solveSeededIk(const KinematicsBackend &backend,
     const double step_scale = singularity.near_singularity ? 0.6 : 1.0;
     for (int index = 0; index < 6; ++index) {
       double step = delta_q(index);
-      step = std::clamp(step, -request.max_joint_step * step_scale, request.max_joint_step * step_scale);
+      step = std::clamp(
+          step,
+          -config.seed_solver_max_joint_step * step_scale,
+          config.seed_solver_max_joint_step * step_scale);
       joints[index] += step;
       joints[index] = std::clamp(joints[index], request.joint_limits_min[index], request.joint_limits_max[index]);
     }
@@ -976,8 +965,8 @@ std::vector<double> solveSeededIk(const KinematicsBackend &backend,
 
   const Matrix4d best_transform = backend.computeForwardTransform(best_joints);
   const Vector6d best_error = poseError(request.target_transform, best_transform);
-  if (best_error.head<3>().norm() > request.solution_valid_threshold ||
-      best_error.tail<3>().norm() > request.solution_valid_threshold) {
+  if (best_error.head<3>().norm() > config.seed_solver_solution_valid_threshold ||
+      best_error.tail<3>().norm() > config.seed_solver_solution_valid_threshold) {
     return {};
   }
   return best_joints;
@@ -1261,6 +1250,11 @@ class LegacyKinematicsBackend final : public KinematicsBackend {
     return gazebo::detail::evaluateSeededIkCandidate(*this, request, candidate);
   }
 
+  [[nodiscard]] bool avoidSingularity(VectorJ &joints) const override {
+    auto request = makeCurrentStateIkRequest(joints);
+    return nudgeAwayFromSingularity(request, joints);
+  }
+
   [[nodiscard]] IKResult solveSeeded(const IKRequest &request) const override {
     return solveSeededIkResult(*this, request);
   }
@@ -1385,6 +1379,14 @@ class KdlKinematicsBackend final : public KinematicsBackend {
       return LegacyKinematicsBackend{}.evaluateSeededIkCandidate(request, candidate);
     }
     return gazebo::detail::evaluateSeededIkCandidate(*this, request, candidate);
+  }
+
+  [[nodiscard]] bool avoidSingularity(VectorJ &joints) const override {
+    if (!valid_) {
+      return LegacyKinematicsBackend{}.avoidSingularity(joints);
+    }
+    auto request = makeCurrentStateIkRequest(joints);
+    return nudgeAwayFromSingularity(request, joints);
   }
 
   [[nodiscard]] IKResult solveSeeded(const IKRequest &request) const override {

@@ -266,6 +266,16 @@ teardown 质量与 full examples 业务回归已经拆成两个质量信号：
 
 当前 JTC 主链定义为 `position trajectory backend`，不是完整闭环伺服替身。
 
+### Runtime contract headers
+
+公共 runtime contract 头固定从 `include/rokae_xmate3_ros2/runtime/*` 引用：
+
+- `include/rokae_xmate3_ros2/runtime/runtime_contract.hpp`
+- `include/rokae_xmate3_ros2/runtime/owner_arbiter.hpp`
+- `include/rokae_xmate3_ros2/runtime/shutdown_coordinator.hpp`
+
+`src/runtime/*.hpp` 下保留的同名头只用于兼容旧 include，新代码不要再依赖这些路径。
+
 详细步骤请参考 [docs/QUICKSTART.md](docs/QUICKSTART.md)。
 
 ## 示例程序

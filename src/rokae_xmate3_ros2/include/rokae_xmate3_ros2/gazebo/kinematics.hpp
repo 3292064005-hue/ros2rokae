@@ -152,7 +152,7 @@ public:
     [[nodiscard]] DebugCounters debugCounters() const;
     [[nodiscard]] const char *backendName() const noexcept;
 
-private:
+ private:
     struct SingularityAnalysis;
 
     std::vector<double> dh_a_, dh_alpha_, dh_d_;
@@ -164,12 +164,6 @@ private:
     Matrix4d rpyToTransform(const std::vector<double>& pose);
     Vector6d computePoseError(const Matrix4d& T_target, const Matrix4d& T_current);
     [[nodiscard]] SingularityAnalysis analyzeSingularity(const std::vector<double>& joints);
-
-    // 奇异位检测阈值
-    static constexpr double SINGULARITY_THRESHOLD = 0.15;
-    static constexpr double WRIST_SINGULARITY_THRESHOLD = SINGULARITY_THRESHOLD;
-    static constexpr double JACOBIAN_SINGULARITY_THRESHOLD = 0.08;
-    static constexpr double SINGULARITY_AVOIDANCE_OFFSET = 0.2;
 };
 
 } // namespace gazebo

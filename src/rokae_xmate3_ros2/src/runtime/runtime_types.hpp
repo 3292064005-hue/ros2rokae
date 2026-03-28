@@ -72,6 +72,7 @@ struct MotionRequest {
   std::vector<double> start_joints;
   std::vector<MotionCommandSpec> commands;
   double default_speed = 50.0;
+  double speed_scale = 1.0;
   int default_zone = 0;
   bool strict_conf = false;
   bool avoid_singularity = true;

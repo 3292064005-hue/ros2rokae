@@ -106,7 +106,13 @@ def _read_package_version(package_root: Path) -> str:
     if not package_xml.is_file():
         raise FileNotFoundError(f"package.xml does not exist: {package_xml}")
     root = ET.parse(package_xml).getroot()
-    version = root.findtext("version", default="").strip()
+    version = ""
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] != "version":
+            continue
+        version = (element.text or "").strip()
+        if version:
+            break
     if not version:
         raise RuntimeError(f"package.xml is missing a <version> entry: {package_xml}")
     return version

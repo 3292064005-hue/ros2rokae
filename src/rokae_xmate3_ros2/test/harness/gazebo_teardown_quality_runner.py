@@ -17,7 +17,13 @@ from rclpy.node import Node
 from rokae_xmate3_ros2.action import MoveAppend
 from rokae_xmate3_ros2.srv import Connect, PrepareShutdown, SetMotionControlMode, SetOperateMode
 
-from common import RuntimeCleanupMixin, RuntimeReadinessMixin, RuntimeTelemetryMixin, ensure_harness_import_path
+from common import (
+    RuntimeCleanupMixin,
+    RuntimeReadinessMixin,
+    RuntimeTelemetryMixin,
+    build_runtime_env,
+    ensure_harness_import_path,
+)
 
 
 CONTROL_OWNER = {
@@ -53,6 +59,8 @@ CONTRACT_CODE = {
     6: "finished",
     7: "faulted",
 }
+
+SAFE_TO_STOP_WORLD_CODES = {5, 6}
 
 
 def _wait_for_process_exit(proc: subprocess.Popen[str], timeout_sec: float) -> int | None:
@@ -184,7 +192,7 @@ class TeardownQualityProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin, Run
             if (
                 response.accepted
                 and response.contract_version == 1
-                and response.shutdown_phase >= 3
+                and response.code in SAFE_TO_STOP_WORLD_CODES
                 and response.safe_to_delete
                 and response.safe_to_stop_world
             ):
@@ -202,15 +210,11 @@ def _run_single_iteration(args: argparse.Namespace, iteration: int, total_iterat
     if shutdown_sentinel.exists():
         shutdown_sentinel.unlink()
 
-    env = os.environ.copy()
-    env["ROKAE_XMATE3_ROS2_SHARE_DIR"] = args.package_share
-    env["ROKAE_XMATE3_ROS2_LIB_DIR"] = args.package_lib_dir
-    env["PYTHONUNBUFFERED"] = "1"
-    existing_pythonpath = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = (
-        args.rosidl_python_path
-        if not existing_pythonpath
-        else f"{args.rosidl_python_path}:{existing_pythonpath}"
+    env = build_runtime_env(
+        args.package_share,
+        args.package_lib_dir,
+        args.rosidl_python_path,
+        args.runtime_lib_dir,
     )
 
     simulation_cmd = [
@@ -322,6 +326,7 @@ def main() -> int:
     parser.add_argument("--package-share", required=True)
     parser.add_argument("--package-lib-dir", required=True)
     parser.add_argument("--rosidl-python-path", required=True)
+    parser.add_argument("--runtime-lib-dir", required=True)
     parser.add_argument("--log-file", required=True)
     parser.add_argument("--python-bin", default=sys.executable)
     parser.add_argument("--ready-timeout", type=float, default=90.0)

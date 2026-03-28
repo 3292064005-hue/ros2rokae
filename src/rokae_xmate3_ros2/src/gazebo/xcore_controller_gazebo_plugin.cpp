@@ -38,7 +38,7 @@
 #include "runtime/runtime_publish_bridge.hpp"
 #include "runtime/runtime_context.hpp"
 #include "runtime/ros_bindings.hpp"
-#include "runtime/shutdown_coordinator.hpp"
+#include "rokae_xmate3_ros2/runtime/shutdown_coordinator.hpp"
 
 // ROS2 接口头文件
 #include "rokae_xmate3_ros2/msg/operation_state.hpp"

@@ -8,8 +8,8 @@
 #include <vector>
 
 #include "runtime/motion_runtime.hpp"
-#include "runtime/owner_arbiter.hpp"
-#include "runtime/shutdown_coordinator.hpp"
+#include "rokae_xmate3_ros2/runtime/owner_arbiter.hpp"
+#include "rokae_xmate3_ros2/runtime/shutdown_coordinator.hpp"
 
 namespace rt = rokae_xmate3_ros2::runtime;
 

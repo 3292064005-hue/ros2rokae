@@ -46,11 +46,36 @@ class ShutdownCoordinator {
   }
 
   void updateFacts(const RuntimeContractFacts &facts) {
-    facts_ = facts;
-    stepPhase();
+    ingestFacts(facts);
+    advancePhase();
   }
 
   [[nodiscard]] RuntimeContractView currentView() const {
+    return emitView();
+  }
+
+ private:
+  void ingestFacts(const RuntimeContractFacts &facts) {
+    facts_ = facts;
+  }
+
+  void advancePhase() {
+    if (!requested_) {
+      phase_ = ShutdownPhase::running;
+      last_message_ = facts_.message.empty() ? std::string{"shutdown not requested"} : facts_.message;
+      return;
+    }
+
+    if (facts_.faulted || facts_.runtime_phase == RuntimePhase::faulted) {
+      phase_ = ShutdownPhase::faulted;
+      last_message_ = facts_.message.empty() ? std::string{"shutdown faulted"} : facts_.message;
+      return;
+    }
+
+    advanceStablePhase();
+  }
+
+  [[nodiscard]] RuntimeContractView emitView() const {
     RuntimeContractView view;
     view.contract_version = kRuntimeContractVersion;
     view.code = contractCode();
@@ -71,23 +96,6 @@ class ShutdownCoordinator {
     return view;
   }
 
- private:
-  void stepPhase() {
-    if (!requested_) {
-      phase_ = ShutdownPhase::running;
-      last_message_ = facts_.message.empty() ? std::string{"shutdown not requested"} : facts_.message;
-      return;
-    }
-
-    if (facts_.faulted || facts_.runtime_phase == RuntimePhase::faulted) {
-      phase_ = ShutdownPhase::faulted;
-      last_message_ = facts_.message.empty() ? std::string{"shutdown faulted"} : facts_.message;
-      return;
-    }
-
-    advancePhase();
-  }
-
   [[nodiscard]] bool runtimeDrained() const noexcept {
     return facts_.owner == ControlOwner::none &&
            facts_.active_request_count == 0 &&
@@ -104,7 +112,7 @@ class ShutdownCoordinator {
   }
 
   [[nodiscard]] bool safeToStopWorldReady() const noexcept {
-    return safeToDeleteReady();
+    return phase_ == ShutdownPhase::safe_to_delete && safeToDeleteReady();
   }
 
   [[nodiscard]] RuntimeContractCode contractCode() const noexcept {
@@ -133,7 +141,7 @@ class ShutdownCoordinator {
     return RuntimeContractCode::ok;
   }
 
-  void advancePhase() {
+  void advanceStablePhase() {
     switch (phase_) {
       case ShutdownPhase::running:
         phase_ = ShutdownPhase::draining;

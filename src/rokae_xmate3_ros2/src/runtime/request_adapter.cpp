@@ -128,6 +128,7 @@ bool build_motion_request(const rokae_xmate3_ros2::action::MoveAppend::Goal &goa
   request.request_id = context.request_id;
   request.start_joints = context.start_joints;
   request.default_speed = resolve_nrt_speed_mm_per_s(context.default_speed, context.speed_scale);
+  request.speed_scale = context.speed_scale;
   request.default_zone = context.default_zone;
   request.strict_conf = context.strict_conf;
   request.avoid_singularity = context.avoid_singularity;
@@ -253,6 +254,7 @@ bool build_replay_request(const ReplayPathAsset &replay_asset,
   request.request_id = context.request_id;
   request.start_joints = context.start_joints;
   request.default_speed = resolve_nrt_speed_mm_per_s(context.default_speed, context.speed_scale);
+  request.speed_scale = context.speed_scale;
   request.default_zone = context.default_zone;
   request.strict_conf = context.strict_conf;
   request.avoid_singularity = context.avoid_singularity;
@@ -269,10 +271,10 @@ bool build_replay_request(const ReplayPathAsset &replay_asset,
   MotionCommandSpec cmd;
   cmd.kind = MotionKind::move_absj;
   cmd.use_preplanned_trajectory = true;
-  cmd.preplanned_dt = retimed.trajectory.sample_dt;
-  cmd.preplanned_trajectory = retimed.trajectory.positions;
-  cmd.preplanned_velocity_trajectory = retimed.trajectory.velocities;
-  cmd.preplanned_acceleration_trajectory = retimed.trajectory.accelerations;
+  cmd.preplanned_dt = retimed.samples.sample_dt;
+  cmd.preplanned_trajectory = retimed.samples.positions;
+  cmd.preplanned_velocity_trajectory = retimed.samples.velocities;
+  cmd.preplanned_acceleration_trajectory = retimed.samples.accelerations;
   cmd.target_joints = cmd.preplanned_trajectory.back();
   cmd.speed = resolve_nrt_speed_mm_per_s(
       std::max(context.default_speed * rate, 1.0),

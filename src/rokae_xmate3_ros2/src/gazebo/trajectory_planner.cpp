@@ -29,6 +29,17 @@ TrajectoryPlannerConfig current_config() {
     return mutable_config();
 }
 
+TrajectorySamples toTrajectorySamples(
+    const rokae_xmate3_ros2::runtime::CanonicalTrajectorySamples& result) {
+    TrajectorySamples samples;
+    samples.points = result.positions;
+    samples.velocities = result.velocities;
+    samples.accelerations = result.accelerations;
+    samples.sample_dt = result.sample_dt;
+    samples.total_time = result.total_time;
+    return samples;
+}
+
 bool checkInputValid(
     const std::vector<double>& start,
     const std::vector<double>& end,
@@ -227,7 +238,7 @@ TrajectorySamples TrajectoryPlanner::planJointMove(
         dt,
         scaled_joint_speed_limits(speed_mm_per_s, config),
         scaled_joint_acc_limits(speed_mm_per_s, config));
-    return rokae_xmate3_ros2::runtime::toTrajectorySamples(retimed.trajectory);
+    return toTrajectorySamples(retimed.samples);
 }
 
 TrajectorySamples TrajectoryPlanner::planCartesianLine(

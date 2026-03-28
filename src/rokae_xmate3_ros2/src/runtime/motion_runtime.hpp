@@ -12,9 +12,9 @@
 #include <unordered_map>
 
 #include "runtime/executor_core.hpp"
-#include "runtime/owner_arbiter.hpp"
+#include "rokae_xmate3_ros2/runtime/owner_arbiter.hpp"
 #include "runtime/planner_core.hpp"
-#include "runtime/shutdown_coordinator.hpp"
+#include "rokae_xmate3_ros2/runtime/shutdown_coordinator.hpp"
 #include "runtime/runtime_types.hpp"
 
 namespace rokae_xmate3_ros2::runtime {

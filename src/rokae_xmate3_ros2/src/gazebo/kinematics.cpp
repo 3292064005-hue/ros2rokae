@@ -18,32 +18,16 @@
 namespace gazebo {
 namespace {
 
-detail::KinematicsBackend::SeededIkRequest makeSeededIkRequest(
+detail::KinematicsBackend::IKRequest makeIkRequest(
     const Matrix4d &target_transform,
     const std::vector<double> &seed_joints,
     const std::vector<double> &joint_limits_min,
-    const std::vector<double> &joint_limits_max,
-    int max_iter,
-    double position_tolerance,
-    double orientation_tolerance,
-    double orientation_weight,
-    double max_joint_step,
-    double min_lambda,
-    double max_lambda,
-    double solution_valid_threshold) {
-    detail::KinematicsBackend::SeededIkRequest request;
+    const std::vector<double> &joint_limits_max) {
+    detail::KinematicsBackend::IKRequest request;
     request.target_transform = target_transform;
     request.seed_joints = seed_joints;
     request.joint_limits_min = joint_limits_min;
     request.joint_limits_max = joint_limits_max;
-    request.max_iter = max_iter;
-    request.position_tolerance = position_tolerance;
-    request.orientation_tolerance = orientation_tolerance;
-    request.orientation_weight = orientation_weight;
-    request.max_joint_step = max_joint_step;
-    request.min_lambda = min_lambda;
-    request.max_lambda = max_lambda;
-    request.solution_valid_threshold = solution_valid_threshold;
     return request;
 }
 
@@ -158,19 +142,11 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
         return {};
     }
 
-    const auto request = makeSeededIkRequest(
+    const auto request = makeIkRequest(
         rpyToTransform(target),
         current_joints,
         joint_limits_min_,
-        joint_limits_max_,
-        16,
-        1e-5,
-        1e-3,
-        0.8,
-        0.05,
-        0.02,
-        0.5,
-        5e-3);
+        joint_limits_max_);
     const auto solved = backend_->solveMultiBranch(request);
     std::vector<std::vector<double>> candidates;
     candidates.reserve(solved.candidates.size());
@@ -197,19 +173,11 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
         return {};
     }
 
-    const auto request = makeSeededIkRequest(
+    const auto request = makeIkRequest(
         rpyToTransform(target),
         seed_joints,
         joint_limits_min_,
-        joint_limits_max_,
-        16,
-        1e-5,
-        1e-3,
-        0.8,
-        0.05,
-        0.02,
-        0.5,
-        5e-3);
+        joint_limits_max_);
     return backend_->solveSeeded(request).q;
 }
 
@@ -242,19 +210,11 @@ xMate3Kinematics::SingularityAnalysis xMate3Kinematics::analyzeSingularity(const
 
     analysis.jacobian = computeJacobian(joints);
     ++debug_counters_.svd_calls;
-    const auto request = makeSeededIkRequest(
+    const auto request = makeIkRequest(
         forwardKinematics(joints),
         joints,
         joint_limits_min_,
-        joint_limits_max_,
-        16,
-        1e-5,
-        1e-3,
-        0.8,
-        0.05,
-        0.02,
-        0.5,
-        5e-3);
+        joint_limits_max_);
     const auto metrics = backend_->evaluateSeededIkCandidate(request, joints);
     analysis.singularity_measure = metrics.singularity_metric;
     analysis.near_singularity = metrics.near_singularity;
@@ -270,28 +230,10 @@ double xMate3Kinematics::computeSingularityMeasure(const std::vector<double>& jo
 }
 
 bool xMate3Kinematics::avoidSingularity(std::vector<double>& joints) {
-    const auto before = analyzeSingularity(joints);
-    if (!before.near_singularity) {
-        return true;
+    if (!backend_) {
+        return false;
     }
-
-    const double current_j5 = joints[4];
-    const double target_offset = SINGULARITY_AVOIDANCE_OFFSET;
-    joints[4] = current_j5 >= 0.0 ? std::max(target_offset, joint_limits_min_[4])
-                                  : std::min(-target_offset, joint_limits_max_[4]);
-    joints[4] = std::clamp(joints[4], joint_limits_min_[4], joint_limits_max_[4]);
-
-    const auto after_wrist_adjust = analyzeSingularity(joints);
-    if (after_wrist_adjust.singularity_measure > 0.7) {
-        joints[2] = std::clamp(joints[2] + (joints[2] >= 0.0 ? 0.12 : -0.12),
-                               joint_limits_min_[2], joint_limits_max_[2]);
-        joints[3] = std::clamp(joints[3] + (joints[3] >= 0.0 ? 0.08 : -0.08),
-                               joint_limits_min_[3], joint_limits_max_[3]);
-        joints[5] = std::clamp(joints[5] + (joints[5] >= 0.0 ? 0.1 : -0.1),
-                               joint_limits_min_[5], joint_limits_max_[5]);
-    }
-
-    return true;
+    return backend_->avoidSingularity(joints);
 }
 
 double xMate3Kinematics::branchDistance(const std::vector<double>& lhs,
@@ -313,28 +255,11 @@ xMate3Kinematics::IkCandidateMetrics xMate3Kinematics::evaluateIkCandidate(
         return {};
     }
 
-    constexpr int max_iter = 16;
-    constexpr double position_tolerance = 1e-5;
-    constexpr double orientation_tolerance = 1e-3;
-    constexpr double orientation_weight = 0.8;
-    constexpr double max_joint_step = 0.05;
-    constexpr double min_lambda = 0.02;
-    constexpr double max_lambda = 0.5;
-    constexpr double solution_valid_threshold = 5e-3;
-
-    auto request = makeSeededIkRequest(
+    auto request = makeIkRequest(
         Matrix4d::Identity(),
         seed_joints,
         joint_limits_min_,
-        joint_limits_max_,
-        max_iter,
-        position_tolerance,
-        orientation_tolerance,
-        orientation_weight,
-        max_joint_step,
-        min_lambda,
-        max_lambda,
-        solution_valid_threshold);
+        joint_limits_max_);
 
     if (backend_) {
         return toPublicMetrics(backend_->evaluateSeededIkCandidate(request, candidate));
@@ -342,7 +267,7 @@ xMate3Kinematics::IkCandidateMetrics xMate3Kinematics::evaluateIkCandidate(
 
     IkCandidateMetrics metrics;
     metrics.branch_distance = branchDistance(candidate, seed_joints);
-    metrics.continuity_cost = request.continuity_weight *
+    metrics.continuity_cost =
         (Eigen::Map<const Eigen::VectorXd>(candidate.data(), 6) -
          Eigen::Map<const Eigen::VectorXd>(seed_joints.data(), 6))
             .norm();
@@ -355,7 +280,7 @@ xMate3Kinematics::IkCandidateMetrics xMate3Kinematics::evaluateIkCandidate(
         const double normalized_margin = std::clamp(std::min(lower_margin, upper_margin) / range, 0.0, 1.0);
         limit_penalty += (1.0 - normalized_margin);
     }
-    metrics.joint_limit_penalty = request.joint_limit_weight * (limit_penalty / 6.0);
+    metrics.joint_limit_penalty = limit_penalty / 6.0;
     metrics.singularity_metric = 0.0;
     metrics.singularity_cost = 0.0;
     metrics.near_singularity = false;

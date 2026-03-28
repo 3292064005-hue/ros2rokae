@@ -21,6 +21,13 @@ except Exception:  # pragma: no cover - best effort dependency
 
 from rokae_xmate3_ros2.srv import PrepareShutdown
 
+HARNESS_DIR = Path(__file__).resolve().parent
+HARNESS_PATH = str(HARNESS_DIR)
+if HARNESS_PATH not in sys.path:
+    sys.path.insert(0, HARNESS_PATH)
+
+from common import build_runtime_env
+
 
 SHUTDOWN_PHASE = {
     0: "running",
@@ -42,6 +49,8 @@ CONTRACT_CODE = {
     6: "finished",
     7: "faulted",
 }
+
+SAFE_TO_DELETE_CODES = {4, 5, 6}
 
 
 class TeePump(threading.Thread):
@@ -432,7 +441,12 @@ def _prepare_plugin_shutdown(sink) -> bool:
                 + "\n"
             )
             sink.flush()
-            if response.accepted and response.contract_version == 1 and response.safe_to_delete:
+            if (
+                response.accepted
+                and response.contract_version == 1
+                and response.code in SAFE_TO_DELETE_CODES
+                and response.safe_to_delete
+            ):
                 return True
             time.sleep(0.25)
         sink.write("[harness] prepare shutdown never reached safe_to_delete\n")
@@ -484,6 +498,7 @@ def main() -> int:
     parser.add_argument("--package-share", required=True)
     parser.add_argument("--package-lib-dir", required=True)
     parser.add_argument("--rosidl-python-path", required=True)
+    parser.add_argument("--runtime-lib-dir", required=True)
     parser.add_argument("--log-file", required=True)
     parser.add_argument("--python-bin", default=sys.executable)
     parser.add_argument("--ready-timeout", type=float, default=90.0)
@@ -501,15 +516,11 @@ def main() -> int:
     if shutdown_sentinel.exists():
         shutdown_sentinel.unlink()
 
-    env = os.environ.copy()
-    env["ROKAE_XMATE3_ROS2_SHARE_DIR"] = args.package_share
-    env["ROKAE_XMATE3_ROS2_LIB_DIR"] = args.package_lib_dir
-    env["PYTHONUNBUFFERED"] = "1"
-    existing_pythonpath = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = (
-        args.rosidl_python_path
-        if not existing_pythonpath
-        else f"{args.rosidl_python_path}:{existing_pythonpath}"
+    env = build_runtime_env(
+        args.package_share,
+        args.package_lib_dir,
+        args.rosidl_python_path,
+        args.runtime_lib_dir,
     )
 
     simulation_cmd = [

@@ -29,7 +29,7 @@
 
 #include "rokae/base.h"
 #include "rokae/data_types.h"
-#include "rokae_xmate3_ros2/gazebo/approximate_model.hpp"
+#include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
 #include "rokae_xmate3_ros2/robot.hpp"
@@ -1084,7 +1084,7 @@ private:
     for (std::size_t i = 0; i < 6; ++i) {
       tool_pose[i] = tool_pose_array[i];
     }
-    return rokae_xmate3_ros2::gazebo_model::configuredModelFacade(
+    return rokae_xmate3_ros2::gazebo_model::makeModelFacade(
         kinematics_, tool_pose, loadContext());
   }
 

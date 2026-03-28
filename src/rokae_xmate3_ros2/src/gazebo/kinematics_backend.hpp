@@ -21,27 +21,13 @@ class KinematicsBackend {
   using Matrix6d = Eigen::Matrix<double, 6, 6>;
   using VectorJ = std::vector<double>;
 
-  struct SeededIkRequest {
+  struct IKRequest {
     Matrix4d target_transform = Matrix4d::Identity();
     VectorJ seed_joints;
     VectorJ joint_limits_min;
     VectorJ joint_limits_max;
-    int max_iter = 16;
-    double position_tolerance = 1e-5;
-    double orientation_tolerance = 1e-3;
-    double orientation_weight = 0.8;
-    double max_joint_step = 0.05;
-    double min_lambda = 0.02;
-    double max_lambda = 0.5;
-    double solution_valid_threshold = 5e-3;
-    double wrist_singularity_threshold = 0.15;
-    double jacobian_singularity_threshold = 0.08;
-    double singularity_avoidance_offset = 0.2;
-    double continuity_weight = 0.02;
-    double joint_limit_weight = 0.01;
-    double singularity_weight = 0.1;
   };
-  using IKRequest = SeededIkRequest;
+  using SeededIkRequest = IKRequest;
 
   struct SeededIkCandidateMetrics {
     double branch_distance = std::numeric_limits<double>::infinity();
@@ -84,7 +70,6 @@ class KinematicsBackend {
     }};
     VectorJ joint_limits_min;
     VectorJ joint_limits_max;
-    double branch_jump_threshold = 0.75;
   };
 
   struct CartesianIkSelectionResult {
@@ -106,9 +91,6 @@ class KinematicsBackend {
     std::vector<Matrix4d> target_transforms;
     VectorJ initial_seed;
     CartesianIkOptions options;
-    std::size_t dp_window = 32;
-    std::size_t dp_overlap = 8;
-    std::size_t max_candidates_per_point = 6;
   };
 
   struct IKTrajectoryResult {
@@ -118,6 +100,38 @@ class KinematicsBackend {
     std::vector<std::string> chosen_branch_path;
     std::size_t failed_index = std::numeric_limits<std::size_t>::max();
     std::string message;
+  };
+
+  struct IKBackendConfig {
+    double weight_pose = 1.0;
+    double weight_continuity = 2.0;
+    double weight_singularity = 1.5;
+    double weight_limit = 1.0;
+    double weight_preference = 0.5;
+    int seed_solver_max_iter = 16;
+    double seed_solver_position_tolerance = 1e-5;
+    double seed_solver_orientation_tolerance = 1e-3;
+    double seed_solver_orientation_weight = 0.8;
+    double seed_solver_max_joint_step = 0.05;
+    double seed_solver_min_lambda = 0.02;
+    double seed_solver_max_lambda = 0.5;
+    double seed_solver_solution_valid_threshold = 5e-3;
+    double seed_solver_continuity_weight = 0.02;
+    double seed_solver_singularity_weight = 0.1;
+    double seed_solver_limit_weight = 0.01;
+
+    double singularity_hard_reject = 1e-4;
+    double wrist_singularity_soft_threshold = 0.15;
+    double jacobian_singularity_soft_threshold = 0.08;
+    double wrist_singularity_hard_threshold = 0.02;
+    double jacobian_singularity_hard_threshold = 0.005;
+    double singularity_avoidance_offset = 0.2;
+    double joint_branch_jump_threshold = 0.75;
+    double shoulder_elbow_branch_switch_penalty = 2.0;
+    double wrist_flip_branch_switch_penalty = 4.0;
+    std::size_t trajectory_dp_window = 32;
+    std::size_t trajectory_dp_overlap = 8;
+    std::size_t max_candidates_per_point = 6;
   };
 
   virtual ~KinematicsBackend() = default;
@@ -139,6 +153,7 @@ class KinematicsBackend {
   [[nodiscard]] virtual double singularityMetric(const SeededIkRequest &request, const VectorJ &candidate) const = 0;
   [[nodiscard]] virtual SeededIkCandidateMetrics evaluateSeededIkCandidate(const SeededIkRequest &request,
                                                                            const VectorJ &candidate) const = 0;
+  [[nodiscard]] virtual bool avoidSingularity(VectorJ &joints) const = 0;
   [[nodiscard]] virtual IKResult solveSeeded(const IKRequest &request) const = 0;
   [[nodiscard]] virtual IKResult solveMultiBranch(const IKRequest &request) const = 0;
   [[nodiscard]] virtual IKTrajectoryResult solveTrajectory(const IKTrajectoryRequest &request) const = 0;
@@ -165,6 +180,7 @@ class KinematicsBackend {
 };
 
 [[nodiscard]] std::shared_ptr<KinematicsBackend> makePreferredKinematicsBackend();
+[[nodiscard]] const KinematicsBackend::IKBackendConfig &backendConfig() noexcept;
 
 }  // namespace detail
 }  // namespace gazebo

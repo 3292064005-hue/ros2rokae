@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -39,6 +40,41 @@ class RuntimeLogObservation:
     owner: str
     message: str
     observed_time: float
+
+
+def build_runtime_env(
+    package_share: str,
+    package_lib_dir: str,
+    rosidl_python_path: str,
+    runtime_lib_dir: str,
+    base_env: Optional[dict[str, str]] = None,
+) -> dict[str, str]:
+    env = os.environ.copy() if base_env is None else base_env.copy()
+    if package_share:
+        env.setdefault("ROKAE_XMATE3_ROS2_SHARE_DIR", package_share)
+    if package_lib_dir:
+        env.setdefault("ROKAE_XMATE3_ROS2_LIB_DIR", package_lib_dir)
+    env["PYTHONUNBUFFERED"] = "1"
+
+    if rosidl_python_path:
+        existing_pythonpath = env.get("PYTHONPATH", "")
+        pythonpath_entries = [entry for entry in existing_pythonpath.split(":") if entry]
+        if rosidl_python_path not in pythonpath_entries:
+            env["PYTHONPATH"] = (
+                rosidl_python_path
+                if not existing_pythonpath
+                else f"{rosidl_python_path}:{existing_pythonpath}"
+            )
+    if runtime_lib_dir:
+        existing_ld_library_path = env.get("LD_LIBRARY_PATH", "")
+        ld_library_entries = [entry for entry in existing_ld_library_path.split(":") if entry]
+        if runtime_lib_dir not in ld_library_entries:
+            env["LD_LIBRARY_PATH"] = (
+                runtime_lib_dir
+                if not existing_ld_library_path
+                else f"{runtime_lib_dir}:{existing_ld_library_path}"
+            )
+    return env
 
 
 class RuntimeCleanupMixin:

@@ -5,7 +5,7 @@
 #include <system_error>
 
 #include "rokae_xmate3_ros2/robot.hpp"
-#include "rokae_xmate3_ros2/gazebo/approximate_model.hpp"
+#include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 
 namespace rokae::ros2 {
@@ -96,7 +96,7 @@ public:
 
 private:
     [[nodiscard]] rokae_xmate3_ros2::gazebo_model::ModelFacade facade() {
-        return rokae_xmate3_ros2::gazebo_model::configuredModelFacade(
+        return rokae_xmate3_ros2::gazebo_model::makeModelFacade(
             kinematics_, tcp_.tool_pose, {tcp_.load.mass, tcp_.load.cog});
     }
 

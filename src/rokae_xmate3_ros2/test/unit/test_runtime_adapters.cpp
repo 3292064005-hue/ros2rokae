@@ -16,7 +16,7 @@
 
 #include "rokae/model.h"
 #include "gazebo/kinematics_backend.hpp"
-#include "rokae_xmate3_ros2/gazebo/approximate_model.hpp"
+#include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "runtime/operation_state_adapter.hpp"
 #include "runtime/request_adapter.hpp"
@@ -675,12 +675,26 @@ TEST(RuntimeRequestAdapterTest, ReplayRetimerReportsCanonicalMetadata) {
   };
 
   const auto retimed = rt::retimeReplayWithUnifiedConfig(asset, 0.5, 0.02);
-  ASSERT_FALSE(retimed.empty()) << retimed.trajectory.error_message;
-  EXPECT_EQ(retimed.metadata.source_family, "replay");
-  EXPECT_EQ(retimed.metadata.note, "replay_retimed");
+  ASSERT_FALSE(retimed.empty()) << retimed.samples.error_message;
+  EXPECT_EQ(retimed.metadata.source_family, rt::RetimerSourceFamily::replay);
+  EXPECT_EQ(retimed.metadata.note, rt::RetimerNote::replay_retimed);
   EXPECT_DOUBLE_EQ(retimed.metadata.effective_speed_scale, 0.5);
-  EXPECT_DOUBLE_EQ(retimed.metadata.sample_dt, retimed.trajectory.sample_dt);
-  EXPECT_DOUBLE_EQ(retimed.metadata.total_duration, retimed.trajectory.total_time);
+  EXPECT_DOUBLE_EQ(retimed.metadata.sample_dt, retimed.samples.sample_dt);
+  EXPECT_DOUBLE_EQ(retimed.metadata.total_duration, retimed.samples.total_time);
+}
+
+TEST(RuntimeRequestAdapterTest, UnifiedRetimerMarksAppliedSpeedScaleInMetadata) {
+  const std::vector<std::vector<double>> waypoints = {
+      {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926},
+      {0.06, 0.20, 1.48, 0.02, 1.28, 3.08},
+  };
+
+  const auto retimed =
+      rt::retimeJointPathWithUnifiedConfig(waypoints, 0.01, 1.0, 2.0, 0.1, rt::RetimerSourceFamily::joint, 1.6);
+  ASSERT_FALSE(retimed.empty()) << retimed.samples.error_message;
+  EXPECT_EQ(retimed.metadata.source_family, rt::RetimerSourceFamily::joint);
+  EXPECT_EQ(retimed.metadata.note, rt::RetimerNote::speed_scale_applied);
+  EXPECT_DOUBLE_EQ(retimed.metadata.effective_speed_scale, 1.6);
 }
 
 TEST(RuntimeArchiveVerificationTest, RejectsForbiddenArtifactsInSourceArchive) {

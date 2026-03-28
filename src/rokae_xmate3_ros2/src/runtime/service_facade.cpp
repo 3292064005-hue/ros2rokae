@@ -4,12 +4,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <utility>
 
 #include "runtime/planning_utils.hpp"
 #include "runtime/pose_utils.hpp"
 #include "runtime/unified_retimer.hpp"
-#include "rokae_xmate3_ros2/gazebo/approximate_model.hpp"
+#include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 namespace {
@@ -54,6 +55,19 @@ bool validate_coordinate_type(int coordinate_type, std::string &message) {
   }
   message = "unsupported coordinate_type";
   return false;
+}
+
+void append_retimer_diagnostic(DataStoreState &data_store_state,
+                               const rclcpp::Time &stamp,
+                               const std::string &context,
+                               const RetimerMetadata &metadata,
+                               const std::string &detail = {}) {
+  rokae_xmate3_ros2::msg::LogInfo log;
+  log.timestamp = std::to_string(stamp.nanoseconds());
+  log.content = describeRetimerMetadata(metadata, context, detail);
+  log.repair.clear();
+  log.level = 1;
+  data_store_state.appendLog(log);
 }
 
 }  // namespace
@@ -612,7 +626,7 @@ void QueryFacade::handleCalcJointTorque(
   }
   const auto toolset = tooling_state_.toolset();
   const auto model_facade =
-      rokae_xmate3_ros2::gazebo_model::configuredModelFacade(
+      rokae_xmate3_ros2::gazebo_model::makeModelFacade(
           kinematics_,
           {toolset.tool_pose[0], toolset.tool_pose[1], toolset.tool_pose[2],
            toolset.tool_pose[3], toolset.tool_pose[4], toolset.tool_pose[5]},
@@ -630,6 +644,8 @@ void QueryFacade::handleGenerateSTrajectory(
     rokae_xmate3_ros2::srv::GenerateSTrajectory::Response &res) const {
   std::vector<double> start(req.start_joint_pos.begin(), req.start_joint_pos.end());
   std::vector<double> target(req.target_joint_pos.begin(), req.target_joint_pos.end());
+  const auto stamp = time_provider_();
+  const double sample_dt = std::max(trajectory_dt_provider_(), 1e-3);
   for (int i = 0; i < 6; ++i) {
     if (!std::isfinite(start[i]) || !std::isfinite(target[i])) {
       res.success = false;
@@ -656,37 +672,62 @@ void QueryFacade::handleGenerateSTrajectory(
     }
     res.trajectory_points = {joint_msg};
     res.total_time = 0.0;
-    res.stamp = ToBuiltinTime(time_provider_());
+    res.stamp = ToBuiltinTime(stamp);
     res.success = true;
     res.error_code = 0;
+    RetimerMetadata metadata;
+    metadata.source_family = RetimerSourceFamily::s_trajectory;
+    metadata.sample_dt = sample_dt;
+    metadata.total_duration = 0.0;
+    metadata.note = RetimerNote::degenerate_path;
+    append_retimer_diagnostic(data_store_state_, stamp, "generate_s_trajectory", metadata, "start equals target");
     return;
   }
 
-  const double sample_dt = std::max(trajectory_dt_provider_(), 1e-3);
   std::vector<std::vector<double>> trajectory_positions;
   double total_time = 0.0;
   bool cartesian_fallback_to_joint = false;
+  std::optional<RetimerMetadata> retimer_metadata;
   if (req.is_cartesian) {
     const auto cartesian_retimed = buildApproximateCartesianSTrajectory(kinematics_, req, sample_dt);
     if (cartesian_retimed.empty()) {
       cartesian_fallback_to_joint = true;
+      append_retimer_diagnostic(
+          data_store_state_,
+          stamp,
+          "generate_s_trajectory",
+          cartesian_retimed.metadata,
+          cartesian_retimed.samples.error_message.empty()
+              ? "cartesian approximation failed; falling back to joint retimer"
+              : cartesian_retimed.samples.error_message);
     } else {
-      trajectory_positions = cartesian_retimed.trajectory.positions;
-      total_time = cartesian_retimed.trajectory.total_time;
+      trajectory_positions = cartesian_retimed.samples.positions;
+      total_time = cartesian_retimed.samples.total_time;
+      retimer_metadata = cartesian_retimed.metadata;
     }
   }
 
   if (!req.is_cartesian || cartesian_fallback_to_joint) {
-    const auto retimed = retimeJointWithUnifiedConfig(
-        start, target, sample_dt, req.max_velocity, req.max_acceleration, req.blend_radius, "s_trajectory");
+    auto retimed = retimeJointWithUnifiedConfig(
+        start,
+        target,
+        sample_dt,
+        req.max_velocity,
+        req.max_acceleration,
+        req.blend_radius,
+        RetimerSourceFamily::s_trajectory);
     if (retimed.empty()) {
       res.success = false;
       res.error_code = 3003;
       res.error_msg = "trajectory planning failed";
       return;
     }
-    trajectory_positions = retimed.trajectory.positions;
-    total_time = retimed.trajectory.total_time;
+    if (cartesian_fallback_to_joint) {
+      retimed.metadata.note = RetimerNote::cartesian_fallback_to_joint;
+    }
+    trajectory_positions = retimed.samples.positions;
+    total_time = retimed.samples.total_time;
+    retimer_metadata = retimed.metadata;
   }
 
   res.trajectory_points.clear();
@@ -699,10 +740,13 @@ void QueryFacade::handleGenerateSTrajectory(
     res.trajectory_points.push_back(joint_msg);
   }
   res.total_time = total_time;
-  res.stamp = ToBuiltinTime(time_provider_());
+  res.stamp = ToBuiltinTime(stamp);
   res.success = true;
   res.error_code = 0;
   res.error_msg.clear();
+  if (retimer_metadata.has_value()) {
+    append_retimer_diagnostic(data_store_state_, stamp, "generate_s_trajectory", *retimer_metadata);
+  }
 }
 
 void QueryFacade::handleMapCartesianToJointTorque(

@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -38,21 +37,20 @@ bool move_absj_violates_soft_limit(const std::vector<double> &joints,
 }
 
 void apply_unified_trajectory(PlannedSegment &segment, const UnifiedTrajectoryResult &trajectory) {
-  segment.joint_trajectory = trajectory.trajectory.positions;
-  segment.joint_velocity_trajectory = trajectory.trajectory.velocities;
-  segment.joint_acceleration_trajectory = trajectory.trajectory.accelerations;
-  segment.trajectory_dt = trajectory.trajectory.sample_dt;
-  segment.trajectory_total_time = trajectory.trajectory.total_time;
+  segment.joint_trajectory = trajectory.samples.positions;
+  segment.joint_velocity_trajectory = trajectory.samples.velocities;
+  segment.joint_acceleration_trajectory = trajectory.samples.accelerations;
+  segment.trajectory_dt = trajectory.samples.sample_dt;
+  segment.trajectory_total_time = trajectory.samples.total_time;
 }
 
 void append_retimer_note(std::vector<std::string> &notes,
                          std::size_t segment_index,
                          const RetimerMetadata &metadata) {
-  if (metadata.note.empty() || metadata.note == "nominal") {
+  if (metadata.note == RetimerNote::nominal) {
     return;
   }
-  notes.push_back("segment " + std::to_string(segment_index) + " retimer[" + metadata.source_family +
-                  "]: " + metadata.note);
+  notes.push_back(describeRetimerMetadata(metadata, "segment " + std::to_string(segment_index)));
 }
 
 enum class BlendFamily { none, joint, cartesian_lookahead };
@@ -690,10 +688,11 @@ bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
         run_segment.segment.joint_trajectory,
         run_segment.segment.trajectory_dt,
         run_segment.segment.speed,
-        "cartesian");
+        RetimerSourceFamily::cartesian,
+        request.speed_scale);
     if (retimed.empty()) {
-      error_message = retimed.trajectory.error_message.empty() ? "failed to retime Cartesian joint path"
-                                                               : retimed.trajectory.error_message;
+      error_message = retimed.samples.error_message.empty() ? "failed to retime Cartesian joint path"
+                                                            : retimed.samples.error_message;
       return false;
     }
     apply_unified_trajectory(run_segment.segment, retimed);
@@ -708,8 +707,8 @@ bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
                                                   run_segment.segment.trajectory_dt,
                                                   run_segment.segment.joint_velocity_trajectory,
                                                   run_segment.segment.joint_acceleration_trajectory)) {
-      run_segment.segment.joint_velocity_trajectory = retimed.trajectory.velocities;
-      run_segment.segment.joint_acceleration_trajectory = retimed.trajectory.accelerations;
+      run_segment.segment.joint_velocity_trajectory = retimed.samples.velocities;
+      run_segment.segment.joint_acceleration_trajectory = retimed.samples.accelerations;
     }
     ik_seed = last_joints;
     current_joints = last_joints;
@@ -1004,11 +1003,15 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
           return plan;
         }
         const auto trajectory = retimeJointPathWithUnifiedSpeed(
-            {current_joints, segment.target_joints}, request.trajectory_dt, segment.speed, "joint");
+            {current_joints, segment.target_joints},
+            request.trajectory_dt,
+            segment.speed,
+            RetimerSourceFamily::joint,
+            request.speed_scale);
         if (trajectory.empty()) {
           plan.error_message =
-              trajectory.trajectory.error_message.empty() ? "MoveAbsJ retiming failed"
-                                                          : trajectory.trajectory.error_message;
+              trajectory.samples.error_message.empty() ? "MoveAbsJ retiming failed"
+                                                       : trajectory.samples.error_message;
           return plan;
         }
         apply_unified_trajectory(segment, trajectory);
@@ -1032,11 +1035,15 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
         }
         segment.target_joints = selected.joints;
         const auto trajectory = retimeJointPathWithUnifiedSpeed(
-            {current_joints, segment.target_joints}, request.trajectory_dt, segment.speed, "joint");
+            {current_joints, segment.target_joints},
+            request.trajectory_dt,
+            segment.speed,
+            RetimerSourceFamily::joint,
+            request.speed_scale);
         if (trajectory.empty()) {
           plan.error_message =
-              trajectory.trajectory.error_message.empty() ? "MoveJ retiming failed"
-                                                          : trajectory.trajectory.error_message;
+              trajectory.samples.error_message.empty() ? "MoveJ retiming failed"
+                                                       : trajectory.samples.error_message;
           return plan;
         }
         apply_unified_trajectory(segment, trajectory);
@@ -1073,12 +1080,16 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
           return plan;
         }
         const auto retimed = retimeJointPathWithUnifiedSpeed(
-            segment.joint_trajectory, request.trajectory_dt, segment.speed, "cartesian");
+            segment.joint_trajectory,
+            request.trajectory_dt,
+            segment.speed,
+            RetimerSourceFamily::cartesian,
+            request.speed_scale);
         if (retimed.empty()) {
           plan.error_message =
               "MoveSP retiming failed: " +
-              (retimed.trajectory.error_message.empty() ? std::string("unified retimer produced no samples")
-                                                        : retimed.trajectory.error_message);
+              (retimed.samples.error_message.empty() ? std::string("unified retimer produced no samples")
+                                                     : retimed.samples.error_message);
           return plan;
         }
         apply_unified_trajectory(segment, retimed);
@@ -1091,8 +1102,8 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
                                                       segment.trajectory_dt,
                                                       segment.joint_velocity_trajectory,
                                                       segment.joint_acceleration_trajectory)) {
-          segment.joint_velocity_trajectory = retimed.trajectory.velocities;
-          segment.joint_acceleration_trajectory = retimed.trajectory.accelerations;
+          segment.joint_velocity_trajectory = retimed.samples.velocities;
+          segment.joint_acceleration_trajectory = retimed.samples.accelerations;
         }
         segment.target_joints = last_joints;
         segment.path_length_m = 0.0;
