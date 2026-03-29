@@ -67,6 +67,8 @@ public:
     struct IkSelectionResult {
         bool success = false;
         std::vector<double> joints;
+        std::string branch_id;
+        std::string note;
         std::string message;
     };
 

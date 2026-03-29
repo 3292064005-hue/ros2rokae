@@ -42,6 +42,8 @@ class RuntimeContext {
   [[nodiscard]] const DataStoreState &dataStoreState() const;
   [[nodiscard]] ProgramState &programState();
   [[nodiscard]] const ProgramState &programState() const;
+  [[nodiscard]] RuntimeDiagnosticsState &diagnosticsState();
+  [[nodiscard]] const RuntimeDiagnosticsState &diagnosticsState() const;
 
   [[nodiscard]] OperationStateContext operationStateContext() const;
   [[nodiscard]] RuntimeView currentRuntimeView() const;
@@ -54,6 +56,7 @@ class RuntimeContext {
   std::shared_ptr<ToolingState> tooling_state_;
   std::shared_ptr<DataStoreState> data_store_state_;
   std::shared_ptr<ProgramState> program_state_;
+  std::shared_ptr<RuntimeDiagnosticsState> diagnostics_state_;
   ControllerState controller_state_;
   MotionRuntime motion_runtime_;
   MotionRequestCoordinator request_coordinator_;

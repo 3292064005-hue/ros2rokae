@@ -8,6 +8,7 @@ import hashlib
 import os
 import subprocess
 import sys
+import time
 import zipfile
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -45,6 +46,7 @@ def _tracked_workspace_files(workspace_root: Path) -> list[Path]:
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        timeout=30,
     )
     files: list[Path] = []
     for raw in completed.stdout.split(b"\x00"):
@@ -98,6 +100,7 @@ def _verify_archive(package_root: Path, workspace_root: Path, archive_path: Path
             str(archive_path),
         ],
         check=True,
+        timeout=60,
     )
 
 
@@ -129,6 +132,20 @@ def _git_commit(workspace_root: Path) -> str:
     if completed.returncode != 0:
         return "unknown"
     return completed.stdout.strip() or "unknown"
+
+
+def _git_commit_timestamp(workspace_root: Path) -> tuple[int, int, int, int, int, int]:
+    completed = subprocess.run(
+        ["git", "-C", str(workspace_root), "log", "-1", "--format=%ct"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=10,
+    )
+    if completed.returncode == 0 and completed.stdout.strip().isdigit():
+        return time.gmtime(int(completed.stdout.strip()))[0:6]
+    return (2024, 1, 1, 0, 0, 0)
 
 
 def _write_archive_sidecars(archive_path: Path,
@@ -181,14 +198,23 @@ def main() -> int:
         raise RuntimeError(f"no source files found for package root {package_root}")
     package_version = _read_package_version(package_root)
     git_commit = _git_commit(workspace_root)
+    git_timestamp = _git_commit_timestamp(workspace_root)
     generated_at_utc = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
 
     if archive_path.exists():
         archive_path.unlink()
 
+    # [OPTIMIZATION] Deterministic ZIP creation to guarantee reproducible builds
+    # This ensures identical Git commits produce identical SHA256 checksums.
     with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
         for source_path, archive_relative in source_files:
-            archive.write(source_path, archive_relative)
+            file_stat = source_path.stat()
+            zip_info = zipfile.ZipInfo(archive_relative, date_time=git_timestamp)
+            zip_info.compress_type = zipfile.ZIP_DEFLATED
+            # Crucial: Preserve file execution permissions (e.g., for bash scripts inside ROS pkgs)
+            zip_info.external_attr = (file_stat.st_mode & 0xFFFF) << 16
+            with source_path.open("rb") as src_f:
+                archive.writestr(zip_info, src_f.read())
 
     _verify_archive(package_root, workspace_root, archive_path)
     manifest_path, sha256_path = _write_archive_sidecars(

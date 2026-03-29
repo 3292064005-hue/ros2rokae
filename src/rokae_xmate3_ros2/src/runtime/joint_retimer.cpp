@@ -30,6 +30,10 @@ int determine_interval_count(double total_time,
   return std::clamp(std::max(time_intervals, path_intervals), 1, min_dt_intervals);
 }
 
+double resolve_sample_dt(const JointRetimerConfig &config) {
+  return std::clamp(config.sample_dt, config.min_sample_dt, config.max_sample_dt);
+}
+
 }  // namespace
 
 double computeJointRetimerDuration(const std::vector<double> &start,
@@ -76,21 +80,23 @@ QuinticRetimerResult retimeJointQuintic(
     result.positions.push_back(start);
     result.velocities.push_back(std::vector<double>(start.size(), 0.0));
     result.accelerations.push_back(std::vector<double>(start.size(), 0.0));
-    result.sample_dt = std::clamp(config.sample_dt, config.min_sample_dt, config.max_sample_dt);
+    result.sample_dt = resolve_sample_dt(config);
     result.total_time = 0.0;
     return result;
   }
 
-  result.total_time = computeJointRetimerDuration(
+  const double requested_total_time = computeJointRetimerDuration(
       start, target, joint_speed_limits_rad_per_sec, joint_acc_limits_rad_per_sec2);
+  const double resolved_sample_dt = resolve_sample_dt(config);
   const int interval_count = determine_interval_count(
-      result.total_time,
+      requested_total_time,
       config.sample_dt,
       max_joint_delta,
       config.max_joint_step_rad,
       config.min_sample_dt,
       config.max_sample_dt);
-  result.sample_dt = result.total_time / static_cast<double>(interval_count);
+  result.sample_dt = resolved_sample_dt;
+  result.total_time = static_cast<double>(interval_count) * result.sample_dt;
 
   result.positions.reserve(static_cast<std::size_t>(interval_count) + 1);
   result.velocities.reserve(static_cast<std::size_t>(interval_count) + 1);
@@ -120,8 +126,6 @@ QuinticRetimerResult retimeJointQuintic(
     result.accelerations.push_back(std::move(acceleration));
   }
 
-  result.total_time =
-      result.positions.size() > 1 ? (result.positions.size() - 1) * result.sample_dt : 0.0;
   return result;
 }
 

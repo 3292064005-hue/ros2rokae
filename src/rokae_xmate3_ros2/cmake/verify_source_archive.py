@@ -56,14 +56,13 @@ def _load_tree_file(root: Path, relative_path: str) -> str:
     return target.read_text(encoding="utf-8")
 
 
-def _load_archive_file(archive_path: Path, relative_path: str) -> str:
+def _load_archive_file(archive: zipfile.ZipFile, relative_path: str) -> str:
     normalized_target = _normalize_relative_path(relative_path)
-    with zipfile.ZipFile(archive_path) as archive:
-        archive_entries = {_normalize_relative_path(name): name for name in archive.namelist()}
-        matched = archive_entries.get(normalized_target)
-        if matched is None:
-            raise FileNotFoundError(f"archive is missing required file: {relative_path}")
-        return archive.read(matched).decode("utf-8")
+    archive_entries = {_normalize_relative_path(name): name for name in archive.namelist()}
+    matched = archive_entries.get(normalized_target)
+    if matched is None:
+        raise FileNotFoundError(f"archive is missing required file: {relative_path}")
+    return archive.read(matched).decode("utf-8")
 
 
 def _verify_markers(label: str, content: str) -> None:
@@ -73,7 +72,10 @@ def _verify_markers(label: str, content: str) -> None:
 
 
 def _verify_exact_match(label: str, expected: str, actual: str) -> None:
-    if expected != actual:
+    # [OPTIMIZATION] Cross-platform immunity: Normalize CRLF (Windows) to LF (Linux)
+    normalized_expected = expected.replace("\r\n", "\n")
+    normalized_actual = actual.replace("\r\n", "\n")
+    if normalized_expected != normalized_actual:
         raise RuntimeError(f"{label} does not match the working tree")
 
 
@@ -87,9 +89,8 @@ def _is_forbidden_archive_entry(path: str) -> bool:
     return any(normalized.endswith(suffix) for suffix in FORBIDDEN_FILE_SUFFIXES)
 
 
-def _verify_archive_cleanliness(archive_path: Path) -> None:
-    with zipfile.ZipFile(archive_path) as archive:
-        offenders = [name for name in archive.namelist() if _is_forbidden_archive_entry(name)]
+def _verify_archive_cleanliness(archive_namelist: list[str]) -> None:
+    offenders = [name for name in archive_namelist if _is_forbidden_archive_entry(name)]
     if offenders:
         preview = ", ".join(sorted(offenders)[:8])
         raise RuntimeError(
@@ -128,22 +129,25 @@ def main() -> int:
     if not archive_path.is_file():
         raise FileNotFoundError(f"archive does not exist: {archive_path}")
 
-    for relative_path in REQUIRED_WORKSPACE_RELATIVE_PATHS:
-        tree_content = _load_tree_file(workspace_root, relative_path)
-        archive_content = _load_archive_file(archive_path, relative_path)
-        _verify_exact_match(f"workspace sidecar {relative_path}", tree_content, archive_content)
+    with zipfile.ZipFile(archive_path) as archive:
+        for relative_path in REQUIRED_WORKSPACE_RELATIVE_PATHS:
+            tree_content = _load_tree_file(workspace_root, relative_path)
+            archive_content = _load_archive_file(archive, relative_path)
+            _verify_exact_match(f"workspace sidecar {relative_path}", tree_content, archive_content)
 
-    for relative_path in REQUIRED_PACKAGE_RELATIVE_PATHS:
-        tree_content = _load_tree_file(package_root, relative_path)
-        archive_content = _load_archive_file(archive_path, relative_path)
-        _verify_exact_match(f"package file {relative_path}", tree_content, archive_content)
+        for relative_path in REQUIRED_PACKAGE_RELATIVE_PATHS:
+            tree_content = _load_tree_file(package_root, relative_path)
+            archive_content = _load_archive_file(archive, relative_path)
+            _verify_exact_match(f"package file {relative_path}", tree_content, archive_content)
 
-    tree_xacro = _load_tree_file(package_root, "urdf/xMate3.xacro")
-    archive_xacro = _load_archive_file(archive_path, "urdf/xMate3.xacro")
-    _verify_markers("working tree xacro", tree_xacro)
-    _verify_markers("archive xacro", archive_xacro)
-    print("required content present")
-    _verify_archive_cleanliness(archive_path)
+        tree_xacro = _load_tree_file(package_root, "urdf/xMate3.xacro")
+        archive_xacro = _load_archive_file(archive, "urdf/xMate3.xacro")
+        
+        _verify_markers("working tree xacro", tree_xacro)
+        _verify_markers("archive xacro", archive_xacro)
+        print("required content present")
+        
+        _verify_archive_cleanliness(archive.namelist())
     print("forbidden artifacts absent")
 
     print(f"archive consistency verified: {archive_path}")

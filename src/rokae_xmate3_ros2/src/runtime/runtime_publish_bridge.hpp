@@ -16,6 +16,7 @@
 #include "runtime/runtime_context.hpp"
 #include "rokae_xmate3_ros2/action/move_append.hpp"
 #include "rokae_xmate3_ros2/msg/operation_state.hpp"
+#include "rokae_xmate3_ros2/msg/runtime_diagnostics.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -53,6 +54,7 @@ class RuntimePublishBridge {
 
   [[nodiscard]] RuntimeView currentView() const;
   [[nodiscard]] rokae_xmate3_ros2::msg::OperationState buildOperationStateMessage() const;
+  [[nodiscard]] rokae_xmate3_ros2::msg::RuntimeDiagnostics buildRuntimeDiagnosticsMessage() const;
   [[nodiscard]] sensor_msgs::msg::JointState buildJointStateMessage(
       const rclcpp::Time &stamp,
       const std::string &frame_id,

@@ -53,6 +53,7 @@ RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
                                                   runtime_context_.toolingState(),
                                                   runtime_context_.dataStoreState(),
                                                   runtime_context_.programState(),
+                                                  runtime_context_.diagnosticsState(),
                                                   kinematics,
                                                   joint_state_fetcher_,
                                                   std::move(time_provider),
@@ -95,8 +96,8 @@ void RosBindings::initServices() {
       node_, "/xmate3/cobot/get_joint_pos", query_facade_.get(), &QueryFacade::handleGetJointPos));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetJointVel>(
       node_, "/xmate3/cobot/get_joint_vel", query_facade_.get(), &QueryFacade::handleGetJointVel));
-  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetJointTorque>(
-      node_, "/xmate3/cobot/get_joint_torque", query_facade_.get(), &QueryFacade::handleGetJointTorque));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetJointTorques>(
+      node_, "/xmate3/cobot/get_joint_torque", query_facade_.get(), &QueryFacade::handleGetJointTorques));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetPosture>(
       node_, "/xmate3/cobot/get_posture", query_facade_.get(), &QueryFacade::handleGetPosture));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetCartPosture>(
@@ -169,8 +170,15 @@ void RosBindings::initServices() {
       node_, "/xmate3/cobot/generate_s_trajectory", query_facade_.get(), &QueryFacade::handleGenerateSTrajectory));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::MapCartesianToJointTorque>(
       node_, "/xmate3/cobot/map_cartesian_to_joint_torque", query_facade_.get(), &QueryFacade::handleMapCartesianToJointTorque));
-  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetEndTorque>(
-      node_, "/xmate3/cobot/get_end_torque", query_facade_.get(), &QueryFacade::handleGetEndTorque));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetEndEffectorTorque>(
+      node_, "/xmate3/cobot/get_end_torque", query_facade_.get(), &QueryFacade::handleGetEndEffectorTorque));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::ValidateMotion>(
+      node_, "/xmate3/internal/validate_motion", query_facade_.get(), &QueryFacade::handleValidateMotion));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetRuntimeDiagnostics>(
+      node_,
+      "/xmate3/internal/get_runtime_diagnostics",
+      query_facade_.get(),
+      &QueryFacade::handleGetRuntimeDiagnostics));
 
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetDI>(
       node_, "/xmate3/io/get_di", io_program_facade_.get(), &IoProgramFacade::handleGetDI));

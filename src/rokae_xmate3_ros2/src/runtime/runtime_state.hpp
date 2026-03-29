@@ -10,6 +10,7 @@
 
 #include "runtime/operation_state_adapter.hpp"
 #include "runtime/request_adapter.hpp"
+#include "rokae_xmate3_ros2/runtime/runtime_contract.hpp"
 #include "rokae_xmate3_ros2/msg/log_info.hpp"
 #include "rokae_xmate3_ros2/msg/operate_mode.hpp"
 
@@ -71,6 +72,19 @@ struct ReplayPathAsset {
   std::vector<RecordedPathSample> samples;
   ToolsetSnapshot toolset;
   std::string source{"sdk_record"};
+};
+
+struct RuntimeDiagnosticsSnapshot {
+  std::string backend_mode{"unknown"};
+  std::string control_owner{"none"};
+  std::string runtime_phase{"idle"};
+  std::string shutdown_phase{"running"};
+  std::uint32_t active_request_count = 0;
+  std::uint32_t active_goal_count = 0;
+  std::string last_plan_failure;
+  std::string last_retimer_note;
+  double last_servo_dt = 0.0;
+  std::vector<std::string> capability_flags;
 };
 
 class SessionState {
@@ -277,6 +291,21 @@ class ProgramState {
   std::string record_source_{"sdk_record"};
   std::vector<RecordedPathSample> recorded_path_;
   std::map<std::string, ReplayPathAsset> saved_paths_;
+};
+
+class RuntimeDiagnosticsState {
+ public:
+  void configure(const std::string &backend_mode, const std::vector<std::string> &capability_flags);
+  void updateRuntimeStatus(const RuntimeStatus &status);
+  void updateShutdownContract(const RuntimeContractView &view);
+  void notePlanFailure(const std::string &message);
+  void noteRetimerNote(const std::string &message);
+  void setLastServoDt(double dt);
+  [[nodiscard]] RuntimeDiagnosticsSnapshot snapshot() const;
+
+ private:
+  mutable std::mutex mutex_;
+  RuntimeDiagnosticsSnapshot snapshot_;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

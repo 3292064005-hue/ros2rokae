@@ -141,6 +141,7 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   auto &motion_runtime = runtime_context_.motionRuntime();
   auto &motion_options = runtime_context_.motionOptionsState();
   auto &tooling_state = runtime_context_.toolingState();
+  runtime_context_.diagnosticsState().setLastServoDt(dt);
 
   if (!session_state.powerOn()) {
     servo_accumulator_sec_ = 0.0;

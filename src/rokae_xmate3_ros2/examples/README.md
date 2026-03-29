@@ -62,6 +62,7 @@ examples/
 ### 第 4.4 节
 - `04_motion_basic.cpp`: `MoveAbsJ`
 - `05_motion_cartesian.cpp`: `MoveJ` / `MoveL` / `MoveC`
+  说明：示例会先调用 `/xmate3/internal/validate_motion` 搜索 smoke-safe 目标，再执行实际笛卡尔动作，默认 headless Gazebo 下应稳定完成 `MoveJ / MoveL / MoveC`
 - `11_move_advanced_xmate3.cpp`: `confData`、默认轴配置、偏移、在线调速、`MoveSP`
 
 ### 第 4.5 节
@@ -176,16 +177,17 @@ ctest -L gazebo_integration_modes --output-on-failure
 6. `simulation.launch.py` 默认使用 `backend_mode:=hybrid`；若只验证 JTC，可显式传 `backend_mode:=jtc enable_xcore_plugin:=false`。
 
 ## 回归分层
-1. 默认 `ctest`：9 个 unit tests + `gazebo_sdk_regression` + `gazebo_examples_smoke` + `gazebo_alias_smoke`
+1. 默认 `ctest`：13 个 unit tests + `gazebo_sdk_regression` + `gazebo_examples_smoke` + `gazebo_alias_smoke`
 2. `gazebo_examples_full`：非默认，全量 `27/27` examples 可运行性回归
 3. `gazebo_integration_modes`：非默认，覆盖 `effort-only / jtc-only / hybrid`
 4. `gazebo_teardown_quality`：非默认，覆盖 `prepare_shutdown` 契约、phase 推进、`safe_to_delete` 与优雅停机路径
 5. `gazebo_teardown_quality_repeat`：非默认，连续跑 10 次 teardown 路径，专门收 shutdown 竞态
+6. 默认发布验收：`clean_build_env.sh + colcon build + ctest --output-on-failure`，当前应为 `16/16`
 
 源码归档发布建议只走经过 `package_verified_source_archive` 校验的候选 zip，不要直接上传未验证的源码包。
 候选包默认只包含 package root 内容，并从工作区根附带 `.gitignore` 与 `colcon_defaults.yaml` 两个 sidecar。
 建议通过 `../tools/clean_build_env.sh` 统一运行 build / test / package 命令，避免 Conda 环境把影子 Python 或系统库路径带进发布流程。
-5. strict Gazebo 集：非默认，覆盖长路径、长时间、blend/lookahead、replay fidelity 与 ownership stability
+7. strict Gazebo 集：非默认，覆盖长路径、长时间、blend/lookahead、replay fidelity 与 ownership stability
 
 发布源码归档前，建议执行：
 

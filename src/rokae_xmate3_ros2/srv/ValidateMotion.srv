@@ -1,0 +1,34 @@
+uint8 MOTION_MOVE_ABSJ=1
+uint8 MOTION_MOVE_J=2
+uint8 MOTION_MOVE_L=3
+uint8 MOTION_MOVE_C=4
+uint8 MOTION_MOVE_CF=5
+uint8 MOTION_MOVE_SP=6
+
+uint8 motion_kind
+bool use_start_joint_pos
+float64[6] start_joint_pos
+float64[6] target_joint_pos
+float64[6] target_posture
+float64[6] aux_posture
+int32 speed
+int32 zone
+int32[] conf_data
+bool strict_conf
+bool avoid_singularity
+bool soft_limit_enabled
+float64[12] soft_limits
+float64 speed_scale
+float64 angle
+float64 radius
+float64 radius_step
+bool direction
+---
+bool success
+bool reachable
+float64 estimated_duration
+string selected_branch
+string reject_reason
+string retimer_family
+string[] notes
+string message

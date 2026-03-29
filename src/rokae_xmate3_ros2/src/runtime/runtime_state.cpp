@@ -597,4 +597,69 @@ ProgramSnapshot ProgramState::snapshot() const {
   return snapshot;
 }
 
+void RuntimeDiagnosticsState::configure(const std::string &backend_mode,
+                                        const std::vector<std::string> &capability_flags) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.backend_mode = backend_mode.empty() ? std::string{"unknown"} : backend_mode;
+  snapshot_.capability_flags = capability_flags;
+}
+
+void RuntimeDiagnosticsState::updateRuntimeStatus(const RuntimeStatus &status) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.control_owner = to_string(status.control_owner);
+  snapshot_.runtime_phase = to_string(status.runtime_phase);
+  if (!status.request_id.empty() && !status.terminal()) {
+    snapshot_.active_request_count = std::max<std::uint32_t>(snapshot_.active_request_count, 1u);
+  } else if (snapshot_.shutdown_phase == "running") {
+    snapshot_.active_request_count = 0;
+  }
+  if (status.execution_backend == ExecutionBackend::jtc && !status.terminal()) {
+    snapshot_.active_goal_count = std::max<std::uint32_t>(snapshot_.active_goal_count, 1u);
+  } else if (snapshot_.shutdown_phase == "running") {
+    snapshot_.active_goal_count = 0;
+  }
+  if (status.state == ExecutionState::failed && !status.message.empty()) {
+    snapshot_.last_plan_failure = status.message;
+  }
+  if (status.message.find("retimer[") != std::string::npos) {
+    snapshot_.last_retimer_note = status.message;
+  }
+}
+
+void RuntimeDiagnosticsState::updateShutdownContract(const RuntimeContractView &view) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.shutdown_phase = to_string(view.shutdown_phase);
+  snapshot_.active_request_count = static_cast<std::uint32_t>(view.active_request_count);
+  snapshot_.active_goal_count = static_cast<std::uint32_t>(view.active_goal_count);
+}
+
+void RuntimeDiagnosticsState::notePlanFailure(const std::string &message) {
+  if (message.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.last_plan_failure = message;
+}
+
+void RuntimeDiagnosticsState::noteRetimerNote(const std::string &message) {
+  if (message.empty() || message.find("retimer[") == std::string::npos) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.last_retimer_note = message;
+}
+
+void RuntimeDiagnosticsState::setLastServoDt(double dt) {
+  if (!std::isfinite(dt)) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.last_servo_dt = dt;
+}
+
+RuntimeDiagnosticsSnapshot RuntimeDiagnosticsState::snapshot() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return snapshot_;
+}
+
 }  // namespace rokae_xmate3_ros2::runtime

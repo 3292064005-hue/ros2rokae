@@ -29,7 +29,8 @@ sudo apt install \
 ```bash
 cd ~/ros2_ws0
 source /opt/ros/humble/setup.bash
-colcon build --packages-select rokae_xmate3_ros2 --symlink-install
+src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  colcon build --packages-select rokae_xmate3_ros2 --symlink-install
 source install/setup.bash
 ```
 
@@ -53,6 +54,13 @@ ros2 launch rokae_xmate3_ros2 rviz_only.launch.py
 - `xcore_controller_gazebo_plugin`
 - 可选 RViz2 可视化
 
+启动日志会额外打印 capability / diagnostics banner，默认应看到：
+- `backend_mode=hybrid`
+- `RT 能力级别: experimental`
+- `/xmate3/internal/validate_motion`
+- `/xmate3/internal/get_runtime_diagnostics`
+- `/xmate3/internal/runtime_status`
+
 ## 4. 运行示例
 
 ### 综合演示
@@ -66,6 +74,20 @@ ros2 run rokae_xmate3_ros2 example_04_motion_basic
 ros2 run rokae_xmate3_ros2 example_05_motion_cartesian
 ros2 run rokae_xmate3_ros2 example_10_sdk_workflow_xmate3
 ros2 run rokae_xmate3_ros2 example_25_rt_s_line
+```
+
+`example_05_motion_cartesian` 会先通过 `/xmate3/internal/validate_motion` 选择 smoke-safe 的 `MoveJ / MoveL / MoveC` 目标，再执行实际运动。
+
+### 运行时诊断
+```bash
+ros2 service call /xmate3/internal/get_runtime_diagnostics rokae_xmate3_ros2/srv/GetRuntimeDiagnostics "{}"
+ros2 topic echo /xmate3/internal/runtime_status --once
+```
+
+兼容别名仍可使用：
+```bash
+ros2 interface show rokae_xmate3_ros2/srv/GetJointTorques
+ros2 interface show rokae_xmate3_ros2/srv/GetEndEffectorTorque
 ```
 
 ### 按章节查看
@@ -126,7 +148,30 @@ ros2 service list | grep xmate3
 ros2 action list | grep move_append
 ```
 
+### 规划失败时如何排查
+优先查看统一失败原因：
+- `unreachable_pose`
+- `conf_mismatch`
+- `soft_limit_violation`
+- `near_singularity_rejected`
+- `runtime_busy`
+- `shutdown_in_progress`
+
+然后执行：
+```bash
+ros2 service call /xmate3/internal/get_runtime_diagnostics rokae_xmate3_ros2/srv/GetRuntimeDiagnostics "{}"
+```
+
 ## 6. 下一步
 - 阅读 [README.md](../README.md)
 - 查看 [examples/README.md](../examples/README.md)
 - 对照 xCore SDK C++ 使用手册逐项练习
+
+默认发布验收：
+```bash
+cd ~/ros2_ws0/build/rokae_xmate3_ros2
+../../src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  ctest --output-on-failure
+```
+
+当前默认门禁应为 `16/16` 全绿。

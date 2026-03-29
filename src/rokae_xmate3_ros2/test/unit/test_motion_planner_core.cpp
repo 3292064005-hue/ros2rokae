@@ -456,7 +456,11 @@ TEST(MotionPlannerCoreTest, JointMoveDurationIsDominatedBySlowestAxisLimit) {
       move_absj.target_joints,
       config.joint_speed_limits_rad_per_sec,
       config.joint_acc_limits_rad_per_sec2);
-  EXPECT_NEAR(plan.segments.front().trajectory_total_time, expected_total_time, 1e-9);
+  const auto interval_count = std::max<std::size_t>(
+      1u,
+      static_cast<std::size_t>(std::ceil(expected_total_time / request.trajectory_dt - 1e-12)));
+  const auto quantized_total_time = static_cast<double>(interval_count) * request.trajectory_dt;
+  EXPECT_NEAR(plan.segments.front().trajectory_total_time, quantized_total_time, 1e-9);
   EXPECT_EQ(plan.segments.front().joint_velocity_trajectory.size(), plan.segments.front().joint_trajectory.size());
   EXPECT_EQ(plan.segments.front().joint_acceleration_trajectory.size(), plan.segments.front().joint_trajectory.size());
 }

@@ -48,7 +48,7 @@ bool xMateRobot::getAvoidSingularity(std::error_code& ec) {
     return result->enabled;
 }
 
-std::array<double, 6> xMateRobot::getEndTorque(std::error_code& ec) {
+std::array<double, 6> xMateRobot::getEndEffectorTorque(std::error_code& ec) {
     std::array<double, 6> wrench{};
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -57,7 +57,7 @@ std::array<double, 6> xMateRobot::getEndTorque(std::error_code& ec) {
     if (!impl_->wait_for_service(impl_->xmate3_cobot_get_end_torque_client_, ec)) {
         return wrench;
     }
-    auto request = std::make_shared<rokae_xmate3_ros2::srv::GetEndTorque::Request>();
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::GetEndEffectorTorque::Request>();
     auto future = impl_->xmate3_cobot_get_end_torque_client_->async_send_request(request);
     if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
@@ -73,6 +73,10 @@ std::array<double, 6> xMateRobot::getEndTorque(std::error_code& ec) {
     }
     ec.clear();
     return wrench;
+}
+
+std::array<double, 6> xMateRobot::getEndTorque(std::error_code& ec) {
+    return getEndEffectorTorque(ec);
 }
 
 bool xMateRobot::calcJointTorque(const std::array<double, 6>& joint_pos,

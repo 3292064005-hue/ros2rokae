@@ -8,6 +8,7 @@ RuntimeContext::RuntimeContext()
       tooling_state_(std::make_shared<ToolingState>()),
       data_store_state_(std::make_shared<DataStoreState>()),
       program_state_(std::make_shared<ProgramState>()),
+      diagnostics_state_(std::make_shared<RuntimeDiagnosticsState>()),
       controller_state_(session_state_, motion_options_state_, tooling_state_, data_store_state_, program_state_),
       request_coordinator_(*motion_options_state_, *tooling_state_, motion_runtime_) {}
 
@@ -35,6 +36,8 @@ DataStoreState &RuntimeContext::dataStoreState() { return *data_store_state_; }
 const DataStoreState &RuntimeContext::dataStoreState() const { return *data_store_state_; }
 ProgramState &RuntimeContext::programState() { return *program_state_; }
 const ProgramState &RuntimeContext::programState() const { return *program_state_; }
+RuntimeDiagnosticsState &RuntimeContext::diagnosticsState() { return *diagnostics_state_; }
+const RuntimeDiagnosticsState &RuntimeContext::diagnosticsState() const { return *diagnostics_state_; }
 
 OperationStateContext RuntimeContext::operationStateContext() const {
   return session_state_->makeOperationStateContext(program_state_->rlProjectRunning());

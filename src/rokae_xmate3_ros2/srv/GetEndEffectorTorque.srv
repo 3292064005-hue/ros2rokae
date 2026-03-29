@@ -1,0 +1,5 @@
+# GetEndEffectorTorque.srv - 获取末端六维力/力矩估计
+---
+bool success
+float64[6] end_torque
+string message

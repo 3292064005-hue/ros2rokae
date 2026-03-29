@@ -3,6 +3,7 @@
 
 #include <array>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
@@ -32,6 +33,9 @@ namespace rokae_xmate3_ros2::runtime {
     double trajectory_dt,
     std::vector<std::vector<double>> &joint_velocity_trajectory,
     std::vector<std::vector<double>> &joint_acceleration_trajectory);
+
+[[nodiscard]] std::string classify_motion_failure_reason(std::string_view message);
+[[nodiscard]] std::string format_motion_failure(std::string_view reason, std::string_view detail);
 
 }  // namespace rokae_xmate3_ros2::runtime
 

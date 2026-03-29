@@ -1,0 +1,10 @@
+string backend_mode
+string control_owner
+string runtime_phase
+string shutdown_phase
+uint32 active_request_count
+uint32 active_goal_count
+string last_plan_failure
+string last_retimer_note
+float64 last_servo_dt
+string[] capability_flags

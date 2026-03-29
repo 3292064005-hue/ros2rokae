@@ -29,6 +29,22 @@ rokae_xmate3_ros2::msg::OperationState RuntimePublishBridge::buildOperationState
   return msg;
 }
 
+rokae_xmate3_ros2::msg::RuntimeDiagnostics RuntimePublishBridge::buildRuntimeDiagnosticsMessage() const {
+  const auto snapshot = runtime_context_.diagnosticsState().snapshot();
+  rokae_xmate3_ros2::msg::RuntimeDiagnostics msg;
+  msg.backend_mode = snapshot.backend_mode;
+  msg.control_owner = snapshot.control_owner;
+  msg.runtime_phase = snapshot.runtime_phase;
+  msg.shutdown_phase = snapshot.shutdown_phase;
+  msg.active_request_count = snapshot.active_request_count;
+  msg.active_goal_count = snapshot.active_goal_count;
+  msg.last_plan_failure = snapshot.last_plan_failure;
+  msg.last_retimer_note = snapshot.last_retimer_note;
+  msg.last_servo_dt = snapshot.last_servo_dt;
+  msg.capability_flags = snapshot.capability_flags;
+  return msg;
+}
+
 sensor_msgs::msg::JointState RuntimePublishBridge::buildJointStateMessage(
     const rclcpp::Time &stamp,
     const std::string &frame_id,
@@ -87,6 +103,7 @@ PublisherTickOutput RuntimePublishBridge::buildPublisherTick(const PublisherTick
 void RuntimePublishBridge::emitRuntimeStatus(const RuntimeStatus &status,
                                              const rclcpp::Time &stamp,
                                              const rclcpp::Logger &logger) {
+  runtime_context_.diagnosticsState().updateRuntimeStatus(status);
   const auto event = build_runtime_log_event(status, last_runtime_logged_revision_);
   if (!event.should_log) {
     return;

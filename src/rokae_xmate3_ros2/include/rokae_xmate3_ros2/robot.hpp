@@ -36,7 +36,7 @@
 #include "rokae_xmate3_ros2/srv/set_operate_mode.hpp"
 #include "rokae_xmate3_ros2/srv/get_joint_pos.hpp"
 #include "rokae_xmate3_ros2/srv/get_joint_vel.hpp"
-#include "rokae_xmate3_ros2/srv/get_joint_torque.hpp"
+#include "rokae_xmate3_ros2/srv/get_joint_torques.hpp"
 #include "rokae_xmate3_ros2/srv/get_posture.hpp"
 #include "rokae_xmate3_ros2/srv/get_cart_posture.hpp"
 #include "rokae_xmate3_ros2/srv/get_base_frame.hpp"
@@ -89,7 +89,7 @@
 #include "rokae_xmate3_ros2/srv/write_register.hpp"
 #include "rokae_xmate3_ros2/srv/set_avoid_singularity.hpp"
 #include "rokae_xmate3_ros2/srv/get_avoid_singularity.hpp"
-#include "rokae_xmate3_ros2/srv/get_end_torque.hpp"
+#include "rokae_xmate3_ros2/srv/get_end_effector_torque.hpp"
 #include "rokae_xmate3_ros2/action/move_append.hpp"
 
 namespace rokae::ros2 {
@@ -121,6 +121,8 @@ public:
     // ==================== 4.3 位姿/关节/运动学核心接口 ====================
     std::array<double, 6> jointPos(std::error_code& ec);
     std::array<double, 6> jointVel(std::error_code& ec);
+    std::array<double, 6> jointTorques(std::error_code& ec);
+    [[deprecated("Use jointTorques() instead")]]
     std::array<double, 6> jointTorque(std::error_code& ec);
     std::array<double, 6> posture(rokae::CoordinateType ct, std::error_code& ec);
     rokae::CartesianPosition cartPosture(rokae::CoordinateType ct, std::error_code& ec);
@@ -186,6 +188,8 @@ public:
     void startJog(rokae::JogOpt::Space space, unsigned int index, bool direction, double step, std::error_code& ec);
     void setAvoidSingularity(bool enable, std::error_code& ec);
     bool getAvoidSingularity(std::error_code& ec);
+    std::array<double, 6> getEndEffectorTorque(std::error_code& ec);
+    [[deprecated("Use getEndEffectorTorque() instead")]]
     std::array<double, 6> getEndTorque(std::error_code& ec);
     bool calcJointTorque(const std::array<double, 6>& joint_pos,
                          const std::array<double, 6>& joint_vel,
@@ -379,7 +383,7 @@ private:
         // 关节与位姿
         rclcpp::Client<rokae_xmate3_ros2::srv::GetJointPos>::SharedPtr xmate3_robot_get_joint_pos_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GetJointVel>::SharedPtr xmate3_robot_get_joint_vel_client_;
-        rclcpp::Client<rokae_xmate3_ros2::srv::GetJointTorque>::SharedPtr xmate3_robot_get_joint_torque_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::GetJointTorques>::SharedPtr xmate3_robot_get_joint_torque_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GetPosture>::SharedPtr xmate3_robot_get_posture_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GetCartPosture>::SharedPtr xmate3_robot_get_cart_posture_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GetBaseFrame>::SharedPtr xmate3_robot_get_base_frame_client_;
@@ -428,7 +432,7 @@ private:
         rclcpp::Client<rokae_xmate3_ros2::srv::StopRLProject>::SharedPtr xmate3_rl_stop_project_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::SetAvoidSingularity>::SharedPtr xmate3_cobot_set_avoid_singularity_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GetAvoidSingularity>::SharedPtr xmate3_cobot_get_avoid_singularity_client_;
-        rclcpp::Client<rokae_xmate3_ros2::srv::GetEndTorque>::SharedPtr xmate3_cobot_get_end_torque_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::GetEndEffectorTorque>::SharedPtr xmate3_cobot_get_end_torque_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::CalcJointTorque>::SharedPtr xmate3_dyn_calc_joint_torque_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GenerateSTrajectory>::SharedPtr xmate3_dyn_generate_s_trajectory_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::MapCartesianToJointTorque>::SharedPtr xmate3_dyn_map_cartesian_to_joint_torque_client_;

@@ -29,6 +29,11 @@ TrajectoryPlannerConfig current_config() {
     return mutable_config();
 }
 
+double resolve_sample_dt(double requested_dt) {
+    const auto config = current_config();
+    return std::clamp(requested_dt, config.min_sample_dt, config.max_sample_dt);
+}
+
 TrajectorySamples toTrajectorySamples(
     const rokae_xmate3_ros2::runtime::CanonicalTrajectorySamples& result) {
     TrajectorySamples samples;
@@ -180,13 +185,8 @@ TrajectorySamples finalizeTrajectory(std::vector<std::vector<double>> trajectory
                                      double fallback_dt) {
     TrajectorySamples result;
     result.points = std::move(trajectory);
-    result.total_time = std::max(total_time, 0.0);
-    const auto config = current_config();
-    if (num_intervals > 0 && result.total_time > 1e-9) {
-        result.sample_dt = result.total_time / static_cast<double>(num_intervals);
-    } else {
-        result.sample_dt = std::clamp(fallback_dt, config.min_sample_dt, config.max_sample_dt);
-    }
+    result.sample_dt = resolve_sample_dt(fallback_dt);
+    result.total_time = num_intervals > 0 ? static_cast<double>(num_intervals) * result.sample_dt : 0.0;
     return result;
 }
 
@@ -259,11 +259,13 @@ TrajectorySamples TrajectoryPlanner::planCartesianLine(
     }
 
     const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
-    const double total_time = displacement / max_vel;
+    const double requested_total_time = displacement / max_vel;
     const auto config = current_config();
     const int num_points = determine_interval_count(
-        total_time, dt, displacement, config.max_cartesian_step_m, orientationDistance(start, end),
+        requested_total_time, dt, displacement, config.max_cartesian_step_m, orientationDistance(start, end),
         config.max_orientation_step_rad);
+    const double resolved_dt = resolve_sample_dt(dt);
+    const double total_time = static_cast<double>(num_points) * resolved_dt;
 
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};
@@ -271,7 +273,7 @@ TrajectorySamples TrajectoryPlanner::planCartesianLine(
     std::vector<std::vector<double>> trajectory;
     trajectory.reserve(num_points + 1);
     for (int i = 0; i <= num_points; ++i) {
-        const double t = static_cast<double>(i) / num_points * total_time;
+        const double t = static_cast<double>(i) * resolved_dt;
         const double s = computeBlendRatio(t, total_time);
 
         std::vector<double> point(6);
@@ -327,11 +329,13 @@ TrajectorySamples TrajectoryPlanner::planCircularArc(
     const double arc_length = radius * total_angle;
 
     const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
-    const double total_time = arc_length / max_vel;
+    const double requested_total_time = arc_length / max_vel;
     const auto config = current_config();
     const int num_points = determine_interval_count(
-        total_time, dt, arc_length, config.max_cartesian_step_m, orientationDistance(start, end),
+        requested_total_time, dt, arc_length, config.max_cartesian_step_m, orientationDistance(start, end),
         config.max_orientation_step_rad);
+    const double resolved_dt = resolve_sample_dt(dt);
+    const double total_time = static_cast<double>(num_points) * resolved_dt;
 
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};
@@ -339,7 +343,7 @@ TrajectorySamples TrajectoryPlanner::planCircularArc(
     std::vector<std::vector<double>> trajectory;
     trajectory.reserve(num_points + 1);
     for (int i = 0; i <= num_points; ++i) {
-        const double t = static_cast<double>(i) / num_points * total_time;
+        const double t = static_cast<double>(i) * resolved_dt;
         const double s = computeBlendRatio(t, total_time);
         const double current_angle = s * total_angle;
 
@@ -382,11 +386,13 @@ TrajectorySamples TrajectoryPlanner::planCircularContinuous(
 
     const double arc_length = radius * std::abs(angle);
     const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
-    const double total_time = arc_length / max_vel;
+    const double requested_total_time = arc_length / max_vel;
     const auto config = current_config();
     const int num_points = determine_interval_count(
-        total_time, dt, arc_length, config.max_cartesian_step_m, orientationDistance(start, end),
+        requested_total_time, dt, arc_length, config.max_cartesian_step_m, orientationDistance(start, end),
         config.max_orientation_step_rad);
+    const double resolved_dt = resolve_sample_dt(dt);
+    const double total_time = static_cast<double>(num_points) * resolved_dt;
 
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};
@@ -395,7 +401,7 @@ TrajectorySamples TrajectoryPlanner::planCircularContinuous(
     std::vector<std::vector<double>> trajectory;
     trajectory.reserve(num_points + 1);
     for (int i = 0; i <= num_points; ++i) {
-        const double t = static_cast<double>(i) / num_points * total_time;
+        const double t = static_cast<double>(i) * resolved_dt;
         const double s = computeBlendRatio(t, total_time);
         const double current_angle = s * angle;
 
@@ -449,11 +455,13 @@ TrajectorySamples TrajectoryPlanner::planSpiralMove(
     const double avg_radius = radius + radius_step * angle * 0.5;
     const double spiral_length = axis_length + avg_radius * std::abs(angle);
     const double max_vel = clampCartesianSpeedMetersPerSecond(speed_mm_per_s);
-    const double total_time = spiral_length / max_vel;
+    const double requested_total_time = spiral_length / max_vel;
     const auto config = current_config();
     const int num_points = determine_interval_count(
-        total_time, dt, spiral_length, config.max_cartesian_step_m, orientationDistance(start, end),
+        requested_total_time, dt, spiral_length, config.max_cartesian_step_m, orientationDistance(start, end),
         config.max_orientation_step_rad);
+    const double resolved_dt = resolve_sample_dt(dt);
+    const double total_time = static_cast<double>(num_points) * resolved_dt;
 
     const std::vector<double> start_rpy = {start[3], start[4], start[5]};
     const std::vector<double> end_rpy = {end[3], end[4], end[5]};
@@ -462,7 +470,7 @@ TrajectorySamples TrajectoryPlanner::planSpiralMove(
     std::vector<std::vector<double>> trajectory;
     trajectory.reserve(num_points + 1);
     for (int i = 0; i <= num_points; ++i) {
-        const double t = static_cast<double>(i) / num_points * total_time;
+        const double t = static_cast<double>(i) * resolved_dt;
         const double s = computeBlendRatio(t, total_time);
         const double current_angle = s * angle * rotate_dir;
         const double current_radius = radius + radius_step * s * angle;

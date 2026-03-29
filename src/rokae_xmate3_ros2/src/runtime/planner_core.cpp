@@ -439,6 +439,7 @@ double estimate_blend_length(HermiteBlendCurve &curve) {
 struct CartesianRunSegment {
   PlannedSegment segment;
   CartesianPrimitive primitive;
+  std::vector<int> requested_conf;
   double speed_mps = 0.0;
   double blend_speed_mps = 0.0;
   std::optional<HermiteBlendCurve> blend_to_next_curve;
@@ -541,18 +542,20 @@ bool sample_cartesian_segment(CartesianRunSegment &segment,
   const int interval_count =
       determine_interval_count(
           total_time, requested_dt, total_path_length, planner_config.max_cartesian_step_m, orientation_metric);
+  const double resolved_dt =
+      std::clamp(requested_dt, planner_config.min_sample_dt, planner_config.max_sample_dt);
 
   if (total_path_length <= kPoseEpsilon || total_time <= kPoseEpsilon || interval_count <= 0) {
     cartesian_points.push_back(vector_from_pose(final_pose));
     segment.segment.trajectory_total_time = 0.0;
-    segment.segment.trajectory_dt =
-        std::clamp(requested_dt, planner_config.min_sample_dt, planner_config.max_sample_dt);
+    segment.segment.trajectory_dt = resolved_dt;
     return true;
   }
 
+  const double quantized_total_time = static_cast<double>(interval_count) * resolved_dt;
   cartesian_points.reserve(static_cast<std::size_t>(interval_count) + 1);
   for (int index = 0; index <= interval_count; ++index) {
-    const double current_time = total_time * static_cast<double>(index) / static_cast<double>(interval_count);
+    const double current_time = static_cast<double>(index) * resolved_dt;
     PoseSample sample;
     if (segment.blend_to_next_curve.has_value() && current_time > core_time + kPoseEpsilon) {
       const double u = blend_time > kPoseEpsilon ? (current_time - core_time) / blend_time : 1.0;
@@ -569,10 +572,8 @@ bool sample_cartesian_segment(CartesianRunSegment &segment,
     cartesian_points.push_back(vector_from_pose(sample));
   }
 
-  segment.segment.trajectory_total_time = total_time;
-  segment.segment.trajectory_dt = total_time / static_cast<double>(interval_count);
-  segment.segment.trajectory_total_time =
-      (cartesian_points.size() > 1) ? (cartesian_points.size() - 1) * segment.segment.trajectory_dt : 0.0;
+  segment.segment.trajectory_total_time = quantized_total_time;
+  segment.segment.trajectory_dt = resolved_dt;
   return true;
 }
 
@@ -597,6 +598,7 @@ bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
     run_segment.segment.target_cartesian = cmd.target_cartesian;
     run_segment.segment.aux_cartesian = cmd.aux_cartesian;
     run_segment.segment.path_family = path_family(cmd.kind);
+    run_segment.requested_conf = cmd.requested_conf;
     run_segment.speed_mps = clamp_cartesian_speed_mps(run_segment.segment.speed);
 
     bool primitive_ok = false;
@@ -673,7 +675,7 @@ bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
     if (!build_joint_trajectory_from_cartesian(kinematics,
                                                cartesian_points,
                                                ik_seed,
-                                               {},
+                                               run_segment.requested_conf,
                                                request.strict_conf,
                                                request.avoid_singularity,
                                                request.soft_limit_enabled,
@@ -925,11 +927,11 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
   plan.request_id = request.request_id;
 
   if (request.commands.empty()) {
-    plan.error_message = "motion request is empty";
+    plan.error_message = format_motion_failure("unreachable_pose", "motion request is empty");
     return plan;
   }
   if (request.start_joints.size() < 6) {
-    plan.error_message = "start_joints must contain 6 values";
+    plan.error_message = format_motion_failure("unreachable_pose", "start_joints must contain 6 values");
     return plan;
   }
 
@@ -959,7 +961,8 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
                                plan.segments,
                                plan.notes,
                                error_message)) {
-        plan.error_message = error_message.empty() ? "Cartesian run planning failed" : error_message;
+        const auto detail = error_message.empty() ? std::string("Cartesian run planning failed") : error_message;
+        plan.error_message = format_motion_failure(classify_motion_failure_reason(detail), detail);
         return plan;
       }
       index = run_end;
@@ -977,7 +980,7 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
 
     if (cmd.use_preplanned_trajectory) {
       if (cmd.preplanned_trajectory.empty()) {
-        plan.error_message = "preplanned trajectory is empty";
+        plan.error_message = format_motion_failure("unreachable_pose", "preplanned trajectory is empty");
         return plan;
       }
       segment.joint_trajectory = cmd.preplanned_trajectory;
@@ -999,7 +1002,7 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
         segment.target_joints = cmd.target_joints;
         if (request.soft_limit_enabled &&
             move_absj_violates_soft_limit(segment.target_joints, request.soft_limits)) {
-          plan.error_message = "MoveAbsJ target violates soft limit";
+          plan.error_message = format_motion_failure("soft_limit_violation", "MoveAbsJ target violates soft limit");
           return plan;
         }
         const auto trajectory = retimeJointPathWithUnifiedSpeed(
@@ -1009,9 +1012,10 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
             RetimerSourceFamily::joint,
             request.speed_scale);
         if (trajectory.empty()) {
-          plan.error_message =
-              trajectory.samples.error_message.empty() ? "MoveAbsJ retiming failed"
+          const auto detail =
+              trajectory.samples.error_message.empty() ? std::string("MoveAbsJ retiming failed")
                                                        : trajectory.samples.error_message;
+          plan.error_message = format_motion_failure(classify_motion_failure_reason(detail), detail);
           return plan;
         }
         apply_unified_trajectory(segment, trajectory);
@@ -1019,8 +1023,13 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
         break;
       }
       case MotionKind::move_j: {
-        const auto candidate_solutions =
-            kinematics_->inverseKinematicsMultiSolution(cmd.target_cartesian, current_joints);
+        std::vector<std::vector<double>> candidate_solutions;
+        const auto seeded_fast = kinematics_->inverseKinematicsSeededFast(cmd.target_cartesian, current_joints);
+        if (!seeded_fast.empty()) {
+          candidate_solutions.push_back(seeded_fast);
+        }
+        const auto multi_branch = kinematics_->inverseKinematicsMultiSolution(cmd.target_cartesian, current_joints);
+        candidate_solutions.insert(candidate_solutions.end(), multi_branch.begin(), multi_branch.end());
         ::gazebo::xMate3Kinematics::CartesianIkOptions ik_options;
         ik_options.requested_conf = cmd.requested_conf;
         ik_options.strict_conf = request.strict_conf;
@@ -1030,7 +1039,8 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
         const auto selected =
             kinematics_->selectBestIkSolution(candidate_solutions, cmd.target_cartesian, current_joints, ik_options);
         if (!selected.success) {
-          plan.error_message = "MoveJ planning failed: " + selected.message;
+          const auto detail = "MoveJ planning failed: " + selected.message;
+          plan.error_message = format_motion_failure(classify_motion_failure_reason(selected.message), detail);
           return plan;
         }
         segment.target_joints = selected.joints;
@@ -1041,13 +1051,17 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
             RetimerSourceFamily::joint,
             request.speed_scale);
         if (trajectory.empty()) {
-          plan.error_message =
-              trajectory.samples.error_message.empty() ? "MoveJ retiming failed"
+          const auto detail =
+              trajectory.samples.error_message.empty() ? std::string("MoveJ retiming failed")
                                                        : trajectory.samples.error_message;
+          plan.error_message = format_motion_failure(classify_motion_failure_reason(detail), detail);
           return plan;
         }
         apply_unified_trajectory(segment, trajectory);
         append_retimer_note(plan.notes, plan.segments.size(), trajectory.metadata);
+        if (!selected.note.empty()) {
+          plan.notes.push_back(selected.note + " branch=" + selected.branch_id);
+        }
         break;
       }
       case MotionKind::move_sp: {
@@ -1076,7 +1090,8 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
                                                    segment.joint_trajectory,
                                                    last_joints,
                                                    error_message)) {
-          plan.error_message = "MoveSP planning failed: " + error_message;
+          const auto detail = "MoveSP planning failed: " + error_message;
+          plan.error_message = format_motion_failure(classify_motion_failure_reason(error_message), detail);
           return plan;
         }
         const auto retimed = retimeJointPathWithUnifiedSpeed(
@@ -1086,10 +1101,11 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
             RetimerSourceFamily::cartesian,
             request.speed_scale);
         if (retimed.empty()) {
-          plan.error_message =
+          const auto detail =
               "MoveSP retiming failed: " +
               (retimed.samples.error_message.empty() ? std::string("unified retimer produced no samples")
                                                      : retimed.samples.error_message);
+          plan.error_message = format_motion_failure(classify_motion_failure_reason(detail), detail);
           return plan;
         }
         apply_unified_trajectory(segment, retimed);
@@ -1110,12 +1126,12 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
         break;
       }
       default:
-        plan.error_message = "unsupported motion kind";
+        plan.error_message = format_motion_failure("unreachable_pose", "unsupported motion kind");
         return plan;
     }
 
     if (segment.joint_trajectory.empty()) {
-      plan.error_message = "planning produced an empty trajectory";
+      plan.error_message = format_motion_failure("unreachable_pose", "planning produced an empty trajectory");
       return plan;
     }
     if (segment.target_joints.empty()) {

@@ -175,6 +175,7 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   rt::ToolingState tooling_state;
   rt::DataStoreState data_store_state;
   rt::ProgramState program_state;
+  rt::RuntimeDiagnosticsState diagnostics_state;
   gazebo::xMate3Kinematics kinematics;
 
   const std::array<double, 6> joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
@@ -191,6 +192,7 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
                          tooling_state,
                          data_store_state,
                          program_state,
+                         diagnostics_state,
                          kinematics,
                          joint_state_fetcher,
                          []() { return rclcpp::Time(0); },

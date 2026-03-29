@@ -34,14 +34,15 @@
 #include "rokae_xmate3_ros2/srv/get_cart_posture.hpp"
 #include "rokae_xmate3_ros2/srv/get_di.hpp"
 #include "rokae_xmate3_ros2/srv/get_do.hpp"
-#include "rokae_xmate3_ros2/srv/get_end_torque.hpp"
+#include "rokae_xmate3_ros2/srv/get_end_effector_torque.hpp"
 #include "rokae_xmate3_ros2/srv/get_info.hpp"
 #include "rokae_xmate3_ros2/srv/get_joint_pos.hpp"
-#include "rokae_xmate3_ros2/srv/get_joint_torque.hpp"
+#include "rokae_xmate3_ros2/srv/get_joint_torques.hpp"
 #include "rokae_xmate3_ros2/srv/get_joint_vel.hpp"
 #include "rokae_xmate3_ros2/srv/get_operate_mode.hpp"
 #include "rokae_xmate3_ros2/srv/get_posture.hpp"
 #include "rokae_xmate3_ros2/srv/get_power_state.hpp"
+#include "rokae_xmate3_ros2/srv/get_runtime_diagnostics.hpp"
 #include "rokae_xmate3_ros2/srv/get_rt_joint_data.hpp"
 #include "rokae_xmate3_ros2/srv/get_soft_limit.hpp"
 #include "rokae_xmate3_ros2/srv/get_toolset.hpp"
@@ -77,6 +78,7 @@
 #include "rokae_xmate3_ros2/srv/stop.hpp"
 #include "rokae_xmate3_ros2/srv/stop_record_path.hpp"
 #include "rokae_xmate3_ros2/srv/stop_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/validate_motion.hpp"
 #include "rokae_xmate3_ros2/srv/write_register.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
@@ -156,6 +158,7 @@ class QueryFacade {
               ToolingState &tooling_state,
               DataStoreState &data_store_state,
               ProgramState &program_state,
+              RuntimeDiagnosticsState &diagnostics_state,
               gazebo::xMate3Kinematics &kinematics,
               JointStateFetcher joint_state_fetcher,
               TimeProvider time_provider,
@@ -164,6 +167,8 @@ class QueryFacade {
 
   void handleGetPowerState(const rokae_xmate3_ros2::srv::GetPowerState::Request &req,
                            rokae_xmate3_ros2::srv::GetPowerState::Response &res) const;
+  void handleGetRuntimeDiagnostics(const rokae_xmate3_ros2::srv::GetRuntimeDiagnostics::Request &req,
+                                   rokae_xmate3_ros2::srv::GetRuntimeDiagnostics::Response &res) const;
   void handleGetInfo(const rokae_xmate3_ros2::srv::GetInfo::Request &req,
                      rokae_xmate3_ros2::srv::GetInfo::Response &res) const;
   void handleGetOperateMode(const rokae_xmate3_ros2::srv::GetOperateMode::Request &req,
@@ -174,8 +179,8 @@ class QueryFacade {
                          rokae_xmate3_ros2::srv::GetJointPos::Response &res) const;
   void handleGetJointVel(const rokae_xmate3_ros2::srv::GetJointVel::Request &req,
                          rokae_xmate3_ros2::srv::GetJointVel::Response &res) const;
-  void handleGetJointTorque(const rokae_xmate3_ros2::srv::GetJointTorque::Request &req,
-                            rokae_xmate3_ros2::srv::GetJointTorque::Response &res) const;
+  void handleGetJointTorques(const rokae_xmate3_ros2::srv::GetJointTorques::Request &req,
+                            rokae_xmate3_ros2::srv::GetJointTorques::Response &res) const;
   void handleGetPosture(const rokae_xmate3_ros2::srv::GetPosture::Request &req,
                         rokae_xmate3_ros2::srv::GetPosture::Response &res) const;
   void handleGetCartPosture(const rokae_xmate3_ros2::srv::GetCartPosture::Request &req,
@@ -202,10 +207,12 @@ class QueryFacade {
                              rokae_xmate3_ros2::srv::CalcJointTorque::Response &res) const;
   void handleGenerateSTrajectory(const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &req,
                                  rokae_xmate3_ros2::srv::GenerateSTrajectory::Response &res) const;
+  void handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMotion::Request &req,
+                            rokae_xmate3_ros2::srv::ValidateMotion::Response &res) const;
   void handleMapCartesianToJointTorque(const rokae_xmate3_ros2::srv::MapCartesianToJointTorque::Request &req,
                                        rokae_xmate3_ros2::srv::MapCartesianToJointTorque::Response &res) const;
-  void handleGetEndTorque(const rokae_xmate3_ros2::srv::GetEndTorque::Request &req,
-                          rokae_xmate3_ros2::srv::GetEndTorque::Response &res) const;
+  void handleGetEndEffectorTorque(const rokae_xmate3_ros2::srv::GetEndEffectorTorque::Request &req,
+                          rokae_xmate3_ros2::srv::GetEndEffectorTorque::Response &res) const;
 
  private:
   SessionState &session_state_;
@@ -213,6 +220,7 @@ class QueryFacade {
   ToolingState &tooling_state_;
   DataStoreState &data_store_state_;
   ProgramState &program_state_;
+  RuntimeDiagnosticsState &diagnostics_state_;
   gazebo::xMate3Kinematics &kinematics_;
   JointStateFetcher joint_state_fetcher_;
   TimeProvider time_provider_;

@@ -135,17 +135,19 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/Info.msg
   msg/JointPos6.msg
   msg/LogInfo.msg
+  msg/RuntimeDiagnostics.msg
   # Srv
   srv/Connect.srv
   srv/Disconnect.srv
   srv/GetInfo.srv
+  srv/GetRuntimeDiagnostics.srv
   srv/GetPowerState.srv
   srv/SetPowerState.srv
   srv/GetOperateMode.srv
   srv/SetOperateMode.srv
   srv/GetJointPos.srv
   srv/GetJointVel.srv
-  srv/GetJointTorque.srv
+  srv/GetJointTorques.srv
   srv/GetPosture.srv
   srv/GetCartPosture.srv
   srv/GetBaseFrame.srv
@@ -179,6 +181,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/StopRecordPath.srv
   srv/CancelRecordPath.srv
   srv/SaveRecordPath.srv
+  srv/ValidateMotion.srv
   srv/ReplayPath.srv
   srv/RemovePath.srv
   srv/QueryPathLists.srv
@@ -209,7 +212,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/WriteRegister.srv
   srv/SetAvoidSingularity.srv
   srv/GetAvoidSingularity.srv
-  srv/GetEndTorque.srv
+  srv/GetEndEffectorTorque.srv
   # Action
   action/MoveAppend.action
   action/Jog.action
@@ -497,6 +500,9 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(launch_testing_ament_cmake REQUIRED)
 
+  # Common test target configuration macro
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rokae_test_utils.cmake)
+
   if(EXISTS "/usr/bin/python3")
     set(ROKAE_LAUNCH_TEST_PYTHON "/usr/bin/python3")
   else()
@@ -673,6 +679,21 @@ if(BUILD_TESTING)
     target_compile_features(test_service_facade PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_service_facade)
   endif()
+
+  # =====================================================================
+  # New unit tests (P0 optimization: expanded test coverage)
+  # =====================================================================
+  rokae_add_unit_test(test_kinematics_backend
+    test/unit/test_kinematics_backend.cpp)
+
+  rokae_add_unit_test(test_trajectory_planner
+    test/unit/test_trajectory_planner.cpp)
+
+  rokae_add_unit_test(test_unified_retimer
+    test/unit/test_unified_retimer.cpp)
+
+  rokae_add_unit_test(test_model_facade
+    test/unit/test_model_facade.cpp)
 
   add_executable(gazebo_sdk_regression_helper
     test/strict/gazebo_sdk_regression_helper.cpp

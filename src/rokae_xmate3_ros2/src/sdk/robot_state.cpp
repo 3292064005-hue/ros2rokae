@@ -123,7 +123,7 @@ std::array<double, 6> xMateRobot::jointVel(std::error_code& ec) {
 }
 
 // 获取关节扭矩
-std::array<double, 6> xMateRobot::jointTorque(std::error_code& ec) {
+std::array<double, 6> xMateRobot::jointTorques(std::error_code& ec) {
     std::array<double, 6> torque = {0.0};
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -144,7 +144,7 @@ std::array<double, 6> xMateRobot::jointTorque(std::error_code& ec) {
         return torque;
     }
 
-    auto request = std::make_shared<rokae_xmate3_ros2::srv::GetJointTorque::Request>();
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::GetJointTorques::Request>();
     auto future = impl_->xmate3_robot_get_joint_torque_client_->async_send_request(request);
     if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
         ec = std::make_error_code(std::errc::io_error);
@@ -160,6 +160,10 @@ std::array<double, 6> xMateRobot::jointTorque(std::error_code& ec) {
     std::copy(result->joint_torque.begin(), result->joint_torque.end(), torque.begin());
     ec.clear();
     return torque;
+}
+
+std::array<double, 6> xMateRobot::jointTorque(std::error_code& ec) {
+    return jointTorques(ec);
 }
 
 // 获取末端位姿

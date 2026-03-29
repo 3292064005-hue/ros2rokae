@@ -1,0 +1,4 @@
+---
+bool success
+rokae_xmate3_ros2/RuntimeDiagnostics diagnostics
+string message

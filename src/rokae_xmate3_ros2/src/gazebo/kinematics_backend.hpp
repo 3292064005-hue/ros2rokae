@@ -75,6 +75,8 @@ class KinematicsBackend {
   struct CartesianIkSelectionResult {
     bool success = false;
     VectorJ q;
+    std::string branch_id;
+    std::string note;
     std::string message;
   };
 

@@ -20,6 +20,7 @@ from rokae_xmate3_ros2.msg import OperationState
 from rokae_xmate3_ros2.srv import (
     Disconnect,
     MoveReset,
+    PrepareShutdown,
     SetMotionControlMode,
     SetOperateMode,
     SetPowerState,
@@ -90,6 +91,9 @@ class RuntimeCleanupMixin:
         )
         self._power_client = self.create_client(SetPowerState, "/xmate3/cobot/set_power_state")
         self._disconnect_client = self.create_client(Disconnect, "/xmate3/cobot/disconnect")
+        self._prepare_shutdown_client = self.create_client(
+            PrepareShutdown, "/xmate3/internal/prepare_shutdown"
+        )
         self._delete_entity_client = None
         self._delete_entity_alt_client = None
         if DeleteEntity is not None:
@@ -161,6 +165,50 @@ class RuntimeCleanupMixin:
     def delete_robot_entity(self) -> bool:
         return self._delete_robot_entity()
 
+    def _prepare_shutdown_until_safe(self, timeout_sec: float) -> bool:
+        assert isinstance(self, Node)
+        if self._prepare_shutdown_client is None:
+            return False
+        if not self._prepare_shutdown_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info("[cleanup] /xmate3/internal/prepare_shutdown unavailable")
+            return False
+
+        deadline = time.monotonic() + max(timeout_sec, 0.0)
+        while time.monotonic() < deadline:
+            request = PrepareShutdown.Request()
+            request.request_shutdown = True
+            future = self._prepare_shutdown_client.call_async(request)
+            response = None
+            while time.monotonic() < deadline:
+                rclpy.spin_once(self, timeout_sec=0.1)
+                if future.done():
+                    try:
+                        response = future.result()
+                    except Exception as exc:  # pragma: no cover - best effort cleanup
+                        self.get_logger().warning(f"[cleanup] prepare_shutdown failed: {exc}")
+                        return False
+                    break
+            if response is None:
+                break
+
+            self.get_logger().info(
+                "[cleanup] prepare_shutdown: "
+                f"accepted={response.accepted} "
+                f"contract_version={response.contract_version} "
+                f"code={response.code} "
+                f"safe_to_delete={response.safe_to_delete} "
+                f"safe_to_stop_world={response.safe_to_stop_world} "
+                f"runtime_phase={response.runtime_phase} "
+                f"shutdown_phase={response.shutdown_phase} "
+                f"message={getattr(response, 'message', '')}"
+            )
+            if response.accepted and response.contract_version == 1 and response.safe_to_delete:
+                return True
+            time.sleep(0.25)
+
+        self.get_logger().warning("[cleanup] prepare_shutdown did not reach safe_to_delete")
+        return False
+
     def cleanup_runtime(self, delete_entity: bool = True) -> None:
         try:
             mode_request = SetMotionControlMode.Request()
@@ -197,8 +245,13 @@ class RuntimeCleanupMixin:
             self._call_service(self._disconnect_client, Disconnect.Request(), "/xmate3/cobot/disconnect", 3.0)
             time.sleep(0.5)
             if delete_entity:
-                self._delete_robot_entity()
-                time.sleep(1.0)
+                if self._prepare_shutdown_until_safe(10.0):
+                    self._delete_robot_entity()
+                    time.sleep(1.0)
+                else:
+                    self.get_logger().info(
+                        "[cleanup] skipping delete_entity because prepare_shutdown was not safe"
+                    )
         except BaseException as exc:  # pragma: no cover - cleanup must not fail the harness
             self.get_logger().warning(f"[cleanup] runtime cleanup interrupted: {exc}")
 

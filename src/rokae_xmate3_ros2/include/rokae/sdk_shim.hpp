@@ -336,7 +336,7 @@ inline unsigned refresh_state_cache(const std::shared_ptr<RobotSession> &session
       remember_error(session, ec);
       return 0;
     }
-    joint_tau = session->robot->jointTorque(ec);
+    joint_tau = session->robot->jointTorques(ec);
     if (ec) {
       remember_error(session, ec);
       return 0;
@@ -349,7 +349,7 @@ inline unsigned refresh_state_cache(const std::shared_ptr<RobotSession> &session
     return 0;
   }
   const auto pose_matrix = Utils::postureToMatrix(pose);
-  const auto end_torque = session->robot->getEndTorque(ec);
+  const auto end_torque = session->robot->getEndEffectorTorque(ec);
   if (ec) {
     remember_error(session, ec);
     return 0;
@@ -1674,12 +1674,17 @@ public:
     return out;
   }
 
-  std::array<double, DoF> jointTorque(error_code &ec) noexcept {
-    const auto value = this->session_->robot->jointTorque(ec);
+  std::array<double, DoF> jointTorques(error_code &ec) noexcept {
+    const auto value = this->session_->robot->jointTorques(ec);
     detail::remember_error(this->session_, ec);
     std::array<double, DoF> out{};
     std::copy_n(value.begin(), DoF, out.begin());
     return out;
+  }
+
+  [[deprecated("Use jointTorques() instead")]]
+  std::array<double, DoF> jointTorque(error_code &ec) noexcept {
+    return jointTorques(ec);
   }
 
   FrameCalibrationResult calibrateFrame(FrameType type,
@@ -2007,6 +2012,17 @@ public:
     }
   }
 
+  std::array<double, 6> getEndEffectorTorque(error_code &ec) noexcept {
+    const auto wrench = this->session_->robot->getEndEffectorTorque(ec);
+    detail::remember_error(this->session_, ec);
+    return wrench;
+  }
+
+  [[deprecated("Use getEndEffectorTorque() instead")]]
+  std::array<double, 6> getEndTorque(error_code &ec) noexcept {
+    return getEndEffectorTorque(ec);
+  }
+
   void getEndTorque(FrameType ref_type,
                     std::array<double, DoF> &joint_torque_measured,
                     std::array<double, DoF> &external_torque_measured,
@@ -2014,8 +2030,8 @@ public:
                     std::array<double, 3> &cart_force,
                     error_code &ec) noexcept {
     (void)ref_type;
-    const auto measured = this->session_->robot->jointTorque(ec);
-    const auto wrench = this->session_->robot->getEndTorque(ec);
+    const auto measured = this->session_->robot->jointTorques(ec);
+    const auto wrench = this->session_->robot->getEndEffectorTorque(ec);
     if (!ec) {
       std::copy_n(measured.begin(), DoF, joint_torque_measured.begin());
       std::fill(external_torque_measured.begin(), external_torque_measured.end(), 0.0);

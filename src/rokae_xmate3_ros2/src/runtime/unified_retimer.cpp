@@ -135,6 +135,10 @@ void sync_metadata(UnifiedTrajectoryResult &result) {
   return std::max(requested, fallback_time - min_step);
 }
 
+[[nodiscard]] double resolve_sample_dt(double sample_dt, const JointRetimerConfig &config) {
+  return std::clamp(sample_dt, config.min_sample_dt, config.max_sample_dt);
+}
+
 [[nodiscard]] double joint_segment_length(const std::vector<double> &lhs,
                                           const std::vector<double> &rhs) {
   double sum_sq = 0.0;
@@ -602,7 +606,8 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
       config.max_joint_step_rad,
       config.min_sample_dt,
       config.max_sample_dt);
-  trajectory.sample_dt = trajectory.total_time / static_cast<double>(interval_count);
+  trajectory.sample_dt = resolve_sample_dt(sample_dt, config);
+  trajectory.total_time = static_cast<double>(interval_count) * trajectory.sample_dt;
   trajectory.positions.reserve(static_cast<std::size_t>(interval_count) + 1);
   trajectory.velocities.reserve(static_cast<std::size_t>(interval_count) + 1);
   trajectory.accelerations.reserve(static_cast<std::size_t>(interval_count) + 1);
@@ -628,8 +633,6 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
     trajectory.accelerations.push_back(std::move(acceleration));
   }
 
-  trajectory.total_time =
-      trajectory.positions.size() > 1 ? trajectory.sample_dt * static_cast<double>(trajectory.positions.size() - 1) : 0.0;
   if (!trajectory.positions.empty()) {
     trajectory.positions.front() = normalized_waypoints.front();
     trajectory.positions.back() = normalized_waypoints.back();
@@ -796,14 +799,13 @@ UnifiedTrajectoryResult retimeReplayWithUnifiedConfig(const ReplayPathAsset &ass
           ? std::max(1, static_cast<int>(std::ceil(scaled_total_time / resolved_sample_dt)))
           : 1;
 
-  trajectory.sample_dt =
-      scaled_total_time > 1e-9 ? scaled_total_time / static_cast<double>(interval_count) : resolved_sample_dt;
+  trajectory.sample_dt = resolved_sample_dt;
+  trajectory.total_time = interval_count > 0 ? static_cast<double>(interval_count) * trajectory.sample_dt : 0.0;
   trajectory.positions.reserve(static_cast<std::size_t>(interval_count) + 1);
   trajectory.velocities.reserve(static_cast<std::size_t>(interval_count) + 1);
 
   for (int index = 0; index <= interval_count; ++index) {
-    const double scaled_time =
-        scaled_total_time > 1e-9 ? trajectory.sample_dt * static_cast<double>(index) : 0.0;
+    const double scaled_time = trajectory.sample_dt * static_cast<double>(index);
     const double original_time = std::min(scaled_time * rate_scale, original_total_time);
 
     auto position = interpolate_joint_vector(normalized_samples, original_time, false);
@@ -820,8 +822,6 @@ UnifiedTrajectoryResult retimeReplayWithUnifiedConfig(const ReplayPathAsset &ass
   }
 
   populate_acceleration_trajectory(trajectory.accelerations, trajectory.velocities, trajectory.sample_dt);
-  trajectory.total_time =
-      trajectory.positions.size() > 1 ? trajectory.sample_dt * static_cast<double>(trajectory.positions.size() - 1) : 0.0;
   sync_metadata(result);
   return result;
 }

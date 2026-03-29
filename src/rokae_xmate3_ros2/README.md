@@ -62,6 +62,8 @@
 - `rokae/utility.h` 与官方示例同名工具头
 - `/xmate3/io/*` 与 `/xmate3/cobot/*` 双命名空间兼容
 - 寄存器、RL、奇异位规避、末端力矩等仿真接口
+- 兼容别名 `/xmate3/cobot/get_joint_torque`、`/xmate3/cobot/get_end_torque` 保留不变，底层类型统一到 `GetJointTorques` / `GetEndEffectorTorque`
+- 内建 `/xmate3/internal/validate_motion`、`/xmate3/internal/get_runtime_diagnostics` 和 `/xmate3/internal/runtime_status` 用于预验证与运行时诊断
 
 ## 文件结构
 
@@ -172,6 +174,22 @@ ros2 run rokae_xmate3_ros2 example_04_motion_basic
 ros2 run rokae_xmate3_ros2 example_25_rt_s_line
 ```
 
+常用诊断命令：
+```bash
+ros2 service call /xmate3/internal/get_runtime_diagnostics rokae_xmate3_ros2/srv/GetRuntimeDiagnostics "{}"
+ros2 topic echo /xmate3/internal/runtime_status --once
+```
+
+默认发布验收命令：
+```bash
+cd ~/ros2_ws0
+src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  colcon build --packages-select rokae_xmate3_ros2 --symlink-install
+cd build/rokae_xmate3_ros2
+../../src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  ctest --output-on-failure
+```
+
 全量 headless examples harness（非默认门禁）：
 ```bash
 cd ~/ros2_ws0/build/rokae_xmate3_ros2
@@ -253,8 +271,8 @@ src/rokae_xmate3_ros2/tools/clean_build_env.sh \
   cmake --build build/rokae_release --target release_candidate
 ```
 
-默认 `ctest --output-on-failure` 固定为 12 项轻量门禁：
-- 9 个纯单测
+默认 `ctest --output-on-failure` 固定为 16 项门禁：
+- 13 个纯单测
 - `gazebo_sdk_regression`
 - `gazebo_examples_smoke`
 - `gazebo_alias_smoke`
@@ -340,6 +358,14 @@ robot.moveReset(ec);
 robot.moveStart(ec);
 ```
 
+统一规划失败原因：
+- `unreachable_pose`
+- `conf_mismatch`
+- `soft_limit_violation`
+- `near_singularity_rejected`
+- `runtime_busy`
+- `shutdown_in_progress`
+
 ### 运动学计算
 
 ```cpp
@@ -386,16 +412,22 @@ JTC backend        Effort backend
 - `/xmate3/cobot/connect`
 - `/xmate3/cobot/disconnect`
 - `/xmate3/cobot/get_joint_pos`
+- `/xmate3/cobot/get_joint_torque`
+- `/xmate3/cobot/get_end_torque`
 - `/xmate3/cobot/get_cart_posture`
 - `/xmate3/cobot/calc_fk`
 - `/xmate3/cobot/calc_ik`
 - `/xmate3/cobot/move_reset`
 - `/xmate3/cobot/move_start`
 - `/xmate3/cobot/stop`
+- `/xmate3/internal/validate_motion`
+- `/xmate3/internal/get_runtime_diagnostics`
+- `/xmate3/internal/prepare_shutdown`
 
 ### 话题
 - `/xmate3/joint_states`
 - `/xmate3/cobot/operation_state`
+- `/xmate3/internal/runtime_status`
 
 ### 动作
 - `/xmate3/cobot/move_append`

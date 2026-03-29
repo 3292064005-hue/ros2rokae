@@ -2,8 +2,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string_view>
 
 namespace rokae_xmate3_ros2::runtime {
+namespace {
+
+bool contains_token(std::string_view haystack, std::string_view needle) {
+  return haystack.find(needle) != std::string_view::npos;
+}
+
+}  // namespace
 
 double max_joint_step(const std::vector<double> &lhs, const std::vector<double> &rhs) {
   double max_step = 0.0;
@@ -48,6 +56,39 @@ bool project_joint_derivatives_from_cartesian(
       trajectory_dt,
       joint_velocity_trajectory,
       joint_acceleration_trajectory);
+}
+
+std::string classify_motion_failure_reason(std::string_view message) {
+  if (message.empty()) {
+    return "unreachable_pose";
+  }
+  if (contains_token(message, "runtime is busy") || contains_token(message, "planner queue is busy")) {
+    return "runtime_busy";
+  }
+  if (contains_token(message, "shutdown")) {
+    return "shutdown_in_progress";
+  }
+  if (contains_token(message, "soft limit")) {
+    return "soft_limit_violation";
+  }
+  if (contains_token(message, "confData") || contains_token(message, "requested conf")) {
+    return "conf_mismatch";
+  }
+  if (contains_token(message, "singular")) {
+    return "near_singularity_rejected";
+  }
+  return "unreachable_pose";
+}
+
+std::string format_motion_failure(std::string_view reason, std::string_view detail) {
+  std::string message = "[";
+  message += reason.empty() ? std::string{"unreachable_pose"} : std::string{reason};
+  message += "]";
+  if (!detail.empty()) {
+    message += " ";
+    message += detail;
+  }
+  return message;
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

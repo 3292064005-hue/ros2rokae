@@ -313,6 +313,8 @@ xMate3Kinematics::IkSelectionResult xMate3Kinematics::selectBestIkSolution(
         backend_->selectBestCartesianIkSolution(candidates, target_transform, seed_joints, backend_options);
     result.success = selected.success;
     result.joints = selected.q;
+    result.branch_id = selected.branch_id;
+    result.note = selected.note;
     result.message = selected.message;
     return result;
 }

@@ -42,6 +42,7 @@
 
 // ROS2 接口头文件
 #include "rokae_xmate3_ros2/msg/operation_state.hpp"
+#include "rokae_xmate3_ros2/msg/runtime_diagnostics.hpp"
 
 
 
@@ -98,6 +99,21 @@ const char *toString(BackendMode mode) {
     default:
       return "hybrid";
   }
+}
+
+std::vector<std::string> diagnosticCapabilityFlags(BackendMode mode) {
+  std::vector<std::string> flags{
+      "simulation.gazebo11",
+      "ros2.humble",
+      "rt.experimental",
+      "compat.alias.get_joint_torque",
+      "compat.alias.get_end_torque",
+      "diagnostics.runtime_status",
+      "diagnostics.get_runtime_diagnostics",
+      "planning.validate_motion",
+  };
+  flags.push_back(std::string("backend.") + toString(mode));
+  return flags;
 }
 
 double maxAbsVector(const std::vector<double> &values) {
@@ -512,6 +528,7 @@ private:
 
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
     rclcpp::Publisher<rokae_xmate3_ros2::msg::OperationState>::SharedPtr operation_state_pub_;
+    rclcpp::Publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>::SharedPtr runtime_diagnostics_pub_;
 };
 
 void XCoreControllerPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf) {
@@ -670,6 +687,7 @@ XCoreControllerPlugin::collectShutdownContractState(bool request_prepare) {
 
     shutdown_coordinator_.updateFacts(facts);
     state = shutdown_coordinator_.currentView();
+    runtime_context_->diagnosticsState().updateShutdownContract(state);
     return state;
 }
 
@@ -852,6 +870,9 @@ void XCoreControllerPlugin::InitROS2() {
     }
     runtime_context_->attachBackend(motion_backend_.get());
     runtime_context_->motionRuntime().setExecutorConfig(executor_config);
+    runtime_context_->diagnosticsState().configure(
+        toString(backend_mode_),
+        diagnosticCapabilityFlags(backend_mode_));
     executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
     executor_->add_node(node_);
 
@@ -925,11 +946,20 @@ void XCoreControllerPlugin::InitROS2() {
             RCLCPP_ERROR(node_->get_logger(), "ROS executor stopped unexpectedly: %s", e.what());
         }
     });
+
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "runtime diagnostics ready: backend=%s rt_level=experimental aliases=[get_joint_torque,get_end_torque] "
+        "services=[/xmate3/internal/validate_motion,/xmate3/internal/get_runtime_diagnostics] "
+        "topic=[/xmate3/internal/runtime_status]",
+        toString(backend_mode_));
 }
 
 void XCoreControllerPlugin::InitPublishers() {
     joint_state_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>("/xmate3/joint_states", 10);
     operation_state_pub_ = node_->create_publisher<rokae_xmate3_ros2::msg::OperationState>("/xmate3/cobot/operation_state", 10);
+    runtime_diagnostics_pub_ =
+        node_->create_publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>("/xmate3/internal/runtime_status", 10);
 }
 
 void XCoreControllerPlugin::RefreshJointStateCache() {
@@ -1003,6 +1033,7 @@ void XCoreControllerPlugin::OnUpdate() {
 
     auto now = node_->now();
     if (publish_bridge_ != nullptr && joint_state_pub_ != nullptr && operation_state_pub_ != nullptr) {
+        collectShutdownContractState(false);
         std::array<double, 6> cached_pos{};
         std::array<double, 6> cached_vel{};
         std::array<double, 6> cached_torque{};
@@ -1023,6 +1054,9 @@ void XCoreControllerPlugin::OnUpdate() {
         }
         if (publish_tick.publish_operation_state) {
             operation_state_pub_->publish(publish_tick.operation_state);
+        }
+        if (publish_tick.publish_operation_state && runtime_diagnostics_pub_ != nullptr) {
+            runtime_diagnostics_pub_->publish(publish_bridge_->buildRuntimeDiagnosticsMessage());
         }
     }
 

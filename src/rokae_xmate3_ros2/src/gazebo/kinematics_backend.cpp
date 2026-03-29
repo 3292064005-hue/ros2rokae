@@ -730,6 +730,11 @@ KinematicsBackend::CartesianIkSelectionResult selectBestCartesianIkSolution(
   });
   best.success = true;
   best.q = scored_candidates.front().q;
+  best.branch_id = scored_candidates.front().branch_id;
+  if (!options.strict_conf && !options.requested_conf.empty() &&
+      scored_candidates.front().preference_cost > 1e-6) {
+    best.note = "confData relaxed fallback";
+  }
   best.message.clear();
   return best;
 }
