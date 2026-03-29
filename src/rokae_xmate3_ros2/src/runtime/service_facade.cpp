@@ -13,6 +13,7 @@
 #include "runtime/pose_utils.hpp"
 #include "runtime/unified_retimer.hpp"
 #include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 namespace {
@@ -95,14 +96,7 @@ std::vector<double> pose_from_array(const std::array<double, 6> &pose) {
 }
 
 std::array<std::array<double, 2>, 6> soft_limits_from_request(const std::array<double, 12> &values) {
-  std::array<std::array<double, 2>, 6> soft_limits{{
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-  }};
+  auto soft_limits = rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits;
   for (std::size_t axis = 0; axis < 6; ++axis) {
     soft_limits[axis][0] = values[axis * 2];
     soft_limits[axis][1] = values[axis * 2 + 1];
@@ -351,7 +345,7 @@ void ControlFacade::handleSetRtControlMode(const rokae_xmate3_ros2::srv::SetRtCo
   stopRuntime("rt control mode changed");
   clearBackendControl();
   session_state_.setRtControlMode(req.mode);
-  session_state_.setMotionMode(1);
+  session_state_.setMotionMode(static_cast<int>(rokae::MotionControlMode::RtCommand));
   syncBrakeState(false);
   res.success = true;
   res.error_code = 0;
@@ -437,6 +431,12 @@ void QueryFacade::handleGetRuntimeDiagnostics(
   res.diagnostics.last_retimer_note = snapshot.last_retimer_note;
   res.diagnostics.last_servo_dt = snapshot.last_servo_dt;
   res.diagnostics.capability_flags = snapshot.capability_flags;
+  res.diagnostics.motion_mode = snapshot.motion_mode;
+  res.diagnostics.rt_mode = snapshot.rt_mode;
+  res.diagnostics.active_profile = snapshot.active_profile;
+  res.diagnostics.loop_hz = snapshot.loop_hz;
+  res.diagnostics.state_stream_hz = snapshot.state_stream_hz;
+  res.diagnostics.command_latency_ms = snapshot.command_latency_ms;
   res.success = true;
   res.message.clear();
 }
@@ -1012,8 +1012,33 @@ void QueryFacade::handleGetEndEffectorTorque(const rokae_xmate3_ros2::srv::GetEn
   res.message.clear();
 }
 
-IoProgramFacade::IoProgramFacade(DataStoreState &data_store_state, ProgramState &program_state, TimeProvider time_provider)
-    : data_store_state_(data_store_state), program_state_(program_state), time_provider_(std::move(time_provider)) {}
+void QueryFacade::handleGetEndWrench(const rokae_xmate3_ros2::srv::GetEndWrench::Request &req,
+                                     rokae_xmate3_ros2::srv::GetEndWrench::Response &res) const {
+  std::array<double, 6> pos{};
+  std::array<double, 6> vel{};
+  std::array<double, 6> measured{};
+  joint_state_fetcher_(pos, vel, measured);
+  rokae_xmate3_ros2::srv::GetEndEffectorTorque::Request legacy_req;
+  rokae_xmate3_ros2::srv::GetEndEffectorTorque::Response legacy_res;
+  handleGetEndEffectorTorque(legacy_req, legacy_res);
+  res.ref_type = req.ref_type;
+  for (int i = 0; i < 6; ++i) {
+    res.joint_torque_measured[i] = measured[i];
+    res.external_joint_torque[i] = 0.0;
+  }
+  res.cart_force = {legacy_res.end_torque[0], legacy_res.end_torque[1], legacy_res.end_torque[2]};
+  res.cart_torque = {legacy_res.end_torque[3], legacy_res.end_torque[4], legacy_res.end_torque[5]};
+  res.fidelity_level = "SimApprox";
+  res.success = legacy_res.success;
+  res.error_code = legacy_res.success ? 0 : 1;
+  res.error_msg = legacy_res.message;
+}
+
+IoProgramFacade::IoProgramFacade(DataStoreState &data_store_state,
+                               ProgramState &program_state,
+                               ToolingState &tooling_state,
+                               TimeProvider time_provider)
+    : data_store_state_(data_store_state), program_state_(program_state), tooling_state_(tooling_state), time_provider_(std::move(time_provider)) {}
 
 void IoProgramFacade::handleSendCustomData(
     const rokae_xmate3_ros2::srv::SendCustomData::Request &req,
@@ -1064,6 +1089,33 @@ void IoProgramFacade::handleWriteRegister(const rokae_xmate3_ros2::srv::WriteReg
   res.error_msg.clear();
 }
 
+void IoProgramFacade::handleReadRegisterEx(const rokae_xmate3_ros2::srv::ReadRegisterEx::Request &req,
+                                           rokae_xmate3_ros2::srv::ReadRegisterEx::Response &res) const {
+  res.key = req.name + "[" + std::to_string(req.index) + "]";
+  res.value = data_store_state_.registerValue(res.key);
+  res.success = true;
+  res.error_code = 0;
+  res.error_msg.clear();
+}
+
+void IoProgramFacade::handleWriteRegisterEx(const rokae_xmate3_ros2::srv::WriteRegisterEx::Request &req,
+                                            rokae_xmate3_ros2::srv::WriteRegisterEx::Response &res) const {
+  res.key = req.name + "[" + std::to_string(req.index) + "]";
+  data_store_state_.setRegister(res.key, req.value);
+  res.success = true;
+  res.error_code = 0;
+  res.error_msg.clear();
+}
+
+void IoProgramFacade::handleSetXPanelVout(const rokae_xmate3_ros2::srv::SetXPanelVout::Request &req,
+                                          rokae_xmate3_ros2::srv::SetXPanelVout::Response &res) const {
+  data_store_state_.setRegister("xpanel_vout", std::to_string(req.mode));
+  res.success = true;
+  res.error_code = 0;
+  res.error_msg.clear();
+  res.applied_mode = req.mode;
+}
+
 void IoProgramFacade::handleLoadRlProject(const rokae_xmate3_ros2::srv::LoadRLProject::Request &req,
                                           rokae_xmate3_ros2::srv::LoadRLProject::Response &res) const {
   const auto effective_project_name = basename_without_extension(req.project_path);
@@ -1111,6 +1163,89 @@ void IoProgramFacade::handleStopRlProject(const rokae_xmate3_ros2::srv::StopRLPr
   res.error_msg.clear();
   res.finished_episode = std::max(program_state_.rlCurrentEpisode(), 1);
   res.stop_time = ToBuiltinTime(time_provider_());
+}
+
+void IoProgramFacade::handlePauseRlProject(const rokae_xmate3_ros2::srv::PauseRLProject::Request &req,
+                                           rokae_xmate3_ros2::srv::PauseRLProject::Response &res) const {
+  if (!program_state_.rlProjectRunning() || req.project_id != program_state_.loadedRlProjectName()) {
+    res.success = false;
+    res.error_code = 8001;
+    res.error_msg = "RL project is not running";
+    return;
+  }
+  program_state_.setRlProjectRunning(false, program_state_.rlCurrentEpisode());
+  res.success = true;
+  res.error_code = 0;
+  res.error_msg.clear();
+  res.current_episode = program_state_.rlCurrentEpisode();
+}
+
+void IoProgramFacade::handleSetProjectRunningOpt(const rokae_xmate3_ros2::srv::SetProjectRunningOpt::Request &req,
+                                                 rokae_xmate3_ros2::srv::SetProjectRunningOpt::Response &res) const {
+  program_state_.setRlProjectRunningOptions(req.rate, req.loop);
+  res.success = true;
+  res.error_code = 0;
+  res.error_msg.clear();
+  res.applied_rate = program_state_.rlRunRate();
+  res.applied_loop = program_state_.rlLoopMode();
+}
+
+void IoProgramFacade::handleGetRlProjectInfo(const rokae_xmate3_ros2::srv::GetRlProjectInfo::Request &req,
+                                             rokae_xmate3_ros2::srv::GetRlProjectInfo::Response &res) const {
+  (void)req;
+  const auto catalog = program_state_.rlProjectCatalog();
+  for (const auto &info : catalog) {
+    res.project_names.push_back(info.name);
+    res.is_running.push_back(info.is_running);
+    res.run_rates.push_back(info.run_rate);
+    res.loop_modes.push_back(info.loop_mode);
+  }
+  res.active_project_name = program_state_.loadedRlProjectName();
+  res.current_episode = program_state_.rlCurrentEpisode();
+  res.success = true;
+  res.error_code = 0;
+  res.error_msg.clear();
+}
+
+void IoProgramFacade::handleGetToolCatalog(const rokae_xmate3_ros2::srv::GetToolCatalog::Request &req,
+                                           rokae_xmate3_ros2::srv::GetToolCatalog::Response &res) const {
+  (void)req;
+  const auto tools = tooling_state_.toolCatalog();
+  for (const auto &info : tools) {
+    res.names.push_back(info.name);
+    res.aliases.push_back(info.alias);
+    res.robot_held.push_back(info.robotHeld);
+    res.masses.push_back(info.load.mass);
+    res.pose_flattened.push_back(info.pos.x);
+    res.pose_flattened.push_back(info.pos.y);
+    res.pose_flattened.push_back(info.pos.z);
+    res.pose_flattened.push_back(info.pos.rx);
+    res.pose_flattened.push_back(info.pos.ry);
+    res.pose_flattened.push_back(info.pos.rz);
+  }
+  res.success = true;
+  res.error_code = 0;
+  res.error_msg.clear();
+}
+
+void IoProgramFacade::handleGetWobjCatalog(const rokae_xmate3_ros2::srv::GetWobjCatalog::Request &req,
+                                           rokae_xmate3_ros2::srv::GetWobjCatalog::Response &res) const {
+  (void)req;
+  const auto wobjs = tooling_state_.wobjCatalog();
+  for (const auto &info : wobjs) {
+    res.names.push_back(info.name);
+    res.aliases.push_back(info.alias);
+    res.robot_held.push_back(info.robotHeld);
+    res.pose_flattened.push_back(info.pos.x);
+    res.pose_flattened.push_back(info.pos.y);
+    res.pose_flattened.push_back(info.pos.z);
+    res.pose_flattened.push_back(info.pos.rx);
+    res.pose_flattened.push_back(info.pos.ry);
+    res.pose_flattened.push_back(info.pos.rz);
+  }
+  res.success = true;
+  res.error_code = 0;
+  res.error_msg.clear();
 }
 
 void IoProgramFacade::handleGetDI(const rokae_xmate3_ros2::srv::GetDI::Request &req,

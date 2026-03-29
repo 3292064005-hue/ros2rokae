@@ -1,0 +1,7 @@
+# PauseRLProject.srv - 暂停当前RL工程
+string project_id
+---
+bool success
+int32 error_code
+string error_msg
+int32 current_episode

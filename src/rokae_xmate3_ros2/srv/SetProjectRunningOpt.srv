@@ -1,0 +1,9 @@
+# SetProjectRunningOpt.srv - 设置RL工程运行倍率与循环模式
+float64 rate
+bool loop
+---
+bool success
+int32 error_code
+string error_msg
+float64 applied_rate
+bool applied_loop

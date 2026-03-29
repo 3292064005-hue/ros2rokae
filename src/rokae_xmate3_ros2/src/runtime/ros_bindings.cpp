@@ -61,6 +61,7 @@ RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
                                                   6)),
       io_program_facade_(std::make_unique<IoProgramFacade>(runtime_context_.dataStoreState(),
                                                            runtime_context_.programState(),
+                                                           runtime_context_.toolingState(),
                                                            [this]() { return node_->get_clock()->now(); })),
       path_facade_(std::make_unique<PathFacade>(runtime_context_.programState(),
                                                 runtime_context_.toolingState(),
@@ -152,14 +153,30 @@ void RosBindings::initServices() {
       node_, "/xmate3/cobot/register_data_callback", io_program_facade_.get(), &IoProgramFacade::handleRegisterDataCallback));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::ReadRegister>(
       node_, "/xmate3/cobot/read_register", io_program_facade_.get(), &IoProgramFacade::handleReadRegister));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::ReadRegisterEx>(
+      node_, "/xmate3/cobot/read_register_ex", io_program_facade_.get(), &IoProgramFacade::handleReadRegisterEx));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::WriteRegister>(
       node_, "/xmate3/cobot/write_register", io_program_facade_.get(), &IoProgramFacade::handleWriteRegister));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::WriteRegisterEx>(
+      node_, "/xmate3/cobot/write_register_ex", io_program_facade_.get(), &IoProgramFacade::handleWriteRegisterEx));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::SetXPanelVout>(
+      node_, "/xmate3/cobot/set_xpanel_vout", io_program_facade_.get(), &IoProgramFacade::handleSetXPanelVout));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::LoadRLProject>(
       node_, "/xmate3/cobot/load_rl_project", io_program_facade_.get(), &IoProgramFacade::handleLoadRlProject));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::StartRLProject>(
       node_, "/xmate3/cobot/start_rl_project", io_program_facade_.get(), &IoProgramFacade::handleStartRlProject));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::StopRLProject>(
       node_, "/xmate3/cobot/stop_rl_project", io_program_facade_.get(), &IoProgramFacade::handleStopRlProject));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::PauseRLProject>(
+      node_, "/xmate3/cobot/pause_rl_project", io_program_facade_.get(), &IoProgramFacade::handlePauseRlProject));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::SetProjectRunningOpt>(
+      node_, "/xmate3/cobot/set_project_running_opt", io_program_facade_.get(), &IoProgramFacade::handleSetProjectRunningOpt));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetRlProjectInfo>(
+      node_, "/xmate3/cobot/get_rl_project_info", io_program_facade_.get(), &IoProgramFacade::handleGetRlProjectInfo));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetToolCatalog>(
+      node_, "/xmate3/cobot/get_tools_info", io_program_facade_.get(), &IoProgramFacade::handleGetToolCatalog));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetWobjCatalog>(
+      node_, "/xmate3/cobot/get_wobjs_info", io_program_facade_.get(), &IoProgramFacade::handleGetWobjCatalog));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::SetAvoidSingularity>(
       node_, "/xmate3/cobot/set_avoid_singularity", control_facade_.get(), &ControlFacade::handleSetAvoidSingularity));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetAvoidSingularity>(
@@ -172,6 +189,8 @@ void RosBindings::initServices() {
       node_, "/xmate3/cobot/map_cartesian_to_joint_torque", query_facade_.get(), &QueryFacade::handleMapCartesianToJointTorque));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetEndEffectorTorque>(
       node_, "/xmate3/cobot/get_end_torque", query_facade_.get(), &QueryFacade::handleGetEndEffectorTorque));
+  services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetEndWrench>(
+      node_, "/xmate3/cobot/get_end_wrench", query_facade_.get(), &QueryFacade::handleGetEndWrench));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::ValidateMotion>(
       node_, "/xmate3/internal/validate_motion", query_facade_.get(), &QueryFacade::handleValidateMotion));
   services_.push_back(CreateFacadeService<rokae_xmate3_ros2::srv::GetRuntimeDiagnostics>(

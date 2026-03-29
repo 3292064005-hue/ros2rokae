@@ -208,11 +208,20 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/LoadRLProject.srv
   srv/StartRLProject.srv
   srv/StopRLProject.srv
+  srv/GetRlProjectInfo.srv
+  srv/PauseRLProject.srv
+  srv/SetProjectRunningOpt.srv
   srv/ReadRegister.srv
   srv/WriteRegister.srv
+  srv/ReadRegisterEx.srv
+  srv/WriteRegisterEx.srv
+  srv/SetXPanelVout.srv
   srv/SetAvoidSingularity.srv
   srv/GetAvoidSingularity.srv
   srv/GetEndEffectorTorque.srv
+  srv/GetEndWrench.srv
+  srv/GetToolCatalog.srv
+  srv/GetWobjCatalog.srv
   # Action
   action/MoveAppend.action
   action/Jog.action
@@ -617,6 +626,18 @@ if(BUILD_TESTING)
     test/unit/test_runtime_state.cpp
   )
 
+  ament_add_gtest(test_runtime_diagnostics
+    test/unit/test_runtime_diagnostics.cpp
+  )
+
+  ament_add_gtest(test_contract_surface
+    test/unit/test_contract_surface.cpp
+  )
+
+  ament_add_gtest(test_implementation_audit
+    test/unit/test_implementation_audit.cpp
+  )
+
   ament_add_gtest(test_service_facade
     test/unit/test_service_facade.cpp
   )
@@ -648,6 +669,51 @@ if(BUILD_TESTING)
     )
     target_compile_features(test_request_coordinator PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_request_coordinator)
+  endif()
+
+  if(TARGET test_runtime_diagnostics)
+    target_include_directories(test_runtime_diagnostics
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_link_libraries(test_runtime_diagnostics
+      ${PROJECT_NAME}_runtime_core
+    )
+    target_compile_features(test_runtime_diagnostics PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_runtime_diagnostics)
+  endif()
+
+  if(TARGET test_contract_surface)
+    target_include_directories(test_contract_surface
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_compile_definitions(test_contract_surface
+      PRIVATE
+        ROKAE_TEST_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_compile_features(test_contract_surface PUBLIC cxx_std_17)
+  endif()
+
+  if(TARGET test_implementation_audit)
+    target_include_directories(test_implementation_audit
+      PRIVATE
+        include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${EIGEN3_INCLUDE_DIRS}
+    )
+    target_compile_definitions(test_implementation_audit
+      PRIVATE
+        ROKAE_TEST_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_compile_features(test_implementation_audit PUBLIC cxx_std_17)
   endif()
 
   if(TARGET test_runtime_state)
@@ -1215,3 +1281,8 @@ class TestGazeboAliasSmoke(unittest.TestCase):
 endif()
 
 ament_package()
+
+
+install(DIRECTORY docs config launch urdf examples
+  DESTINATION share/${PROJECT_NAME}
+)

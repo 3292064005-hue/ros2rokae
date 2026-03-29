@@ -8,3 +8,9 @@ string last_plan_failure
 string last_retimer_note
 float64 last_servo_dt
 string[] capability_flags
+int32 motion_mode
+int32 rt_mode
+string active_profile
+float64 loop_hz
+float64 state_stream_hz
+float64 command_latency_ms

@@ -6,6 +6,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/gazebo/kinematics_policy.hpp"
 
 #include <Eigen/Dense>
 
@@ -60,14 +62,7 @@ class KinematicsBackend {
     bool strict_conf = false;
     bool avoid_singularity = true;
     bool soft_limit_enabled = false;
-    std::array<std::array<double, 2>, 6> soft_limits{{
-        {{-3.14, 3.14}},
-        {{-3.14, 3.14}},
-        {{-3.14, 3.14}},
-        {{-3.14, 3.14}},
-        {{-3.14, 3.14}},
-        {{-3.14, 3.14}},
-    }};
+    std::array<std::array<double, 2>, 6> soft_limits = rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits;
     VectorJ joint_limits_min;
     VectorJ joint_limits_max;
   };
@@ -182,6 +177,7 @@ class KinematicsBackend {
 };
 
 [[nodiscard]] std::shared_ptr<KinematicsBackend> makePreferredKinematicsBackend();
+[[nodiscard]] KinematicsPolicy resolveKinematicsPolicy() noexcept;
 [[nodiscard]] const KinematicsBackend::IKBackendConfig &backendConfig() noexcept;
 
 }  // namespace detail

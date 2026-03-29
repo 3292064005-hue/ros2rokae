@@ -118,7 +118,7 @@
     parent="xMate3_base"
     child="xMate3_link1"
     axis_x="0" axis_y="0" axis_z="1"
-    limit_effort="300" limit_lower="-3.0527" limit_upper="3.0527" limit_vel="10"
+    limit_effort="85" limit_lower="-3.0527" limit_upper="3.0527" limit_vel="2.175"
     ox="0" oy="0" oz="0" damping="0.5"/>
 
   <xacro:robot_transmission
@@ -141,7 +141,7 @@
     parent="xMate3_link1"
     child="xMate3_link2"
     axis_x="0" axis_y="1" axis_z="0"
-    limit_effort="300" limit_lower="-2.0933" limit_upper="2.0933" limit_vel="10"
+    limit_effort="85" limit_lower="-2.0933" limit_upper="2.0933" limit_vel="2.175"
     ox="0" oy="0" oz="0.3415" damping="0.5"/>
 
   <xacro:robot_transmission
@@ -164,7 +164,7 @@
     parent="xMate3_link2"
     child="xMate3_link3"
     axis_x="0" axis_y="1" axis_z="0"
-    limit_effort="300" limit_lower="-2.0933" limit_upper="2.0933" limit_vel="10"
+    limit_effort="85" limit_lower="-2.0933" limit_upper="2.0933" limit_vel="2.175"
     ox="0" oy="0" oz="0.394" damping="0.5"/>
 
   <xacro:robot_transmission
@@ -187,7 +187,7 @@
     parent="xMate3_link3"
     child="xMate3_link4"
     axis_x="0" axis_y="0" axis_z="1"
-    limit_effort="300" limit_lower="-3.0527" limit_upper="3.0527" limit_vel="10"
+    limit_effort="85" limit_lower="-3.0527" limit_upper="3.0527" limit_vel="2.610"
     ox="0" oy="0" oz="0.366" damping="0.5"/>
 
   <xacro:robot_transmission
@@ -210,7 +210,7 @@
     parent="xMate3_link4"
     child="xMate3_link5"
     axis_x="0" axis_y="1" axis_z="0"
-    limit_effort="300" limit_lower="-2.0933" limit_upper="2.0933" limit_vel="10"
+    limit_effort="36" limit_lower="-2.0933" limit_upper="2.0933" limit_vel="2.610"
     ox="0" oy="0" oz="0" damping="0.5"/>
 
   <xacro:robot_transmission
@@ -233,7 +233,7 @@
     parent="xMate3_link5"
     child="xMate3_link6"
     axis_x="0" axis_y="0" axis_z="1"
-    limit_effort="300" limit_lower="-6.1082" limit_upper="6.1082" limit_vel="10"
+    limit_effort="36" limit_lower="-6.1082" limit_upper="6.1082" limit_vel="2.610"
     ox="0" oy="0" oz="0.2503" damping="0.5"/>
 
   <xacro:robot_transmission

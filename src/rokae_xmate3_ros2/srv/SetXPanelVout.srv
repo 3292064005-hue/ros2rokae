@@ -1,0 +1,7 @@
+# SetXPanelVout.srv - 设置 xPanel 对外供电模式
+int32 mode
+---
+bool success
+int32 error_code
+string error_msg
+int32 applied_mode

@@ -13,6 +13,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/gazebo/kinematics_policy.hpp"
 
 namespace gazebo {
 
@@ -54,14 +56,7 @@ public:
         bool strict_conf = false;
         bool avoid_singularity = true;
         bool soft_limit_enabled = false;
-        std::array<std::array<double, 2>, 6> soft_limits{{
-            {{-3.14, 3.14}},
-            {{-3.14, 3.14}},
-            {{-3.14, 3.14}},
-            {{-3.14, 3.14}},
-            {{-3.14, 3.14}},
-            {{-3.14, 3.14}},
-        }};
+        std::array<std::array<double, 2>, 6> soft_limits = rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits;
     };
 
     struct IkSelectionResult {
@@ -153,6 +148,7 @@ public:
     void resetDebugCounters();
     [[nodiscard]] DebugCounters debugCounters() const;
     [[nodiscard]] const char *backendName() const noexcept;
+    [[nodiscard]] const KinematicsPolicy &policy() const noexcept;
 
  private:
     struct SingularityAnalysis;
@@ -160,6 +156,7 @@ public:
     std::vector<double> dh_a_, dh_alpha_, dh_d_;
     std::vector<double> joint_limits_min_, joint_limits_max_;
     mutable DebugCounters debug_counters_{};
+    KinematicsPolicy policy_{};
     std::shared_ptr<detail::KinematicsBackend> backend_;
     std::vector<Matrix4d> computeAllTransforms(const std::vector<double>& joints);
     Matrix4d dhTransform(int i, double theta);

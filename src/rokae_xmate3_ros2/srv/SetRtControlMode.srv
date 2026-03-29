@@ -1,19 +1,9 @@
 # SetRtControlMode.srv - 设置机器人实时控制模式
-# 请求部分（Request）
-int32 mode  # 实时控制模式枚举值
-            # 0: 关节位置模式（POSITION）
-            # 1: 关节扭矩模式（TORQUE）
-            # 2: 关节速度模式（VELOCITY）
-            # 3: 笛卡尔阻抗模式（CARTESIAN_IMPEDANCE）
-float32 TIMEOUT = 0.0  # 实时控制超时时间（秒），0表示无超时（默认）
-bool ENABLE_SAFETY_CHECK = true  # 是否启用实时控制安全检查（默认true）
-
+# mode values follow rokae::RtControllerMode semantics
+int32 mode  # 0: jointPosition, 1: cartesianPosition, 2: jointImpedance, 3: cartesianImpedance, 4: torque
+float32 TIMEOUT = 0.0
+bool ENABLE_SAFETY_CHECK = true
 ---
-# 响应部分（Response）
-bool success  # 设置是否成功
-int32 error_code  # 错误码：0=成功，非0=失败
-                 # 1001: 无效的模式值
-                 # 1002: 机器人未上电
-                 # 1003: 实时控制接口未初始化
-                 # 1004: 安全检查不通过
-string error_msg  # 错误描述信息（成功时为空）
+bool success
+int32 error_code
+string error_msg

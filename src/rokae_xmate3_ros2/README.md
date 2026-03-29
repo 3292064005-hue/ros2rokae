@@ -14,6 +14,8 @@
 - [API 参考](#api-参考)
 - [架构说明](#架构说明)
 - [ROS2 接口](#ros2-接口)
+- [扩展框架](#扩展框架)
+- [实现审计](#实现审计)
 - [常见问题](#常见问题)
 
 ## 功能特性
@@ -31,7 +33,7 @@
 | **4.3** | 机器人基本操作及信息查询 | 已对齐 |
 | **4.4** | 非实时运动控制接口 | 已对齐 |
 | **4.5** | 实时控制接口 | 实验性 |
-| **4.6** | IO 与通信接口 | 已对齐 |
+| **4.6** | IO 与通信接口 | 近似实现 |
 | **4.7** | RL 工程接口 | 近似实现 |
 | **4.8** | 协作机器人专属接口 | 近似实现 |
 | **8.3.7** | 路径规划类 | 近似实现 |
@@ -39,6 +41,8 @@
 | **8.3.9** | 工具函数 | 已对齐 |
 
 完整示例覆盖范围见 [examples/README.md](examples/README.md)。
+
+更严格的当前实现面判断见 [docs/IMPLEMENTATION_AUDIT.md](docs/IMPLEMENTATION_AUDIT.md)，剩余硬化任务见 [docs/HARDENING_BACKLOG.md](docs/HARDENING_BACKLOG.md)。
 
 ### 运动能力
 - `MoveAbsJ`
@@ -62,6 +66,7 @@
 - `rokae/utility.h` 与官方示例同名工具头
 - `/xmate3/io/*` 与 `/xmate3/cobot/*` 双命名空间兼容
 - 寄存器、RL、奇异位规避、末端力矩等仿真接口
+- 扩展主接口优先策略：`ReadRegisterEx / WriteRegisterEx / GetEndWrench / GetRlProjectInfo / SetXPanelVout` 为首选，旧接口保留兼容 façade
 - 兼容别名 `/xmate3/cobot/get_joint_torque`、`/xmate3/cobot/get_end_torque` 保留不变，底层类型统一到 `GetJointTorques` / `GetEndEffectorTorque`
 - 内建 `/xmate3/internal/validate_motion`、`/xmate3/internal/get_runtime_diagnostics` 和 `/xmate3/internal/runtime_status` 用于预验证与运行时诊断
 
@@ -406,6 +411,28 @@ JTC backend        Effort backend
                Gazebo 11 + xMate3 URDF/KDL/model facade
 ```
 
+## 扩展框架
+
+## 实现审计
+
+- 当前真实实现面：[`docs/IMPLEMENTATION_AUDIT.md`](docs/IMPLEMENTATION_AUDIT.md)
+- 剩余硬化任务：[`docs/HARDENING_BACKLOG.md`](docs/HARDENING_BACKLOG.md)
+
+这个部分专门回答两个问题：
+
+1. 现在到底哪些功能已经实现了。
+2. 哪些地方仍然只是仿真级或尚未完全闭合。
+
+后续所有更强的“已对齐”结论，都应该以这里和对应测试为准。
+
+
+- runtime 仍然是唯一状态真源
+- KDL 为默认主运动学后端，`improved_dh` 用于 seed / fallback / regression
+- RT / NRT 永久分 profile，不再回混
+- 新 contract 为主、legacy contract 只做兼容 façade
+- 逐接口对齐矩阵见 `docs/API_ALIGNMENT_MATRIX.md`
+- 可持续扩展蓝图见 `docs/EXTENSION_FRAMEWORK.md`
+
 ## ROS2 接口
 
 ### 服务
@@ -469,3 +496,11 @@ sudo apt install python3-numpy python3-lxml
 Copyright (C) 2024 ROKAE (Beijing) Technology Co., LTD.
 
 Licensed under the Apache License, Version 2.0.
+
+
+## 新增架构文档
+
+- `docs/API_ALIGNMENT_MATRIX.md`：逐接口完成度矩阵
+- `docs/MODEL_TRACEABILITY.md`：手册参数与内部表示映射
+- `docs/FIDELITY_POLICY.md`：StrictAligned / SimApprox / Experimental 语义
+- `config/ros2_control_nrt.yaml` / `config/ros2_control_rt.yaml`：控制周期配置拆分

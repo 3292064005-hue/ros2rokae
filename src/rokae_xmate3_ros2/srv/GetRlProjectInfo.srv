@@ -1,0 +1,11 @@
+# GetRlProjectInfo.srv - 获取RL工程目录与当前运行状态
+---
+bool success
+int32 error_code
+string error_msg
+string[] project_names
+bool[] is_running
+float64[] run_rates
+bool[] loop_modes
+string active_project_name
+int32 current_episode

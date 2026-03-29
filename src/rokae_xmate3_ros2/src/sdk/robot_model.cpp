@@ -79,6 +79,49 @@ std::array<double, 6> xMateRobot::getEndTorque(std::error_code& ec) {
     return getEndEffectorTorque(ec);
 }
 
+void xMateRobot::getEndTorque(rokae::FrameType ref_type,
+                                  std::array<double, 6>& joint_torque_measured,
+                                  std::array<double, 6>& external_torque_measured,
+                                  std::array<double, 3>& cart_torque,
+                                  std::array<double, 3>& cart_force,
+                                  std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    if (impl_->xmate3_cobot_get_end_wrench_client_ &&
+        impl_->wait_for_service(impl_->xmate3_cobot_get_end_wrench_client_, ec)) {
+        auto request = std::make_shared<rokae_xmate3_ros2::srv::GetEndWrench::Request>();
+        request->ref_type = static_cast<int>(ref_type);
+        auto future = impl_->xmate3_cobot_get_end_wrench_client_->async_send_request(request);
+        if (impl_->wait_for_future(future) == rclcpp::FutureReturnCode::SUCCESS) {
+            auto result = future.get();
+            if (result->success) {
+                for (size_t i = 0; i < 6; ++i) {
+                    joint_torque_measured[i] = result->joint_torque_measured[i];
+                    external_torque_measured[i] = result->external_joint_torque[i];
+                }
+                cart_torque = {result->cart_torque[0], result->cart_torque[1], result->cart_torque[2]};
+                cart_force = {result->cart_force[0], result->cart_force[1], result->cart_force[2]};
+                ec.clear();
+                return;
+            }
+        }
+    }
+    joint_torque_measured = jointTorques(ec);
+    if (ec) {
+        return;
+    }
+    const auto wrench = getEndEffectorTorque(ec);
+    if (ec) {
+        return;
+    }
+    external_torque_measured.fill(0.0);
+    cart_force = {wrench[0], wrench[1], wrench[2]};
+    cart_torque = {wrench[3], wrench[4], wrench[5]};
+    ec.clear();
+}
+
 bool xMateRobot::calcJointTorque(const std::array<double, 6>& joint_pos,
                                  const std::array<double, 6>& joint_vel,
                                  const std::array<double, 6>& joint_acc,

@@ -7,6 +7,7 @@
 
 #include "runtime/runtime_types.hpp"
 #include "rokae_xmate3_ros2/action/move_append.hpp"
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -23,14 +24,7 @@ struct MotionRequestContext {
   bool avoid_singularity = true;
   bool soft_limit_enabled = false;
   double speed_scale = 1.0;
-  std::array<std::array<double, 2>, 6> soft_limits{{
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-  }};
+  std::array<std::array<double, 2>, 6> soft_limits = rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits;
   double trajectory_dt = 0.01;
 };
 

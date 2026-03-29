@@ -5,6 +5,7 @@
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "gazebo/kinematics_backend.hpp"
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
 
 #include <algorithm>
 #include <array>
@@ -47,14 +48,19 @@ xMate3Kinematics::IkCandidateMetrics toPublicMetrics(
 }  // namespace
 
 xMate3Kinematics::xMate3Kinematics() {
-    // DH 参数 (单位 m) - 完全保留你的原版
-    dh_a_ = {0.0, 0.0, 0.394, 0.0, 0.0, 0.0};
-    dh_alpha_ = {0.0, -M_PI/2, 0.0, M_PI/2, -M_PI/2, M_PI/2};
-    dh_d_ = {0.3415, 0.0, 0.0, 0.366, 0.0, 0.2503};
+    // Improved DH helper model kept as the authoritative auxiliary solver seed / fallback model.
+    dh_a_.assign(rokae_xmate3_ros2::spec::xmate3::improved_dh::kA.begin(),
+                 rokae_xmate3_ros2::spec::xmate3::improved_dh::kA.end());
+    dh_alpha_.assign(rokae_xmate3_ros2::spec::xmate3::improved_dh::kAlpha.begin(),
+                     rokae_xmate3_ros2::spec::xmate3::improved_dh::kAlpha.end());
+    dh_d_.assign(rokae_xmate3_ros2::spec::xmate3::improved_dh::kD.begin(),
+                 rokae_xmate3_ros2::spec::xmate3::improved_dh::kD.end());
 
-    // 关节限位 - 完全保留你的原版
-    joint_limits_min_ = {-3.0527, -2.0933, -2.0933, -3.0527, -2.0933, -6.1082};
-    joint_limits_max_ = {3.0527, 2.0933, 2.0933, 3.0527, 2.0933, 6.1082};
+    joint_limits_min_.assign(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin.begin(),
+                             rokae_xmate3_ros2::spec::xmate3::kJointLimitMin.end());
+    joint_limits_max_.assign(rokae_xmate3_ros2::spec::xmate3::kJointLimitMax.begin(),
+                             rokae_xmate3_ros2::spec::xmate3::kJointLimitMax.end());
+    policy_ = detail::resolveKinematicsPolicy();
     backend_ = detail::makePreferredKinematicsBackend();
 }
 
@@ -391,13 +397,20 @@ xMate3Kinematics::DebugCounters xMate3Kinematics::debugCounters() const {
 
 const char *xMate3Kinematics::backendName() const noexcept {
     if (!backend_) {
-        return "legacy";
+        return "none";
     }
     const std::string name = backend_->name();
     if (name.rfind("kdl", 0) == 0) {
         return "kdl";
     }
-    return "legacy";
+    if (name.rfind("improved_dh", 0) == 0) {
+        return "improved_dh";
+    }
+    return "unknown";
+}
+
+const KinematicsPolicy &xMate3Kinematics::policy() const noexcept {
+    return policy_;
 }
 
 // -------------------------- 改进DH变换矩阵 - 完全保留你的原版 --------------------------

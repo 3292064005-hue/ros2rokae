@@ -248,3 +248,11 @@ TEST(KinematicsBackendTest, BackendNameIsNonNull) {
   ASSERT_NE(name, nullptr);
   EXPECT_GT(std::string(name).size(), 0u);
 }
+
+TEST(KinematicsBackendTest, DefaultPolicyUsesKdlPrimaryWithImprovedDhFallback) {
+  gazebo::xMate3Kinematics kinematics;
+  const auto &policy = kinematics.policy();
+  EXPECT_EQ(policy.primary_backend, gazebo::KinematicsPolicy::PrimaryBackend::Kdl);
+  EXPECT_EQ(policy.fallback_mode, gazebo::KinematicsPolicy::FallbackMode::ImprovedDh);
+  EXPECT_TRUE(policy.require_single_backend_per_request);
+}

@@ -1,0 +1,10 @@
+# GetToolCatalog.srv - 获取工具目录快照
+---
+bool success
+int32 error_code
+string error_msg
+string[] names
+string[] aliases
+bool[] robot_held
+float64[] masses
+float64[] pose_flattened

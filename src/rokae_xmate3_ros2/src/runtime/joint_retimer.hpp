@@ -6,26 +6,13 @@
 #include <vector>
 
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
 struct JointRetimerConfig {
-  std::array<double, 6> joint_speed_limits_rad_per_sec{
-      3.14159265358979323846,
-      3.14159265358979323846,
-      3.14159265358979323846,
-      3.14159265358979323846,
-      3.14159265358979323846,
-      3.14159265358979323846,
-  };
-  std::array<double, 6> joint_acc_limits_rad_per_sec2{
-      7.853981633974483,
-      7.853981633974483,
-      7.853981633974483,
-      7.853981633974483,
-      7.853981633974483,
-      7.853981633974483,
-  };
+  std::array<double, 6> joint_speed_limits_rad_per_sec = rokae_xmate3_ros2::spec::xmate3::kJointVelocityLimit;
+  std::array<double, 6> joint_acc_limits_rad_per_sec2 = rokae_xmate3_ros2::spec::xmate3::kJointAccelerationLimit;
   double sample_dt = 0.01;
   double min_sample_dt = 0.001;
   double max_sample_dt = 0.05;

@@ -1,0 +1,9 @@
+# WriteRegisterEx.srv - 写入控制器寄存器 (name + index 语义)
+string name
+int32 index
+string value
+---
+bool success
+int32 error_code
+string error_msg
+string key

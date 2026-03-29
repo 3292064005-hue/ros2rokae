@@ -35,6 +35,10 @@
 #include "rokae_xmate3_ros2/srv/get_di.hpp"
 #include "rokae_xmate3_ros2/srv/get_do.hpp"
 #include "rokae_xmate3_ros2/srv/get_end_effector_torque.hpp"
+#include "rokae_xmate3_ros2/srv/get_end_wrench.hpp"
+#include "rokae_xmate3_ros2/srv/get_rl_project_info.hpp"
+#include "rokae_xmate3_ros2/srv/get_tool_catalog.hpp"
+#include "rokae_xmate3_ros2/srv/get_wobj_catalog.hpp"
 #include "rokae_xmate3_ros2/srv/get_info.hpp"
 #include "rokae_xmate3_ros2/srv/get_joint_pos.hpp"
 #include "rokae_xmate3_ros2/srv/get_joint_torques.hpp"
@@ -53,6 +57,7 @@
 #include "rokae_xmate3_ros2/srv/query_controller_log.hpp"
 #include "rokae_xmate3_ros2/srv/query_path_lists.hpp"
 #include "rokae_xmate3_ros2/srv/read_register.hpp"
+#include "rokae_xmate3_ros2/srv/read_register_ex.hpp"
 #include "rokae_xmate3_ros2/srv/register_data_callback.hpp"
 #include "rokae_xmate3_ros2/srv/remove_path.hpp"
 #include "rokae_xmate3_ros2/srv/replay_path.hpp"
@@ -74,12 +79,16 @@
 #include "rokae_xmate3_ros2/srv/set_toolset.hpp"
 #include "rokae_xmate3_ros2/srv/set_toolset_by_name.hpp"
 #include "rokae_xmate3_ros2/srv/start_record_path.hpp"
+#include "rokae_xmate3_ros2/srv/pause_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/set_project_running_opt.hpp"
+#include "rokae_xmate3_ros2/srv/set_x_panel_vout.hpp"
 #include "rokae_xmate3_ros2/srv/start_rl_project.hpp"
 #include "rokae_xmate3_ros2/srv/stop.hpp"
 #include "rokae_xmate3_ros2/srv/stop_record_path.hpp"
 #include "rokae_xmate3_ros2/srv/stop_rl_project.hpp"
 #include "rokae_xmate3_ros2/srv/validate_motion.hpp"
 #include "rokae_xmate3_ros2/srv/write_register.hpp"
+#include "rokae_xmate3_ros2/srv/write_register_ex.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -213,6 +222,8 @@ class QueryFacade {
                                        rokae_xmate3_ros2::srv::MapCartesianToJointTorque::Response &res) const;
   void handleGetEndEffectorTorque(const rokae_xmate3_ros2::srv::GetEndEffectorTorque::Request &req,
                           rokae_xmate3_ros2::srv::GetEndEffectorTorque::Response &res) const;
+  void handleGetEndWrench(const rokae_xmate3_ros2::srv::GetEndWrench::Request &req,
+                          rokae_xmate3_ros2::srv::GetEndWrench::Response &res) const;
 
  private:
   SessionState &session_state_;
@@ -230,7 +241,10 @@ class QueryFacade {
 
 class IoProgramFacade {
  public:
-  explicit IoProgramFacade(DataStoreState &data_store_state, ProgramState &program_state, TimeProvider time_provider);
+  explicit IoProgramFacade(DataStoreState &data_store_state,
+                           ProgramState &program_state,
+                           ToolingState &tooling_state,
+                           TimeProvider time_provider);
 
   void handleSendCustomData(const rokae_xmate3_ros2::srv::SendCustomData::Request &req,
                             rokae_xmate3_ros2::srv::SendCustomData::Response &res) const;
@@ -238,14 +252,30 @@ class IoProgramFacade {
                                   rokae_xmate3_ros2::srv::RegisterDataCallback::Response &res) const;
   void handleReadRegister(const rokae_xmate3_ros2::srv::ReadRegister::Request &req,
                           rokae_xmate3_ros2::srv::ReadRegister::Response &res) const;
+  void handleReadRegisterEx(const rokae_xmate3_ros2::srv::ReadRegisterEx::Request &req,
+                            rokae_xmate3_ros2::srv::ReadRegisterEx::Response &res) const;
   void handleWriteRegister(const rokae_xmate3_ros2::srv::WriteRegister::Request &req,
                            rokae_xmate3_ros2::srv::WriteRegister::Response &res) const;
+  void handleWriteRegisterEx(const rokae_xmate3_ros2::srv::WriteRegisterEx::Request &req,
+                             rokae_xmate3_ros2::srv::WriteRegisterEx::Response &res) const;
+  void handleSetXPanelVout(const rokae_xmate3_ros2::srv::SetXPanelVout::Request &req,
+                           rokae_xmate3_ros2::srv::SetXPanelVout::Response &res) const;
   void handleLoadRlProject(const rokae_xmate3_ros2::srv::LoadRLProject::Request &req,
                            rokae_xmate3_ros2::srv::LoadRLProject::Response &res) const;
   void handleStartRlProject(const rokae_xmate3_ros2::srv::StartRLProject::Request &req,
                             rokae_xmate3_ros2::srv::StartRLProject::Response &res) const;
   void handleStopRlProject(const rokae_xmate3_ros2::srv::StopRLProject::Request &req,
                            rokae_xmate3_ros2::srv::StopRLProject::Response &res) const;
+  void handlePauseRlProject(const rokae_xmate3_ros2::srv::PauseRLProject::Request &req,
+                            rokae_xmate3_ros2::srv::PauseRLProject::Response &res) const;
+  void handleSetProjectRunningOpt(const rokae_xmate3_ros2::srv::SetProjectRunningOpt::Request &req,
+                                  rokae_xmate3_ros2::srv::SetProjectRunningOpt::Response &res) const;
+  void handleGetRlProjectInfo(const rokae_xmate3_ros2::srv::GetRlProjectInfo::Request &req,
+                              rokae_xmate3_ros2::srv::GetRlProjectInfo::Response &res) const;
+  void handleGetToolCatalog(const rokae_xmate3_ros2::srv::GetToolCatalog::Request &req,
+                            rokae_xmate3_ros2::srv::GetToolCatalog::Response &res) const;
+  void handleGetWobjCatalog(const rokae_xmate3_ros2::srv::GetWobjCatalog::Request &req,
+                            rokae_xmate3_ros2::srv::GetWobjCatalog::Response &res) const;
   void handleGetDI(const rokae_xmate3_ros2::srv::GetDI::Request &req,
                    rokae_xmate3_ros2::srv::GetDI::Response &res) const;
   void handleGetDO(const rokae_xmate3_ros2::srv::GetDO::Request &req,
@@ -262,6 +292,7 @@ class IoProgramFacade {
  private:
   DataStoreState &data_store_state_;
   ProgramState &program_state_;
+  ToolingState &tooling_state_;
   TimeProvider time_provider_;
 };
 

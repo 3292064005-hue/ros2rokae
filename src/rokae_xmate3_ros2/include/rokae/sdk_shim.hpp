@@ -1533,12 +1533,11 @@ public:
   }
 
   std::vector<RLProjectInfo> projectsInfo(error_code &ec) noexcept {
-    std::vector<RLProjectInfo> projects;
-    {
+    const auto projects = session_->robot->projectInfo(ec);
+    if (!ec) {
       std::lock_guard<std::mutex> lock(session_->mutex);
-      projects = session_->projects;
+      session_->projects = projects;
     }
-    ec.clear();
     detail::remember_error(session_, ec);
     return projects;
   }
@@ -1564,7 +1563,7 @@ public:
   }
 
   void ppToMain(error_code &ec) noexcept {
-    ec.clear();
+    session_->robot->ppToMain(ec);
     detail::remember_error(session_, ec);
   }
 
@@ -1599,36 +1598,31 @@ public:
   }
 
   void setProjectRunningOpt(double rate, bool loop, error_code &ec) noexcept {
-    {
+    session_->robot->setProjectRunningOpt(rate, loop, ec);
+    if (!ec) {
       std::lock_guard<std::mutex> lock(session_->mutex);
       session_->current_project.run_rate = rate;
       session_->current_project.loop_mode = loop;
     }
-    ec.clear();
     detail::remember_error(session_, ec);
   }
 
   std::vector<WorkToolInfo> toolsInfo(error_code &ec) noexcept {
-    std::vector<WorkToolInfo> tools;
-    {
+    const auto tools = session_->robot->toolsInfo(ec);
+    if (!ec) {
       std::lock_guard<std::mutex> lock(session_->mutex);
-      if (session_->tools.empty()) {
-        session_->tools.push_back(detail::make_default_tool_info());
-      }
-      tools = session_->tools;
+      session_->tools = tools;
     }
-    ec.clear();
     detail::remember_error(session_, ec);
     return tools;
   }
 
   std::vector<WorkToolInfo> wobjsInfo(error_code &ec) noexcept {
-    std::vector<WorkToolInfo> wobjs;
-    {
+    const auto wobjs = session_->robot->wobjsInfo(ec);
+    if (!ec) {
       std::lock_guard<std::mutex> lock(session_->mutex);
-      wobjs = session_->wobjs;
+      session_->wobjs = wobjs;
     }
-    ec.clear();
     detail::remember_error(session_, ec);
     return wobjs;
   }
@@ -1954,7 +1948,7 @@ public:
       std::lock_guard<std::mutex> lock(this->session_->mutex);
       this->session_->xpanel_vout = opt;
     }
-    this->session_->robot->writeRegister("xpanel_vout", std::to_string(static_cast<int>(opt)), ec);
+    this->session_->robot->setxPanelVout(opt, ec);
     detail::remember_error(this->session_, ec);
   }
 
@@ -2029,14 +2023,12 @@ public:
                     std::array<double, 3> &cart_torque,
                     std::array<double, 3> &cart_force,
                     error_code &ec) noexcept {
-    (void)ref_type;
-    const auto measured = this->session_->robot->jointTorques(ec);
-    const auto wrench = this->session_->robot->getEndEffectorTorque(ec);
+    std::array<double, 6> measured{};
+    std::array<double, 6> external{};
+    this->session_->robot->getEndTorque(ref_type, measured, external, cart_torque, cart_force, ec);
     if (!ec) {
       std::copy_n(measured.begin(), DoF, joint_torque_measured.begin());
-      std::fill(external_torque_measured.begin(), external_torque_measured.end(), 0.0);
-      cart_force = {wrench[0], wrench[1], wrench[2]};
-      cart_torque = {wrench[3], wrench[4], wrench[5]};
+      std::copy_n(external.begin(), DoF, external_torque_measured.begin());
     }
     detail::remember_error(this->session_, ec);
   }

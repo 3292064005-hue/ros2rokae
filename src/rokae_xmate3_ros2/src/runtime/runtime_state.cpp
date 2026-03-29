@@ -322,6 +322,41 @@ std::vector<double> ToolingState::baseFrame() const {
   return base_pose_;
 }
 
+
+std::vector<rokae::WorkToolInfo> ToolingState::toolCatalog() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<rokae::WorkToolInfo> tools;
+  tools.reserve(tool_registry_.size());
+  for (const auto &entry : tool_registry_) {
+    rokae::WorkToolInfo info;
+    info.name = entry.first;
+    info.alias = entry.first;
+    info.robotHeld = true;
+    info.pos = rokae::Frame({entry.second[0], entry.second[1], entry.second[2], entry.second[3], entry.second[4], entry.second[5]});
+    info.load.mass = tool_mass_registry_.count(entry.first) ? tool_mass_registry_.at(entry.first) : 0.0;
+    if (tool_com_registry_.count(entry.first)) {
+      info.load.cog = tool_com_registry_.at(entry.first);
+    }
+    tools.push_back(info);
+  }
+  return tools;
+}
+
+std::vector<rokae::WorkToolInfo> ToolingState::wobjCatalog() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<rokae::WorkToolInfo> wobjs;
+  wobjs.reserve(wobj_registry_.size());
+  for (const auto &entry : wobj_registry_) {
+    rokae::WorkToolInfo info;
+    info.name = entry.first;
+    info.alias = entry.first;
+    info.robotHeld = false;
+    info.pos = rokae::Frame({entry.second[0], entry.second[1], entry.second[2], entry.second[3], entry.second[4], entry.second[5]});
+    wobjs.push_back(info);
+  }
+  return wobjs;
+}
+
 void DataStoreState::appendLog(const rokae_xmate3_ros2::msg::LogInfo &log) {
   std::lock_guard<std::mutex> lock(mutex_);
   log_buffer_.push_back(log);
@@ -423,6 +458,8 @@ void ProgramState::loadRlProject(const std::string &project_path, const std::str
   rl_project_loaded_ = true;
   rl_project_running_ = false;
   rl_current_episode_ = 0;
+  rl_run_rate_ = 1.0;
+  rl_loop_mode_ = false;
 }
 
 bool ProgramState::rlProjectLoaded() const {
@@ -454,6 +491,36 @@ void ProgramState::setRlProjectRunning(bool running, int current_episode) {
   std::lock_guard<std::mutex> lock(mutex_);
   rl_project_running_ = running;
   rl_current_episode_ = current_episode;
+}
+
+void ProgramState::setRlProjectRunningOptions(double rate, bool loop_mode) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  rl_run_rate_ = std::max(0.0, rate);
+  rl_loop_mode_ = loop_mode;
+}
+
+double ProgramState::rlRunRate() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return rl_run_rate_;
+}
+
+bool ProgramState::rlLoopMode() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return rl_loop_mode_;
+}
+
+std::vector<rokae::RLProjectInfo> ProgramState::rlProjectCatalog() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<rokae::RLProjectInfo> projects;
+  if (!loaded_rl_project_name_.empty()) {
+    rokae::RLProjectInfo info;
+    info.name = loaded_rl_project_name_;
+    info.is_running = rl_project_running_;
+    info.run_rate = rl_run_rate_;
+    info.loop_mode = rl_loop_mode_;
+    projects.push_back(info);
+  }
+  return projects;
 }
 
 void ProgramState::startRecordingPath() {
@@ -598,10 +665,12 @@ ProgramSnapshot ProgramState::snapshot() const {
 }
 
 void RuntimeDiagnosticsState::configure(const std::string &backend_mode,
-                                        const std::vector<std::string> &capability_flags) {
+                                        const std::vector<std::string> &capability_flags,
+                                        const std::string &active_profile) {
   std::lock_guard<std::mutex> lock(mutex_);
   snapshot_.backend_mode = backend_mode.empty() ? std::string{"unknown"} : backend_mode;
   snapshot_.capability_flags = capability_flags;
+  snapshot_.active_profile = active_profile.empty() ? std::string{"unknown"} : active_profile;
 }
 
 void RuntimeDiagnosticsState::updateRuntimeStatus(const RuntimeStatus &status) {
@@ -655,6 +724,27 @@ void RuntimeDiagnosticsState::setLastServoDt(double dt) {
   }
   std::lock_guard<std::mutex> lock(mutex_);
   snapshot_.last_servo_dt = dt;
+}
+
+void RuntimeDiagnosticsState::setSessionModes(int motion_mode, int rt_mode) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.motion_mode = motion_mode;
+  snapshot_.rt_mode = rt_mode;
+}
+
+void RuntimeDiagnosticsState::setActiveProfile(const std::string &active_profile) {
+  if (active_profile.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.active_profile = active_profile;
+}
+
+void RuntimeDiagnosticsState::setLoopMetrics(double loop_hz, double state_stream_hz, double command_latency_ms) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.loop_hz = std::isfinite(loop_hz) ? std::max(0.0, loop_hz) : 0.0;
+  snapshot_.state_stream_hz = std::isfinite(state_stream_hz) ? std::max(0.0, state_stream_hz) : 0.0;
+  snapshot_.command_latency_ms = std::isfinite(command_latency_ms) ? std::max(0.0, command_latency_ms) : 0.0;
 }
 
 RuntimeDiagnosticsSnapshot RuntimeDiagnosticsState::snapshot() const {

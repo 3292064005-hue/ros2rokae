@@ -7,6 +7,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "rokae_xmate3_ros2/types.hpp"
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
 
 #include "runtime/operation_state_adapter.hpp"
 #include "runtime/request_adapter.hpp"
@@ -35,14 +37,7 @@ struct CollisionDetectionSnapshot {
 
 struct SoftLimitSnapshot {
   bool enabled = false;
-  std::array<std::array<double, 2>, 6> limits{{
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-  }};
+  std::array<std::array<double, 2>, 6> limits = rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits;
 };
 
 struct ProgramSnapshot {
@@ -85,6 +80,12 @@ struct RuntimeDiagnosticsSnapshot {
   std::string last_retimer_note;
   double last_servo_dt = 0.0;
   std::vector<std::string> capability_flags;
+  int motion_mode = 0;
+  int rt_mode = -1;
+  std::string active_profile{"unknown"};
+  double loop_hz = 0.0;
+  double state_stream_hz = 0.0;
+  double command_latency_ms = 0.0;
 };
 
 class SessionState {
@@ -174,14 +175,7 @@ class MotionOptionsState {
   bool default_conf_opt_forced_ = false;
   bool avoid_singularity_enabled_ = true;
   bool soft_limit_enabled_ = false;
-  std::array<std::array<double, 2>, 6> soft_limits_{{
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-      {{-3.14, 3.14}},
-  }};
+  std::array<std::array<double, 2>, 6> soft_limits_ = rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits;
 };
 
 class ToolingState {
@@ -195,6 +189,8 @@ class ToolingState {
   [[nodiscard]] ToolsetSnapshot toolset() const;
   void setBaseFrame(const std::vector<double> &base_pose);
   [[nodiscard]] std::vector<double> baseFrame() const;
+  [[nodiscard]] std::vector<rokae::WorkToolInfo> toolCatalog() const;
+  [[nodiscard]] std::vector<rokae::WorkToolInfo> wobjCatalog() const;
 
  private:
   mutable std::mutex mutex_;
@@ -258,6 +254,10 @@ class ProgramState {
   [[nodiscard]] std::string loadedRlProjectPath() const;
   [[nodiscard]] int rlCurrentEpisode() const;
   void setRlProjectRunning(bool running, int current_episode);
+  void setRlProjectRunningOptions(double rate, bool loop_mode);
+  [[nodiscard]] double rlRunRate() const;
+  [[nodiscard]] bool rlLoopMode() const;
+  [[nodiscard]] std::vector<rokae::RLProjectInfo> rlProjectCatalog() const;
 
   void startRecordingPath();
   void startRecordingPath(const ToolsetSnapshot &toolset, const std::string &source);
@@ -281,6 +281,8 @@ class ProgramState {
   bool rl_project_loaded_ = false;
   bool rl_project_running_ = false;
   int rl_current_episode_ = 0;
+  double rl_run_rate_ = 1.0;
+  bool rl_loop_mode_ = false;
   std::string loaded_rl_project_name_;
   std::string loaded_rl_project_path_;
   bool is_recording_path_ = false;
@@ -295,12 +297,17 @@ class ProgramState {
 
 class RuntimeDiagnosticsState {
  public:
-  void configure(const std::string &backend_mode, const std::vector<std::string> &capability_flags);
+  void configure(const std::string &backend_mode,
+                 const std::vector<std::string> &capability_flags,
+                 const std::string &active_profile = "unknown");
   void updateRuntimeStatus(const RuntimeStatus &status);
   void updateShutdownContract(const RuntimeContractView &view);
   void notePlanFailure(const std::string &message);
   void noteRetimerNote(const std::string &message);
   void setLastServoDt(double dt);
+  void setSessionModes(int motion_mode, int rt_mode);
+  void setActiveProfile(const std::string &active_profile);
+  void setLoopMetrics(double loop_hz, double state_stream_hz, double command_latency_ms);
   [[nodiscard]] RuntimeDiagnosticsSnapshot snapshot() const;
 
  private:

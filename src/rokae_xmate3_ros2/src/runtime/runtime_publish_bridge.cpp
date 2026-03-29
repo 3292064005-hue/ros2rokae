@@ -42,6 +42,12 @@ rokae_xmate3_ros2::msg::RuntimeDiagnostics RuntimePublishBridge::buildRuntimeDia
   msg.last_retimer_note = snapshot.last_retimer_note;
   msg.last_servo_dt = snapshot.last_servo_dt;
   msg.capability_flags = snapshot.capability_flags;
+  msg.motion_mode = snapshot.motion_mode;
+  msg.rt_mode = snapshot.rt_mode;
+  msg.active_profile = snapshot.active_profile;
+  msg.loop_hz = snapshot.loop_hz;
+  msg.state_stream_hz = snapshot.state_stream_hz;
+  msg.command_latency_ms = snapshot.command_latency_ms;
   return msg;
 }
 

@@ -8,11 +8,12 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 namespace {
 
-constexpr double kServoTickSec = 0.001;
+constexpr double kServoTickSec = rokae_xmate3_ros2::spec::xmate3::kServoTickSec;
 constexpr int kMaxServoSubstepsPerUpdate = 8;
 constexpr std::array<double, 6> kCollisionRetreatEffort = {18.0, 18.0, 16.0, 8.0, 5.0, 3.0};
 constexpr double kDefaultCollisionRetreatDistance = 0.04;
@@ -142,6 +143,9 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   auto &motion_options = runtime_context_.motionOptionsState();
   auto &tooling_state = runtime_context_.toolingState();
   runtime_context_.diagnosticsState().setLastServoDt(dt);
+  const double loop_hz = (dt > 1e-9 && std::isfinite(dt)) ? 1.0 / dt : 0.0;
+  runtime_context_.diagnosticsState().setLoopMetrics(loop_hz, loop_hz, std::max(dt, 0.0) * 1000.0);
+  runtime_context_.diagnosticsState().setSessionModes(session_state.motionMode(), session_state.rtControlMode());
 
   if (!session_state.powerOn()) {
     servo_accumulator_sec_ = 0.0;

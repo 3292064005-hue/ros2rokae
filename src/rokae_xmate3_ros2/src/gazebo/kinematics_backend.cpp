@@ -18,12 +18,43 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
 
 namespace gazebo::detail {
 
 const KinematicsBackend::IKBackendConfig &backendConfig() noexcept {
   static const KinematicsBackend::IKBackendConfig config{};
   return config;
+}
+
+KinematicsPolicy resolveKinematicsPolicy() noexcept {
+  KinematicsPolicy policy;
+
+  if (const char *primary = std::getenv("ROKAE_KINEMATICS_PRIMARY")) {
+    const std::string value(primary);
+    if (value == "improved_dh" || value == "dh") {
+      policy.primary_backend = KinematicsPolicy::PrimaryBackend::ImprovedDh;
+      policy.jacobian_mode = KinematicsPolicy::JacobianMode::Geometric;
+    }
+  }
+
+  if (const char *fallback = std::getenv("ROKAE_KINEMATICS_FALLBACK")) {
+    const std::string value(fallback);
+    if (value == "none") {
+      policy.fallback_mode = KinematicsPolicy::FallbackMode::None;
+    }
+  }
+
+  if (const char *seed = std::getenv("ROKAE_KINEMATICS_IK_SEEDS")) {
+    const std::string value(seed);
+    if (value == "current") {
+      policy.ik_seed_mode = KinematicsPolicy::IkSeedMode::CurrentState;
+    } else if (value == "dh") {
+      policy.ik_seed_mode = KinematicsPolicy::IkSeedMode::ImprovedDhBranches;
+    }
+  }
+
+  return policy;
 }
 
 namespace {
@@ -33,19 +64,18 @@ using Matrix6d = Eigen::Matrix<double, 6, 6>;
 using Vector6d = Eigen::Matrix<double, 6, 1>;
 using IKBackendConfig = KinematicsBackend::IKBackendConfig;
 
-constexpr std::array<double, 6> kDhA{0.0, 0.0, 0.394, 0.0, 0.0, 0.0};
-constexpr std::array<double, 6> kDhAlpha{
-    0.0,
-    -M_PI / 2.0,
-    0.0,
-    M_PI / 2.0,
-    -M_PI / 2.0,
-    M_PI / 2.0,
-};
-constexpr std::array<double, 6> kDhD{0.3415, 0.0, 0.0, 0.366, 0.0, 0.2503};
-constexpr std::array<double, 6> kJointOffset{0.0, -M_PI / 2.0, M_PI / 2.0, 0.0, 0.0, 0.0};
-constexpr std::array<double, 6> kJointLimitsMin{-3.0527, -2.0933, -2.0933, -3.0527, -2.0933, -6.1082};
-constexpr std::array<double, 6> kJointLimitsMax{3.0527, 2.0933, 2.0933, 3.0527, 2.0933, 6.1082};
+constexpr auto kDhA = rokae_xmate3_ros2::spec::xmate3::improved_dh::kA;
+constexpr auto kDhAlpha = rokae_xmate3_ros2::spec::xmate3::improved_dh::kAlpha;
+constexpr auto kDhD = rokae_xmate3_ros2::spec::xmate3::improved_dh::kD;
+constexpr auto kJointOffset = rokae_xmate3_ros2::spec::xmate3::improved_dh::kJointOffset;
+constexpr auto kJointLimitsMin = rokae_xmate3_ros2::spec::xmate3::kJointLimitMin;
+constexpr auto kJointLimitsMax = rokae_xmate3_ros2::spec::xmate3::kJointLimitMax;
+
+
+
+
+
+
 constexpr std::array<double, 6> kSmokeReferenceJoints{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
 constexpr const char *kPackageName = "rokae_xmate3_ros2";
 constexpr const char *kModelRoot = "xMate3_base";
@@ -95,6 +125,24 @@ std::vector<Matrix4d> legacyAllTransforms(const std::vector<double> &joints) {
     transforms[index + 1] = transforms[index] * legacyDhTransform(index, adjusted[index]);
   }
   return transforms;
+}
+
+Matrix6d improvedDhGeometricJacobian(const std::vector<double> &joints) {
+  Matrix6d jacobian = Matrix6d::Zero();
+  if (joints.size() < 6) {
+    return jacobian;
+  }
+
+  const auto transforms = legacyAllTransforms(joints);
+  const Eigen::Vector3d end_position = transforms.back().block<3, 1>(0, 3);
+
+  for (int axis = 0; axis < 6; ++axis) {
+    const Eigen::Vector3d z_axis = transforms[axis].block<3, 1>(0, 2);
+    const Eigen::Vector3d joint_position = transforms[axis].block<3, 1>(0, 3);
+    jacobian.block<3, 1>(0, axis) = z_axis.cross(end_position - joint_position);
+    jacobian.block<3, 1>(3, axis) = z_axis;
+  }
+  return jacobian;
 }
 
 Eigen::Vector3d so3LogError(const Eigen::Matrix3d &target, const Eigen::Matrix3d &current) {
@@ -1213,9 +1261,9 @@ const SharedKdlModel &sharedKdlModel() {
   return model;
 }
 
-class LegacyKinematicsBackend final : public KinematicsBackend {
+class ImprovedDhKinematicsBackend final : public KinematicsBackend {
  public:
-  [[nodiscard]] std::string name() const override { return "legacy"; }
+  [[nodiscard]] std::string name() const override { return "improved_dh"; }
 
   [[nodiscard]] Matrix4d computeForwardTransform(const std::vector<double> &joints) const override {
     return legacyForwardKinematics(joints);
@@ -1226,16 +1274,7 @@ class LegacyKinematicsBackend final : public KinematicsBackend {
   }
 
   [[nodiscard]] Matrix6d computeJacobian(const std::vector<double> &joints) const override {
-    Matrix6d jacobian = Matrix6d::Zero();
-    const Matrix4d current = legacyForwardKinematics(joints);
-    constexpr double kDelta = 1e-6;
-    for (int axis = 0; axis < 6 && axis < static_cast<int>(joints.size()); ++axis) {
-      std::vector<double> joints_plus = joints;
-      joints_plus[axis] += kDelta;
-      const Matrix4d plus = legacyForwardKinematics(joints_plus);
-      jacobian.col(axis) = poseError(plus, current) / kDelta;
-    }
-    return jacobian;
+    return improvedDhGeometricJacobian(joints);
   }
 
   [[nodiscard]] double branchDistance(const VectorJ &lhs, const VectorJ &rhs) const override {
@@ -1327,25 +1366,25 @@ class KdlKinematicsBackend final : public KinematicsBackend {
     }
   }
 
-  [[nodiscard]] std::string name() const override { return valid_ ? "kdl-urdf" : "legacy"; }
+  [[nodiscard]] std::string name() const override { return valid_ ? "kdl-urdf" : "improved_dh"; }
 
   [[nodiscard]] Matrix4d computeForwardTransform(const std::vector<double> &joints) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.computeForwardTransform(joints);
+      return ImprovedDhKinematicsBackend{}.computeForwardTransform(joints);
     }
     return computeKdlTipTransform(chain_, joints);
   }
 
   [[nodiscard]] std::vector<Matrix4d> computeAllTransforms(const std::vector<double> &joints) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.computeAllTransforms(joints);
+      return ImprovedDhKinematicsBackend{}.computeAllTransforms(joints);
     }
     return computeKdlTransforms(chain_, joints);
   }
 
   [[nodiscard]] Matrix6d computeJacobian(const std::vector<double> &joints) const override {
     if (!valid_ || joints.size() < 6) {
-      return LegacyKinematicsBackend{}.computeJacobian(joints);
+      return ImprovedDhKinematicsBackend{}.computeJacobian(joints);
     }
 
     KDL::JntArray joint_array(6);
@@ -1354,7 +1393,7 @@ class KdlKinematicsBackend final : public KinematicsBackend {
     }
     KDL::Jacobian jacobian(6);
     if (jacobian_solver_->JntToJac(joint_array, jacobian) < 0) {
-      return LegacyKinematicsBackend{}.computeJacobian(joints);
+      return ImprovedDhKinematicsBackend{}.computeJacobian(joints);
     }
 
     Matrix6d result = Matrix6d::Zero();
@@ -1381,14 +1420,14 @@ class KdlKinematicsBackend final : public KinematicsBackend {
   [[nodiscard]] SeededIkCandidateMetrics evaluateSeededIkCandidate(const SeededIkRequest &request,
                                                                    const VectorJ &candidate) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.evaluateSeededIkCandidate(request, candidate);
+      return ImprovedDhKinematicsBackend{}.evaluateSeededIkCandidate(request, candidate);
     }
     return gazebo::detail::evaluateSeededIkCandidate(*this, request, candidate);
   }
 
   [[nodiscard]] bool avoidSingularity(VectorJ &joints) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.avoidSingularity(joints);
+      return ImprovedDhKinematicsBackend{}.avoidSingularity(joints);
     }
     auto request = makeCurrentStateIkRequest(joints);
     return nudgeAwayFromSingularity(request, joints);
@@ -1396,35 +1435,35 @@ class KdlKinematicsBackend final : public KinematicsBackend {
 
   [[nodiscard]] IKResult solveSeeded(const IKRequest &request) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.solveSeeded(request);
+      return ImprovedDhKinematicsBackend{}.solveSeeded(request);
     }
     return solveSeededIkResult(*this, request);
   }
 
   [[nodiscard]] IKResult solveMultiBranch(const IKRequest &request) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.solveMultiBranch(request);
+      return ImprovedDhKinematicsBackend{}.solveMultiBranch(request);
     }
     return solveMultiBranchIkResult(*this, request);
   }
 
   [[nodiscard]] IKTrajectoryResult solveTrajectory(const IKTrajectoryRequest &request) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.solveTrajectory(request);
+      return ImprovedDhKinematicsBackend{}.solveTrajectory(request);
     }
     return solveTrajectoryIk(*this, request);
   }
 
   [[nodiscard]] VectorJ inverseKinematicsSeeded(const SeededIkRequest &request) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.inverseKinematicsSeeded(request);
+      return ImprovedDhKinematicsBackend{}.inverseKinematicsSeeded(request);
     }
     return solveSeeded(request).q;
   }
 
   [[nodiscard]] std::vector<VectorJ> inverseKinematicsMultiBranch(const SeededIkRequest &request) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.inverseKinematicsMultiBranch(request);
+      return ImprovedDhKinematicsBackend{}.inverseKinematicsMultiBranch(request);
     }
     return solveMultiBranchIk(*this, request);
   }
@@ -1435,7 +1474,7 @@ class KdlKinematicsBackend final : public KinematicsBackend {
       const VectorJ &seed_joints,
       const CartesianIkOptions &options) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.selectBestCartesianIkSolution(candidates, target_transform, seed_joints, options);
+      return ImprovedDhKinematicsBackend{}.selectBestCartesianIkSolution(candidates, target_transform, seed_joints, options);
     }
     return gazebo::detail::selectBestCartesianIkSolution(*this, candidates, target_transform, seed_joints, options);
   }
@@ -1447,7 +1486,7 @@ class KdlKinematicsBackend final : public KinematicsBackend {
                                                    VectorJ &last_joints,
                                                    std::string &error_message) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.buildCartesianJointTrajectory(
+      return ImprovedDhKinematicsBackend{}.buildCartesianJointTrajectory(
           cartesian_transforms, initial_seed, options, joint_trajectory, last_joints, error_message);
     }
     return gazebo::detail::buildCartesianJointTrajectory(
@@ -1461,7 +1500,7 @@ class KdlKinematicsBackend final : public KinematicsBackend {
       std::vector<VectorJ> &joint_velocity_trajectory,
       std::vector<VectorJ> &joint_acceleration_trajectory) const override {
     if (!valid_) {
-      return LegacyKinematicsBackend{}.projectCartesianJointDerivatives(
+      return ImprovedDhKinematicsBackend{}.projectCartesianJointDerivatives(
           cartesian_transforms, joint_trajectory, trajectory_dt, joint_velocity_trajectory,
           joint_acceleration_trajectory);
     }
@@ -1480,11 +1519,20 @@ class KdlKinematicsBackend final : public KinematicsBackend {
 }  // namespace
 
 std::shared_ptr<KinematicsBackend> makePreferredKinematicsBackend() {
+  const auto policy = resolveKinematicsPolicy();
+  if (policy.primary_backend == KinematicsPolicy::PrimaryBackend::ImprovedDh) {
+    return std::make_shared<ImprovedDhKinematicsBackend>();
+  }
+
   auto backend = std::make_shared<KdlKinematicsBackend>();
-  if (backend->name() != "legacy") {
+  if (backend->name().rfind("kdl", 0) == 0) {
     return backend;
   }
-  return std::make_shared<LegacyKinematicsBackend>();
+
+  if (policy.fallback_mode == KinematicsPolicy::FallbackMode::ImprovedDh) {
+    return std::make_shared<ImprovedDhKinematicsBackend>();
+  }
+  return {};
 }
 
 }  // namespace gazebo::detail

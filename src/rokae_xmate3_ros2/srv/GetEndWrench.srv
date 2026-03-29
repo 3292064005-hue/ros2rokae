@@ -1,0 +1,12 @@
+# GetEndWrench.srv - 获取协作末端力/力矩语义视图
+int32 ref_type  # rokae::FrameType
+---
+bool success
+int32 error_code
+string error_msg
+int32 ref_type
+float64[6] joint_torque_measured
+float64[6] external_joint_torque
+float64[3] cart_torque
+float64[3] cart_force
+string fidelity_level

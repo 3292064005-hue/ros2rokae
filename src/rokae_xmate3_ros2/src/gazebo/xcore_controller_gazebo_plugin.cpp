@@ -22,6 +22,7 @@
 #include <memory>
 #include <map>
 #include <vector>
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
 #include <mutex>
 #include <algorithm>
 #include <cmath>
@@ -557,14 +558,14 @@ void XCoreControllerPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     joint_num_ = joints_.size();
 
     // 保存URDF原始关节限位
-    const std::array<std::pair<double, double>, 6> default_limits = {
-        std::make_pair(-3.0527, 3.0527), // joint1
-        std::make_pair(-2.0933, 2.0933), // joint2
-        std::make_pair(-2.0933, 2.0933), // joint3
-        std::make_pair(-3.0527, 3.0527), // joint4
-        std::make_pair(-2.0933, 2.0933), // joint5
-        std::make_pair(-6.1082, 6.1082)  // joint6
-    };
+    const std::array<std::pair<double, double>, 6> default_limits = {{
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[0], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[0]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[1], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[1]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[2], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[2]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[3], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[3]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[4], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[4]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[5], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[5])
+    }};
     for (int i = 0; i < 6 && i < joint_num_; ++i) {
         original_joint_limits_[i] = default_limits[i];
     }
@@ -870,9 +871,16 @@ void XCoreControllerPlugin::InitROS2() {
     }
     runtime_context_->attachBackend(motion_backend_.get());
     runtime_context_->motionRuntime().setExecutorConfig(executor_config);
+    const std::string runtime_profile = node_->declare_parameter(
+        "runtime_profile",
+        backend_mode_ == BackendMode::effort ? std::string{"rt"} : std::string{"nrt"});
     runtime_context_->diagnosticsState().configure(
         toString(backend_mode_),
-        diagnosticCapabilityFlags(backend_mode_));
+        diagnosticCapabilityFlags(backend_mode_),
+        runtime_profile);
+    runtime_context_->diagnosticsState().setSessionModes(
+        runtime_context_->sessionState().motionMode(),
+        runtime_context_->sessionState().rtControlMode());
     executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
     executor_->add_node(node_);
 

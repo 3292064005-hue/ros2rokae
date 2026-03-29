@@ -85,11 +85,20 @@
 #include "rokae_xmate3_ros2/srv/load_rl_project.hpp"
 #include "rokae_xmate3_ros2/srv/start_rl_project.hpp"
 #include "rokae_xmate3_ros2/srv/stop_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/get_rl_project_info.hpp"
+#include "rokae_xmate3_ros2/srv/pause_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/set_project_running_opt.hpp"
 #include "rokae_xmate3_ros2/srv/read_register.hpp"
+#include "rokae_xmate3_ros2/srv/read_register_ex.hpp"
 #include "rokae_xmate3_ros2/srv/write_register.hpp"
+#include "rokae_xmate3_ros2/srv/write_register_ex.hpp"
+#include "rokae_xmate3_ros2/srv/set_x_panel_vout.hpp"
 #include "rokae_xmate3_ros2/srv/set_avoid_singularity.hpp"
 #include "rokae_xmate3_ros2/srv/get_avoid_singularity.hpp"
 #include "rokae_xmate3_ros2/srv/get_end_effector_torque.hpp"
+#include "rokae_xmate3_ros2/srv/get_end_wrench.hpp"
+#include "rokae_xmate3_ros2/srv/get_tool_catalog.hpp"
+#include "rokae_xmate3_ros2/srv/get_wobj_catalog.hpp"
 #include "rokae_xmate3_ros2/action/move_append.hpp"
 
 namespace rokae::ros2 {
@@ -174,12 +183,22 @@ public:
     void setAO(unsigned int board, unsigned int port, double value, std::error_code& ec);
     void setSimulationMode(bool state, std::error_code& ec);
     std::string readRegister(const std::string& key, std::error_code& ec);
+    std::string readRegister(const std::string& name, int index, std::error_code& ec);
     void writeRegister(const std::string& key, const std::string& value, std::error_code& ec);
+    void writeRegister(const std::string& name, int index, const std::string& value, std::error_code& ec);
+    void setxPanelVout(rokae::xPanelOpt::Vout opt, std::error_code& ec);
 
     // ==================== 4.7 RL工程接口 ====================
     bool loadRLProject(const std::string& project_path, std::string& project_name, std::error_code& ec);
     bool startRLProject(const std::string& project_id, int& current_episode, std::error_code& ec);
     bool stopRLProject(const std::string& project_id, int& finished_episode, std::error_code& ec);
+    std::vector<rokae::RLProjectInfo> projectInfo(std::error_code& ec);
+    void ppToMain(std::error_code& ec);
+    void runProject(std::error_code& ec);
+    void pauseProject(std::error_code& ec);
+    void setProjectRunningOpt(double rate, bool loop, std::error_code& ec);
+    std::vector<rokae::WorkToolInfo> toolsInfo(std::error_code& ec);
+    std::vector<rokae::WorkToolInfo> wobjsInfo(std::error_code& ec);
 
     // ==================== 4.8 协作机器人专属接口 ====================
     void enableDrag(rokae::DragParameter::Space space, rokae::DragParameter::Type type, std::error_code& ec);
@@ -191,6 +210,12 @@ public:
     std::array<double, 6> getEndEffectorTorque(std::error_code& ec);
     [[deprecated("Use getEndEffectorTorque() instead")]]
     std::array<double, 6> getEndTorque(std::error_code& ec);
+    void getEndTorque(rokae::FrameType ref_type,
+                      std::array<double, 6>& joint_torque_measured,
+                      std::array<double, 6>& external_torque_measured,
+                      std::array<double, 3>& cart_torque,
+                      std::array<double, 3>& cart_force,
+                      std::error_code& ec);
     bool calcJointTorque(const std::array<double, 6>& joint_pos,
                          const std::array<double, 6>& joint_vel,
                          const std::array<double, 6>& joint_acc,
@@ -417,7 +442,10 @@ private:
         rclcpp::Client<rokae_xmate3_ros2::srv::SendCustomData>::SharedPtr xmate3_comm_send_custom_data_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::RegisterDataCallback>::SharedPtr xmate3_comm_register_data_callback_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::ReadRegister>::SharedPtr xmate3_comm_read_register_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::ReadRegisterEx>::SharedPtr xmate3_comm_read_register_ex_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::WriteRegister>::SharedPtr xmate3_comm_write_register_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::WriteRegisterEx>::SharedPtr xmate3_comm_write_register_ex_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::SetXPanelVout>::SharedPtr xmate3_comm_set_xpanel_vout_client_;
 
         // IO控制
         rclcpp::Client<rokae_xmate3_ros2::srv::GetDI>::SharedPtr xmate3_io_get_di_client_;
@@ -430,9 +458,15 @@ private:
         rclcpp::Client<rokae_xmate3_ros2::srv::LoadRLProject>::SharedPtr xmate3_rl_load_project_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::StartRLProject>::SharedPtr xmate3_rl_start_project_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::StopRLProject>::SharedPtr xmate3_rl_stop_project_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::PauseRLProject>::SharedPtr xmate3_rl_pause_project_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::SetProjectRunningOpt>::SharedPtr xmate3_rl_set_running_opt_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::GetRlProjectInfo>::SharedPtr xmate3_rl_get_project_info_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::GetToolCatalog>::SharedPtr xmate3_rl_get_tools_info_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::GetWobjCatalog>::SharedPtr xmate3_rl_get_wobjs_info_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::SetAvoidSingularity>::SharedPtr xmate3_cobot_set_avoid_singularity_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GetAvoidSingularity>::SharedPtr xmate3_cobot_get_avoid_singularity_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GetEndEffectorTorque>::SharedPtr xmate3_cobot_get_end_torque_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::GetEndWrench>::SharedPtr xmate3_cobot_get_end_wrench_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::CalcJointTorque>::SharedPtr xmate3_dyn_calc_joint_torque_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GenerateSTrajectory>::SharedPtr xmate3_dyn_generate_s_trajectory_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::MapCartesianToJointTorque>::SharedPtr xmate3_dyn_map_cartesian_to_joint_torque_client_;
