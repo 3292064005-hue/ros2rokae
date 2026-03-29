@@ -181,7 +181,6 @@ int determine_interval_count(double total_time,
 
 TrajectorySamples finalizeTrajectory(std::vector<std::vector<double>> trajectory,
                                      int num_intervals,
-                                     double total_time,
                                      double fallback_dt) {
     TrajectorySamples result;
     result.points = std::move(trajectory);
@@ -288,7 +287,7 @@ TrajectorySamples TrajectoryPlanner::planCartesianLine(
         trajectory.push_back(std::move(point));
     }
 
-    return finalizeTrajectory(std::move(trajectory), num_points, total_time, dt);
+    return finalizeTrajectory(std::move(trajectory), num_points, dt);
 }
 
 TrajectorySamples TrajectoryPlanner::planCircularArc(
@@ -359,7 +358,7 @@ TrajectorySamples TrajectoryPlanner::planCircularArc(
         trajectory.push_back(std::move(point));
     }
 
-    return finalizeTrajectory(std::move(trajectory), num_points, total_time, dt);
+    return finalizeTrajectory(std::move(trajectory), num_points, dt);
 }
 
 TrajectorySamples TrajectoryPlanner::planCircularContinuous(
@@ -417,7 +416,7 @@ TrajectorySamples TrajectoryPlanner::planCircularContinuous(
         trajectory.push_back(std::move(point));
     }
 
-    return finalizeTrajectory(std::move(trajectory), num_points, total_time, dt);
+    return finalizeTrajectory(std::move(trajectory), num_points, dt);
 }
 
 TrajectorySamples TrajectoryPlanner::planSpiralMove(
@@ -490,7 +489,7 @@ TrajectorySamples TrajectoryPlanner::planSpiralMove(
         trajectory.push_back(std::move(point));
     }
 
-    return finalizeTrajectory(std::move(trajectory), num_points, total_time, dt);
+    return finalizeTrajectory(std::move(trajectory), num_points, dt);
 }
 
 } // namespace gazebo

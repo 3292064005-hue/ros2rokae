@@ -1041,7 +1041,7 @@ void XCoreControllerPlugin::OnUpdate() {
 
     auto now = node_->now();
     if (publish_bridge_ != nullptr && joint_state_pub_ != nullptr && operation_state_pub_ != nullptr) {
-        collectShutdownContractState(false);
+        static_cast<void>(collectShutdownContractState(false));
         std::array<double, 6> cached_pos{};
         std::array<double, 6> cached_vel{};
         std::array<double, 6> cached_torque{};

@@ -83,7 +83,7 @@ unsigned xMateRobot::updateRobotState(std::chrono::steady_clock::duration timeou
     auto joints = jointPos(ec);
     if (!ec) {
         auto joint_vel = jointVel(ec);
-        auto joint_tau = jointTorque(ec);
+        auto joint_tau = jointTorques(ec);
         for (const auto& field : impl_->state_fields_) {
             if (field == rokae::RtSupportedFields::jointPos_m) {
                 impl_->state_cache_[field] = joints;

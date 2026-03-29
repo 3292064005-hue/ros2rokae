@@ -38,8 +38,8 @@ int main() {
     cleanupRobot(robot);
     return 1;
   }
-  printArray("joint torque", robot.jointTorque(ec), 4, " Nm");
-  if (reportError("jointTorque", ec)) {
+  printArray("joint torque", robot.jointTorques(ec), 4, " Nm");
+  if (reportError("jointTorques", ec)) {
     cleanupRobot(robot);
     return 1;
   }
