@@ -1,23 +1,74 @@
 # Rewrite Summary
 
-This package was rewritten around four concrete corrections:
+This rewrite pass converts the package from a few oversized translation units into a staged architecture that keeps the public ROS/SDK surface stable while shrinking internal coupling.
 
-1. **Single-source spec layer**
-   - Added `include/rokae_xmate3_ros2/spec/xmate3_spec.hpp`
-   - Centralized xMate3 limits, timing, and DH traceability metadata
+## What changed in this pass
 
-2. **Runtime correctness fixes**
-   - Fixed RT mode bookkeeping bug in `src/runtime/service_facade.cpp`
-   - Removed scattered `-3.14..3.14` fallback soft-limits from runtime/config structs
-   - Bound servo tick to the shared spec constant
+### 1. Runtime facade layer was decomposed
+The old `src/runtime/service_facade.cpp` was split into:
+- `src/runtime/service_facade_utils.{hpp,cpp}`
+- `src/runtime/control_facade.cpp`
+- `src/runtime/query_facade.cpp`
+- `src/runtime/io_program_facade.cpp`
+- `src/runtime/path_facade.cpp`
 
-3. **Manual-aligned model envelope**
-   - Updated URDF joint velocity and effort envelopes
-   - Updated kinematics/plugin/backend defaults to consume the spec constants
-   - Split ros2_control profiles into NRT and SimApprox RT variants
+This isolates control/query/IO/path responsibilities and removes the single 1300+ line implementation bottleneck.
 
-4. **Public API completion**
-   - Added wrapper-level `projectInfo / ppToMain / runProject / pauseProject / setProjectRunningOpt`
-   - Added `toolsInfo / wobjsInfo / setxPanelVout`
-   - Added indexed register helpers and the structured `getEndTorque(...)` overload
-   - Reduced SDK shim drift by delegating more behavior back through the wrapper
+### 2. ROS binding registration was decomposed
+The old `src/runtime/ros_bindings.cpp` was split into:
+- `src/runtime/ros_service_factory.hpp`
+- `src/runtime/ros_service_registry.cpp`
+- `src/runtime/compatibility_alias_registry.cpp`
+- `src/runtime/move_append_action_registry.cpp`
+- `src/runtime/ros_bindings.cpp` (constructor/orchestration only)
+
+This separates service wiring, compatibility aliases, and MoveAppend action execution.
+
+### 3. Runtime state persistence layer was decomposed
+The old `src/runtime/runtime_state.cpp` was split into:
+- `src/runtime/runtime_state_utils.{hpp,cpp}`
+- `src/runtime/session_state.cpp`
+- `src/runtime/motion_options_state.cpp`
+- `src/runtime/tooling_state.cpp`
+- `src/runtime/data_store_state.cpp`
+- `src/runtime/program_state.cpp`
+- `src/runtime/diagnostics_state.cpp`
+
+`runtime_state.hpp` remains the umbrella contract, so external includes do not break.
+
+### 4. SDK wrapper motion layer was decomposed
+The old monolithic `src/sdk/robot_motion.cpp` was split into:
+- `src/sdk/robot_motion.cpp`
+- `src/sdk/robot_io.cpp`
+- `src/sdk/robot_path.cpp`
+- `src/sdk/robot_motion_dispatch.cpp`
+
+This cleanly separates non-real-time motion control, IO/simulation APIs, drag/path APIs, and MoveAppend dispatch/cache plumbing.
+
+### 5. Build graph was updated without changing exported target names
+`CMakeLists.txt` now builds the same exported package artifacts through the new internal translation units, preserving:
+- `${PROJECT_NAME}_runtime_core`
+- `${PROJECT_NAME}_sdk`
+- `xcore_controller_gazebo_plugin`
+- all example targets
+
+This keeps launch files, tests, install rules, and downstream linkage stable.
+
+## Intent of the rewrite
+
+The codebase is now materially closer to the target architecture:
+- plugin = lifecycle shell
+- runtime context = state aggregate root
+- runtime facade layer = domain-facing service logic
+- ROS bindings = registration/orchestration shell
+- SDK wrapper = transport + API layer, not a single motion megafile
+
+## Remaining large hotspots
+
+The following files are still structurally important and are the next recommended split points if another pass is desired:
+- `src/gazebo/xcore_controller_gazebo_plugin.cpp`
+- `src/runtime/motion_runtime.cpp`
+- `src/runtime/planner_core.cpp`
+- `src/sdk/robot_clients.cpp`
+
+Those were intentionally left for a later pass because they couple lifecycle, backend ownership, or client transport behavior and therefore require stricter regression verification.

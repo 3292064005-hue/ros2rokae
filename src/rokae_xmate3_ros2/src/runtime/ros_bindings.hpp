@@ -31,6 +31,7 @@ class RosBindings {
 
  private:
   void initServices();
+  void registerCompatibilityAliases();
   void initActionServers();
   void executeMoveAppend(
       const std::shared_ptr<rclcpp_action::ServerGoalHandle<rokae_xmate3_ros2::action::MoveAppend>> &goal_handle);

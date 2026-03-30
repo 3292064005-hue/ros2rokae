@@ -274,18 +274,31 @@ target_compile_definitions(${PROJECT_NAME}_runtime_motion_core
 )
 
 add_library(${PROJECT_NAME}_runtime_state OBJECT
-  src/runtime/runtime_state.cpp
+  src/runtime/session_state.cpp
+  src/runtime/motion_options_state.cpp
+  src/runtime/tooling_state.cpp
+  src/runtime/data_store_state.cpp
+  src/runtime/program_state.cpp
+  src/runtime/diagnostics_state.cpp
+  src/runtime/runtime_state_utils.cpp
   src/runtime/controller_state.cpp
   src/runtime/runtime_context.cpp
   src/runtime/operation_state_adapter.cpp
 )
 
 add_library(${PROJECT_NAME}_runtime_facade OBJECT
-  src/runtime/service_facade.cpp
+  src/runtime/service_facade_utils.cpp
+  src/runtime/control_facade.cpp
+  src/runtime/query_facade.cpp
+  src/runtime/io_program_facade.cpp
+  src/runtime/path_facade.cpp
 )
 
 add_library(${PROJECT_NAME}_runtime_ros_bridge OBJECT
   src/runtime/ros_bindings.cpp
+  src/runtime/ros_service_registry.cpp
+  src/runtime/compatibility_alias_registry.cpp
+  src/runtime/move_append_action_registry.cpp
   src/runtime/runtime_publish_bridge.cpp
 )
 
@@ -372,6 +385,9 @@ add_library(${PROJECT_NAME}_sdk SHARED
   src/sdk/robot_clients.cpp
   src/sdk/robot_state.cpp
   src/sdk/robot_motion.cpp
+  src/sdk/robot_io.cpp
+  src/sdk/robot_path.cpp
+  src/sdk/robot_motion_dispatch.cpp
   src/sdk/robot_rt.cpp
   src/sdk/robot_model.cpp
 )
