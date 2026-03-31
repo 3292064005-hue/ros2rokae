@@ -15,14 +15,36 @@ bool statusEquivalent(const RuntimeStatus &lhs, const RuntimeStatus &rhs) {
          lhs.terminal_success == rhs.terminal_success &&
          lhs.execution_backend == rhs.execution_backend &&
          lhs.control_owner == rhs.control_owner &&
-         lhs.runtime_phase == rhs.runtime_phase;
+         lhs.runtime_phase == rhs.runtime_phase &&
+         lhs.last_event == rhs.last_event;
 }
 
 std::string summarize_plan_notes(const MotionPlan &plan) {
-  if (plan.notes.empty()) {
-    return "plan ready";
-  }
   std::string message = "plan ready";
+  message += "; backend=" + plan.primary_backend;
+  message += "; branch=" + plan.selected_branch;
+  message += "; stop_point=" + plan.recommended_stop_point;
+  message += "; retimer=" + plan.retimer_family;
+  message += "; candidate=" + plan.selected_candidate;
+  if (!plan.selection_policy.empty()) {
+    message += "; selection_policy=" + plan.selection_policy;
+  }
+  if (!plan.explanation_summary.empty()) {
+    message += "; explanation=" + plan.explanation_summary;
+  }
+  for (const auto &candidate : plan.candidate_summaries) {
+    if (!candidate.empty()) {
+      message += "; " + candidate;
+    }
+  }
+  for (const auto &degradation : plan.degradation_chain) {
+    if (!degradation.empty()) {
+      message += "; degradation=" + degradation;
+    }
+  }
+  if (plan.notes.empty()) {
+    return message;
+  }
   for (const auto &note : plan.notes) {
     if (note.empty()) {
       continue;

@@ -33,13 +33,14 @@ TEST(RtHardening, SubscriptionPlanRejectsUnsupportedFieldsAndWrongInLoopRate) {
   EXPECT_FALSE(ok.accepted_fields.empty());
 }
 
-TEST(RtHardening, PrearmRequiresRtModePowerAndValidPlan) {
+TEST(RtHardening, PrearmRequiresRtModePowerCapabilityAndValidPlan) {
   RtPrearmCheckInput input;
   input.motion_mode = static_cast<int>(rokae::MotionControlMode::RtCommand);
   input.rt_mode = static_cast<int>(rokae::RtControllerMode::jointPosition);
   input.power_on = true;
   input.active_profile = "rt_simulated";
   input.network_tolerance_configured = true;
+  input.capability_flags = {"rt.experimental", "trajectory_executor"};
   input.subscription_plan = buildRtSubscriptionPlan(defaultRtFieldSet(), std::chrono::milliseconds(1), true);
 
   const auto ready = evaluateRtPrearm(input);
@@ -50,9 +51,33 @@ TEST(RtHardening, PrearmRequiresRtModePowerAndValidPlan) {
   const auto power_off = evaluateRtPrearm(input);
   EXPECT_FALSE(power_off.ok);
   EXPECT_EQ(power_off.status, "power_off");
+
+  input.power_on = true;
+  input.capability_flags.clear();
+  const auto no_capability = evaluateRtPrearm(input);
+  EXPECT_FALSE(no_capability.ok);
+  EXPECT_EQ(no_capability.status, "profile_not_rt");
 }
 
-TEST(RtHardening, WatchdogTracksLateCyclesAndGap) {
+TEST(RtHardening, PrearmRejectsIncompleteModeSpecificSubscription) {
+  RtPrearmCheckInput input;
+  input.motion_mode = static_cast<int>(rokae::MotionControlMode::RtCommand);
+  input.rt_mode = static_cast<int>(rokae::RtControllerMode::torque);
+  input.power_on = true;
+  input.active_profile = "rt_simulated";
+  input.network_tolerance_configured = true;
+  input.capability_flags = {"rt.experimental", "effort_owner"};
+  input.subscription_plan = buildRtSubscriptionPlan(
+      {rokae::RtSupportedFields::jointPos_m, rokae::RtSupportedFields::jointVel_m},
+      std::chrono::milliseconds(1),
+      true);
+
+  const auto report = evaluateRtPrearm(input);
+  EXPECT_FALSE(report.ok);
+  EXPECT_EQ(report.status, "subscription_plan_incomplete");
+}
+
+TEST(RtHardening, WatchdogTracksLateCyclesGapAndTriggerReason) {
   RtWatchdog watchdog(0.004, 0.050);
   watchdog.observeCycle(0.001, true, true);
   watchdog.observeCycle(0.006, true, true);
@@ -60,9 +85,14 @@ TEST(RtHardening, WatchdogTracksLateCyclesAndGap) {
   const auto snapshot = watchdog.snapshot();
   EXPECT_EQ(snapshot.late_cycle_count, 1u);
   EXPECT_GT(snapshot.max_gap_ms, 5.0);
+  EXPECT_GT(snapshot.avg_gap_ms, 0.0);
   EXPECT_TRUE(snapshot.stale_state);
   EXPECT_TRUE(snapshot.command_starvation);
+  EXPECT_EQ(snapshot.stale_state_count, 1u);
+  EXPECT_EQ(snapshot.command_starvation_windows, 1u);
+  EXPECT_EQ(snapshot.last_trigger_reason, "command_starvation");
   EXPECT_NE(snapshot.summary.find("late_cycles=1"), std::string::npos);
+  EXPECT_NE(snapshot.summary.find("avg_gap_ms="), std::string::npos);
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

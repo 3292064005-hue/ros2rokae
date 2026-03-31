@@ -14,6 +14,7 @@
 #include "runtime/rt_prearm_checks.hpp"
 #include "runtime/runtime_catalog_service.hpp"
 #include "runtime/runtime_profile_service.hpp"
+#include "runtime/planning_capability_service.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 namespace {
@@ -158,12 +159,14 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   runtime_context_.diagnosticsState().setSessionModes(session_state.motionMode(), session_state.rtControlMode());
   runtime_context_.diagnosticsState().setRtSubscriptionPlan(default_rt_plan_.summary());
   const auto active_profile = runtime_context_.diagnosticsState().snapshot().active_profile;
+  const auto diagnostics_snapshot = runtime_context_.diagnosticsState().snapshot();
   const RtPrearmCheckInput prearm_input{
       session_state.motionMode(),
       session_state.rtControlMode(),
       session_state.powerOn(),
       config_.rt_network_tolerance_configured,
       active_profile,
+      diagnostics_snapshot.capability_flags,
       default_rt_plan_};
   const auto prearm_report = evaluateRtPrearm(prearm_input);
   runtime_context_.diagnosticsState().setRtPrearmStatus(prearm_report.summary());
@@ -173,12 +176,22 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   runtime_context_.diagnosticsState().setRtWatchdogSummary(
       watchdog_snapshot.summary,
       watchdog_snapshot.late_cycle_count,
-      watchdog_snapshot.max_gap_ms);
+      watchdog_snapshot.max_gap_ms,
+      watchdog_snapshot.avg_gap_ms,
+      watchdog_snapshot.consecutive_late_cycles,
+      watchdog_snapshot.stale_state_count,
+      watchdog_snapshot.command_starvation_windows,
+      watchdog_snapshot.last_trigger_reason);
   const auto profiles = buildRuntimeProfileCatalog(
-      runtime_context_.diagnosticsState().snapshot().backend_mode,
+      diagnostics_snapshot.backend_mode,
       active_profile,
-      runtime_context_.diagnosticsState().snapshot().capability_flags);
+      diagnostics_snapshot.capability_flags);
   runtime_context_.diagnosticsState().setProfileCapabilitySummary(summarizeRuntimeProfileCatalog(profiles));
+  const auto kinematics_backends = buildKinematicsBackendCatalog();
+  const auto retimer_policies = buildRetimerPolicyCatalog();
+  const auto planner_policies = buildPlannerSelectionCatalog();
+  runtime_context_.diagnosticsState().setPlanningCapabilitySummary(
+      summarizePlanningCapabilityCatalog(kinematics_backends, retimer_policies, planner_policies));
   const auto options = buildRuntimeOptionCatalog(motion_options, session_state);
   runtime_context_.diagnosticsState().setRuntimeOptionSummary(summarizeRuntimeOptionCatalog(options));
   runtime_context_.diagnosticsState().setCatalogSizes(
@@ -198,7 +211,12 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       runtime_context_.diagnosticsState().setRtWatchdogSummary(
           watchdog_snapshot.summary,
           watchdog_snapshot.late_cycle_count,
-          watchdog_snapshot.max_gap_ms);
+          watchdog_snapshot.max_gap_ms,
+          watchdog_snapshot.avg_gap_ms,
+          watchdog_snapshot.consecutive_late_cycles,
+          watchdog_snapshot.stale_state_count,
+          watchdog_snapshot.command_starvation_windows,
+          watchdog_snapshot.last_trigger_reason);
     }
     motion_runtime.stop("power off");
     backend.clearControl();
@@ -226,7 +244,12 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       runtime_context_.diagnosticsState().setRtWatchdogSummary(
           watchdog_snapshot.summary,
           watchdog_snapshot.late_cycle_count,
-          watchdog_snapshot.max_gap_ms);
+          watchdog_snapshot.max_gap_ms,
+          watchdog_snapshot.avg_gap_ms,
+          watchdog_snapshot.consecutive_late_cycles,
+          watchdog_snapshot.stale_state_count,
+          watchdog_snapshot.command_starvation_windows,
+          watchdog_snapshot.last_trigger_reason);
     }
     backend.setControlOwner(ControlOwner::none);
     backend.clearControl();
@@ -246,7 +269,12 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       runtime_context_.diagnosticsState().setRtWatchdogSummary(
           watchdog_snapshot.summary,
           watchdog_snapshot.late_cycle_count,
-          watchdog_snapshot.max_gap_ms);
+          watchdog_snapshot.max_gap_ms,
+          watchdog_snapshot.avg_gap_ms,
+          watchdog_snapshot.consecutive_late_cycles,
+          watchdog_snapshot.stale_state_count,
+          watchdog_snapshot.command_starvation_windows,
+          watchdog_snapshot.last_trigger_reason);
     }
     motion_runtime.stop("soft limit exceeded during execution");
     backend.setControlOwner(ControlOwner::none);
@@ -279,7 +307,12 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       runtime_context_.diagnosticsState().setRtWatchdogSummary(
           watchdog_snapshot.summary,
           watchdog_snapshot.late_cycle_count,
-          watchdog_snapshot.max_gap_ms);
+          watchdog_snapshot.max_gap_ms,
+          watchdog_snapshot.avg_gap_ms,
+          watchdog_snapshot.consecutive_late_cycles,
+          watchdog_snapshot.stale_state_count,
+          watchdog_snapshot.command_starvation_windows,
+          watchdog_snapshot.last_trigger_reason);
     }
     if (collision_detection.behaviour == 2) {
       motion_runtime.setActiveSpeedScale(config_.collision_slow_scale);

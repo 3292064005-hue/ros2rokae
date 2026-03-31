@@ -11,9 +11,12 @@ namespace rokae_xmate3_ros2::runtime {
 enum class RuntimeEventType {
   reset,
   planning_requested,
+  planning_rejected,
   plan_queued,
   execution_started,
   progress_updated,
+  trajectory_retimed,
+  watchdog_triggered,
   completed,
   completed_relaxed,
   failed,
@@ -21,6 +24,8 @@ enum class RuntimeEventType {
   owner_changed,
   phase_override,
 };
+
+[[nodiscard]] const char *to_string(RuntimeEventType type) noexcept;
 
 struct RuntimeEvent {
   RuntimeEventType type = RuntimeEventType::reset;

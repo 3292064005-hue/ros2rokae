@@ -16,14 +16,24 @@ struct PlannerPreflightReport {
   std::string request_profile{"simulation-grade"};
   std::string primary_backend{"kdl"};
   std::string auxiliary_backend{"improved_dh"};
+  std::string fallback_backend{"improved_dh"};
+  std::string fallback_reason;
   std::string retimer_family{"unified"};
   std::string branch_policy{"nearest_seed"};
+  std::string selected_branch{"nearest_seed"};
   std::string dominant_motion_kind{"none"};
+  std::string recommended_stop_point{"segment_start"};
   bool strict_conf = false;
   bool avoid_singularity = true;
   bool soft_limit_enabled = false;
   bool fallback_permitted = true;
+  bool fallback_used = false;
   std::size_t command_count = 0;
+  double estimated_duration = 0.0;
+  double branch_switch_risk = 0.0;
+  double singularity_risk = 0.0;
+  double continuity_risk = 0.0;
+  double soft_limit_risk = 0.0;
   std::vector<std::string> notes;
 };
 

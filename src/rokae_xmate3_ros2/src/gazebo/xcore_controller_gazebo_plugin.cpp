@@ -71,18 +71,23 @@ void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
           << std::endl;
   }
 
-  update_conn_ = event::Events::ConnectWorldUpdateBegin(std::bind(&XCoreControllerPlugin::OnUpdate, this));
+  update_conn_ = event::Events::ConnectWorldUpdateBegin(
+      std::bind(&XCoreControllerPlugin::OnUpdate, this, std::placeholders::_1));
   gzmsg << "[xCore Controller] Plugin loaded successfully, joints: " << joint_num_ << std::endl;
 }
 
-void XCoreControllerPlugin::OnUpdate() {
+void XCoreControllerPlugin::OnUpdate(const common::UpdateInfo &info) {
   std::unique_lock<std::mutex> update_lock(update_cycle_mutex_);
   if (!model_ || !bootstrap_ || bootstrap_->isShuttingDown() || !bootstrap_->node() || !bootstrap_->backend() ||
       !bootstrap_->controlBridge()) {
     return;
   }
 
-  current_update_dt_ = bootstrap_->trajectorySampleDt();
+  const double inferred_dt =
+      has_last_sim_time_ ? std::max(0.0, (info.simTime - last_sim_time_).Double()) : bootstrap_->trajectorySampleDt();
+  last_sim_time_ = info.simTime;
+  has_last_sim_time_ = true;
+  current_update_dt_ = inferred_dt > 0.0 ? inferred_dt : bootstrap_->trajectorySampleDt();
   initial_pose_initializer_.applyOnce(joints_, joint_num_);
 
   if (initial_pose_initializer_.initialized()) {

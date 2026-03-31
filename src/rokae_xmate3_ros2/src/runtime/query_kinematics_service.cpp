@@ -9,6 +9,7 @@
 #include <Eigen/Dense>
 
 #include "runtime/planner_core.hpp"
+#include "runtime/motion_runtime_internal.hpp"
 #include "runtime/planner_preflight.hpp"
 #include "runtime/planning_utils.hpp"
 #include "runtime/pose_utils.hpp"
@@ -314,10 +315,10 @@ void QueryFacade::handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMot
   res.notes.insert(res.notes.end(), plan.notes.begin(), plan.notes.end());
   res.reject_reason = preflight.reject_reason;
   res.retimer_family = preflight.retimer_family;
-  res.selected_branch = preflight.branch_policy;
+  res.selected_branch = preflight.selected_branch;
 
   if (!preflight.ok) {
-    res.estimated_duration = 0.0;
+    res.estimated_duration = preflight.estimated_duration;
     res.message = preflight.detail.empty() ? std::string("planner preflight rejected request") : preflight.detail;
     diagnostics_state_.notePlanFailure(res.message);
     return;
@@ -329,12 +330,20 @@ void QueryFacade::handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMot
         plan.segments.end(),
         0.0,
         [](double total, const PlannedSegment &segment) { return total + segment.trajectory_total_time; });
+    if (res.estimated_duration <= 0.0) {
+      res.estimated_duration = preflight.estimated_duration;
+    }
     if (!plan.segments.empty()) {
-      res.retimer_family = to_string(plan.segments.front().path_family);
+      res.retimer_family = preflight.retimer_family + std::string("/") + to_string(plan.segments.front().path_family);
     }
     res.message = "validation succeeded";
-    if (!plan.notes.empty()) {
-      diagnostics_state_.noteRetimerNote(plan.notes.back());
+    diagnostics_state_.notePlanSummary(plan.explanation_summary.empty() ? summarize_plan_notes(plan) : plan.explanation_summary,
+                                       plan.selected_candidate);
+    for (auto it = plan.notes.rbegin(); it != plan.notes.rend(); ++it) {
+      if (it->find("retimer[") != std::string::npos) {
+        diagnostics_state_.noteRetimerNote(*it);
+        break;
+      }
     }
     if (req.motion_kind == rokae_xmate3_ros2::srv::ValidateMotion::Request::MOTION_MOVE_J) {
       std::vector<std::vector<double>> candidates;
@@ -355,6 +364,15 @@ void QueryFacade::handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMot
       if (!selected.branch_id.empty()) {
         res.selected_branch = selected.branch_id;
       }
+      const auto &trace = kinematics_.lastTrace();
+      if (!trace.request_kind.empty()) {
+        res.notes.push_back("ik_trace.kind=" + trace.request_kind +
+                            ";backend=" + trace.primary_backend +
+                            ";fallback=" + (trace.fallback_used ? std::string("true") : std::string("false")) +
+                            ";branch=" + trace.selected_branch +
+                            ";continuity=" + std::to_string(trace.continuity_cost) +
+                            ";singularity=" + std::to_string(trace.singularity_metric));
+      }
     }
     return;
   }
@@ -364,6 +382,8 @@ void QueryFacade::handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMot
   res.message = plan.error_message;
   res.reject_reason = classify_motion_failure_reason(plan.error_message);
   diagnostics_state_.notePlanFailure(plan.error_message);
+  diagnostics_state_.notePlanSummary(plan.explanation_summary.empty() ? plan.error_message : plan.explanation_summary,
+                                     plan.selected_candidate);
 }
 
 void QueryFacade::handleMapCartesianToJointTorque(

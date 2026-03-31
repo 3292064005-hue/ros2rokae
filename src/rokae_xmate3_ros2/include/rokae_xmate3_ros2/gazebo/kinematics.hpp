@@ -67,6 +67,17 @@ public:
         std::string message;
     };
 
+    struct RequestTrace {
+        std::string request_kind{"idle"};
+        std::string primary_backend{"none"};
+        std::string fallback_backend{"none"};
+        bool fallback_used = false;
+        std::string selected_branch;
+        std::string note;
+        double continuity_cost = std::numeric_limits<double>::infinity();
+        double singularity_metric = 1.0;
+    };
+
     xMate3Kinematics();
     
     /**
@@ -149,6 +160,7 @@ public:
     [[nodiscard]] DebugCounters debugCounters() const;
     [[nodiscard]] const char *backendName() const noexcept;
     [[nodiscard]] const KinematicsPolicy &policy() const noexcept;
+    [[nodiscard]] const RequestTrace &lastTrace() const noexcept;
 
  private:
     struct SingularityAnalysis;
@@ -158,6 +170,7 @@ public:
     mutable DebugCounters debug_counters_{};
     KinematicsPolicy policy_{};
     std::shared_ptr<detail::KinematicsBackend> backend_;
+    mutable RequestTrace last_trace_{};
     std::vector<Matrix4d> computeAllTransforms(const std::vector<double>& joints);
     Matrix4d dhTransform(int i, double theta);
     Matrix4d rpyToTransform(const std::vector<double>& pose);

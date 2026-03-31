@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -185,6 +186,22 @@ TEST(UnifiedRetimerTest, RetimerNoteToStringIsNonEmpty) {
   EXPECT_GT(std::string(rt::to_string(rt::RetimerNote::speed_scale_applied)).size(), 0u);
 }
 
+
+TEST(UnifiedRetimerTest, MetadataFlagsExposeScalingAndClampState) {
+  const std::vector<std::vector<double>> waypoints = {
+      {0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {0.4, 0.3, 0.2, 0.1, 0.2, 0.5},
+  };
+
+  const auto result = rt::retimeJointPathWithUnifiedSpeed(
+      waypoints, 0.01, 50.0, rt::RetimerSourceFamily::joint, 1.5);
+
+  ASSERT_FALSE(result.empty()) << result.samples.error_message;
+  EXPECT_TRUE(result.metadata.jerk_constrained);
+  EXPECT_TRUE(result.metadata.effective_speed_scale > 1.0);
+  EXPECT_FALSE(result.metadata.detail.empty());
+}
+
 TEST(UnifiedRetimerTest, DescribeRetimerMetadataProducesNonEmptyString) {
   rt::RetimerMetadata metadata;
   metadata.source_family = rt::RetimerSourceFamily::joint;
@@ -214,4 +231,34 @@ TEST(UnifiedRetimerTest, RetimeWithUnifiedLimitsMatchesConfigVariant) {
   EXPECT_GT(result.samples.total_time, 0.0);
   EXPECT_EQ(result.samples.positions.front(), start);
   EXPECT_EQ(result.samples.positions.back(), target);
+}
+
+
+TEST(UnifiedRetimerTest, ValidationRejectsNonFiniteWaypointValues) {
+  const std::vector<std::vector<double>> waypoints = {
+      {0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {0.1, 0.2, std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0, 0.0},
+  };
+  const std::array<double, 6> vel = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  const std::array<double, 6> acc = {2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
+
+  const auto report = rt::validateUnifiedRetimerInput(
+      waypoints, 0.01, vel, acc, rt::RetimerPolicy::nominal);
+  EXPECT_FALSE(report.ok);
+  EXPECT_NE(report.error_message.find("non-finite"), std::string::npos);
+}
+
+TEST(UnifiedRetimerTest, ConservativePolicyIsReflectedInMetadataDescription) {
+  const std::vector<std::vector<double>> waypoints = {
+      {0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {0.4, 0.3, 0.2, 0.1, 0.2, 0.5},
+  };
+
+  const auto result = rt::retimeJointPathWithUnifiedSpeed(
+      waypoints, 0.01, 200.0, rt::RetimerSourceFamily::joint, 1.0, rt::RetimerPolicy::conservative);
+
+  ASSERT_FALSE(result.empty()) << result.samples.error_message;
+  EXPECT_EQ(result.metadata.policy, rt::RetimerPolicy::conservative);
+  const auto description = rt::describeRetimerMetadata(result.metadata);
+  EXPECT_NE(description.find("policy=conservative"), std::string::npos);
 }

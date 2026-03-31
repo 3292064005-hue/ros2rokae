@@ -285,7 +285,7 @@
   </gazebo>
 
   <xacro:if value="${str(ros2_control_enabled).lower() == 'true' and str(backend_mode_value) != 'effort'}">
-    <xacro:xMate3_ros2_control/>
+    <xacro:xMate3_ros2_control package_share="$(arg package_share)" backend_mode="$(arg backend_mode)"/>
   </xacro:if>
 
   <!-- xCore SDK 服务插件 - 直接控制关节，提供完整SDK功能 -->

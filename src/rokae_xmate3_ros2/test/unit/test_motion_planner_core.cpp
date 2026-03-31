@@ -199,6 +199,59 @@ TEST(MotionPlannerCoreTest, AppliesJointZoneBlendAndPreservesTimingMetadata) {
   EXPECT_EQ(plan.segments.back().joint_velocity_trajectory.size(), plan.segments.back().joint_trajectory.size());
 }
 
+
+TEST(MotionPlannerCoreTest, MoveJBranchRiskDisablesZoneBlendAndCarriesPlannerMetadata) {
+  gazebo::xMate3Kinematics kinematics;
+  const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
+
+  rt::MotionRequest request;
+  request.request_id = "movej_branch_risk";
+  request.start_joints = start_joints;
+  request.default_speed = 220;
+  request.default_zone = 12;
+  request.strict_conf = false;
+  request.avoid_singularity = true;
+  request.trajectory_dt = 0.01;
+
+  rt::MotionCommandSpec movej1;
+  movej1.kind = rt::MotionKind::move_j;
+  movej1.speed = 220;
+  movej1.zone = 12;
+  movej1.target_cartesian = start_pose;
+  movej1.target_cartesian[0] -= 0.010;
+  movej1.target_cartesian[1] += 0.005;
+  movej1.requested_conf = {1, 0, 0, 0, 0, 0};
+
+  rt::MotionCommandSpec movej2 = movej1;
+  movej2.target_cartesian[0] -= 0.005;
+  movej2.target_cartesian[1] += 0.006;
+
+  request.commands = {movej1, movej2};
+
+  rt::MotionPlanner planner;
+  const auto plan = planner.plan(request);
+
+  ASSERT_TRUE(plan.valid()) << plan.error_message;
+  ASSERT_EQ(plan.segments.size(), 2u);
+  EXPECT_EQ(plan.recommended_stop_point, "junction_stop_point");
+  EXPECT_EQ(plan.primary_backend, "kdl");
+  EXPECT_EQ(plan.selection_policy, "risk_weighted");
+  EXPECT_NE(plan.explanation_summary.find("plan_explanation"), std::string::npos);
+  EXPECT_GT(plan.branch_switch_risk, 0.45);
+  EXPECT_FALSE(plan.segments.front().blend_to_next);
+  EXPECT_EQ(plan.segments.front().planner_recommended_stop_point, "junction_stop_point");
+  EXPECT_FALSE(plan.segments.front().planner_selected_branch.empty());
+  bool found_stop_point_note = false;
+  for (const auto &note : plan.notes) {
+    if (note.find("preflight recommended junction_stop_point") != std::string::npos) {
+      found_stop_point_note = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_stop_point_note);
+}
+
 TEST(MotionPlannerCoreTest, MixedModeZoneFallsBackToStopPointWithPlanNote) {
   gazebo::xMate3Kinematics kinematics;
   const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
@@ -463,4 +516,52 @@ TEST(MotionPlannerCoreTest, JointMoveDurationIsDominatedBySlowestAxisLimit) {
   EXPECT_NEAR(plan.segments.front().trajectory_total_time, quantized_total_time, 1e-9);
   EXPECT_EQ(plan.segments.front().joint_velocity_trajectory.size(), plan.segments.front().joint_trajectory.size());
   EXPECT_EQ(plan.segments.front().joint_acceleration_trajectory.size(), plan.segments.front().joint_trajectory.size());
+}
+
+
+TEST(MotionPlannerCoreTest, HighRiskMoveJSelectsConservativePlannerCandidate) {
+  gazebo::xMate3Kinematics kinematics;
+  const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
+
+  rt::MotionRequest request;
+  request.request_id = "candidate_select_conservative";
+  request.start_joints = start_joints;
+  request.default_speed = 220;
+  request.default_zone = 15;
+  request.strict_conf = false;
+  request.avoid_singularity = true;
+  request.trajectory_dt = 0.01;
+
+  rt::MotionCommandSpec movej1;
+  movej1.kind = rt::MotionKind::move_j;
+  movej1.speed = 220;
+  movej1.zone = 15;
+  movej1.target_cartesian = start_pose;
+  movej1.target_cartesian[0] -= 0.010;
+  movej1.target_cartesian[1] += 0.005;
+  movej1.requested_conf = {1, 0, 0, 0, 0, 0};
+
+  rt::MotionCommandSpec movej2 = movej1;
+  movej2.target_cartesian[0] -= 0.005;
+  movej2.target_cartesian[1] += 0.006;
+
+  request.commands = {movej1, movej2};
+
+  rt::MotionPlanner planner;
+  const auto plan = planner.plan(request);
+
+  ASSERT_TRUE(plan.valid()) << plan.error_message;
+  EXPECT_EQ(plan.selected_candidate, "conservative");
+  EXPECT_FALSE(plan.candidate_summaries.empty());
+  EXPECT_FALSE(plan.degradation_chain.empty());
+  bool found_selected = false;
+  for (const auto &summary : plan.candidate_summaries) {
+    if (summary.find("selected=true") != std::string::npos &&
+        summary.find("name=conservative") != std::string::npos) {
+      found_selected = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_selected);
 }

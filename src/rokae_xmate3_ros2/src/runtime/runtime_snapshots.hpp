@@ -70,6 +70,9 @@ struct RuntimeDiagnosticsSnapshot {
   std::uint32_t active_goal_count = 0;
   std::string active_request_id;
   std::string active_execution_backend{"none"};
+  std::string last_plan_summary;
+  std::string last_selected_candidate{"nominal"};
+  std::string last_runtime_event{"reset"};
   std::string last_plan_failure;
   std::string last_retimer_note;
   double last_servo_dt = 0.0;
@@ -85,7 +88,18 @@ struct RuntimeDiagnosticsSnapshot {
   std::string rt_watchdog_summary{"nominal"};
   std::uint32_t rt_late_cycle_count = 0;
   double rt_max_gap_ms = 0.0;
+  double rt_avg_gap_ms = 0.0;
+  std::uint32_t rt_consecutive_late_cycles = 0;
+  std::uint32_t rt_stale_state_count = 0;
+  std::uint32_t rt_command_starvation_windows = 0;
+  std::string rt_last_trigger_reason{"nominal"};
+  std::vector<std::string> recent_runtime_events;
+  std::string event_bus_summary{"events=0"};
+  std::uint32_t runtime_event_count = 0;
+  std::uint32_t planning_rejection_count = 0;
+  std::uint32_t watchdog_trigger_count = 0;
   std::string profile_capability_summary{"unknown"};
+  std::string planning_capability_summary{"unknown"};
   std::string runtime_option_summary{"unknown"};
   std::uint32_t tool_catalog_size = 0;
   std::uint32_t wobj_catalog_size = 0;

@@ -2,6 +2,7 @@
 
 #include "runtime/runtime_catalog_service.hpp"
 #include "runtime/runtime_profile_service.hpp"
+#include "runtime/planning_capability_service.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -40,6 +41,28 @@ void QueryFacade::handleGetProfileCapabilities(
         res.motion_families_flattened.end(), profile.allowed_motion_families.begin(), profile.allowed_motion_families.end());
   }
 
+  const auto kinematics_backends = buildKinematicsBackendCatalog();
+  const auto retimer_policies = buildRetimerPolicyCatalog();
+  const auto planner_policies = buildPlannerSelectionCatalog();
+  for (const auto &entry : kinematics_backends) {
+    res.kinematics_backend_names.push_back(entry.name);
+    res.kinematics_backend_summaries.push_back(entry.summary);
+    res.kinematics_backend_active.push_back(entry.active);
+    res.kinematics_backend_experimental.push_back(entry.experimental);
+  }
+  for (const auto &entry : retimer_policies) {
+    res.retimer_policy_names.push_back(entry.name);
+    res.retimer_policy_summaries.push_back(entry.summary);
+    res.retimer_policy_active.push_back(entry.active);
+    res.retimer_policy_experimental.push_back(entry.experimental);
+  }
+  for (const auto &entry : planner_policies) {
+    res.planner_policy_names.push_back(entry.name);
+    res.planner_policy_summaries.push_back(entry.summary);
+    res.planner_policy_active.push_back(entry.active);
+    res.planner_policy_experimental.push_back(entry.experimental);
+  }
+
   for (const auto &option : options) {
     res.option_names.push_back(option.name);
     res.option_values.push_back(option.value);
@@ -48,7 +71,8 @@ void QueryFacade::handleGetProfileCapabilities(
   }
 
   res.success = true;
-  res.message = summarizeRuntimeProfileCatalog(profiles);
+  res.message = summarizeRuntimeProfileCatalog(profiles) + "; " +
+                summarizePlanningCapabilityCatalog(kinematics_backends, retimer_policies, planner_policies);
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

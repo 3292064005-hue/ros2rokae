@@ -50,6 +50,37 @@ TEST(RuntimeStateMachine, PlanningQueuedExecutingCompletedFlow) {
   EXPECT_EQ(phase, RuntimePhase::idle);
 }
 
+
+TEST(RuntimeStateMachine, TerminalEventsPreserveExistingBackendWhenEventBackendMissing) {
+  RuntimeStateMachine machine;
+  RuntimeStatus status;
+  RuntimePhase phase = RuntimePhase::idle;
+
+  RuntimeEvent planning;
+  planning.type = RuntimeEventType::planning_requested;
+  planning.request_id = "req-keep-backend";
+  planning.total_segments = 2;
+  machine.apply(status, phase, planning);
+
+  RuntimeEvent start;
+  start.type = RuntimeEventType::execution_started;
+  start.request_id = "req-keep-backend";
+  start.execution_backend = ExecutionBackend::jtc;
+  machine.apply(status, phase, start);
+  EXPECT_EQ(status.execution_backend, ExecutionBackend::jtc);
+
+  RuntimeEvent stop;
+  stop.type = RuntimeEventType::stopped;
+  stop.request_id = "req-keep-backend";
+  stop.message = "stopped";
+  stop.execution_backend = ExecutionBackend::none;
+  machine.apply(status, phase, stop);
+
+  EXPECT_EQ(status.execution_backend, ExecutionBackend::jtc);
+  EXPECT_EQ(status.request_id, "req-keep-backend");
+  EXPECT_EQ(status.state, ExecutionState::stopped);
+}
+
 TEST(RuntimeStateMachine, FailureAndOwnerChangeAreExplicit) {
   RuntimeStateMachine machine;
   RuntimeStatus status;
@@ -79,6 +110,42 @@ TEST(RuntimeStateMachine, FailureAndOwnerChangeAreExplicit) {
   EXPECT_EQ(status.state, ExecutionState::failed);
   EXPECT_FALSE(status.terminal_success);
   EXPECT_EQ(status.execution_backend, ExecutionBackend::jtc);
+  EXPECT_EQ(phase, RuntimePhase::faulted);
+}
+
+}  // namespace
+}  // namespace rokae_xmate3_ros2::runtime
+
+namespace rokae_xmate3_ros2::runtime {
+namespace {
+
+TEST(RuntimeStateMachine, PlanningRejectedAndRetimedEventsExposeLastEvent) {
+  RuntimeStateMachine machine;
+  RuntimeStatus status;
+  RuntimePhase phase = RuntimePhase::idle;
+
+  RuntimeEvent planning;
+  planning.type = RuntimeEventType::planning_requested;
+  planning.request_id = "req-3";
+  planning.total_segments = 1;
+  machine.apply(status, phase, planning);
+  EXPECT_EQ(status.last_event, "planning_requested");
+
+  RuntimeEvent retimed;
+  retimed.type = RuntimeEventType::trajectory_retimed;
+  retimed.request_id = "req-3";
+  retimed.message = "retimed";
+  machine.apply(status, phase, retimed);
+  EXPECT_EQ(status.last_event, "trajectory_retimed");
+  EXPECT_EQ(status.message, "retimed");
+
+  RuntimeEvent reject;
+  reject.type = RuntimeEventType::planning_rejected;
+  reject.request_id = "req-3";
+  reject.message = "planner rejected request";
+  machine.apply(status, phase, reject);
+  EXPECT_EQ(status.last_event, "planning_rejected");
+  EXPECT_EQ(status.state, ExecutionState::failed);
   EXPECT_EQ(phase, RuntimePhase::faulted);
 }
 

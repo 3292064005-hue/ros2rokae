@@ -256,3 +256,24 @@ TEST(KinematicsBackendTest, DefaultPolicyUsesKdlPrimaryWithImprovedDhFallback) {
   EXPECT_EQ(policy.fallback_mode, gazebo::KinematicsPolicy::FallbackMode::ImprovedDh);
   EXPECT_TRUE(policy.require_single_backend_per_request);
 }
+
+
+TEST(KinematicsBackendTest, SelectionTraceCapturesBackendBranchAndMetrics) {
+  gazebo::xMate3Kinematics kinematics;
+  const std::vector<double> seed = {0.0, 0.15, 1.55, 0.0, 1.35, M_PI};
+  const auto target_pose = kinematics.forwardKinematicsRPY(seed);
+  const auto candidates = kinematics.inverseKinematicsMultiSolution(target_pose, seed);
+  ASSERT_FALSE(candidates.empty());
+
+  gazebo::xMate3Kinematics::CartesianIkOptions options;
+  const auto selected = kinematics.selectBestIkSolution(candidates, target_pose, seed, options);
+  ASSERT_TRUE(selected.success);
+
+  const auto &trace = kinematics.lastTrace();
+  EXPECT_EQ(trace.request_kind, "ik_select");
+  EXPECT_FALSE(trace.primary_backend.empty());
+  EXPECT_FALSE(trace.fallback_backend.empty());
+  EXPECT_FALSE(trace.selected_branch.empty());
+  EXPECT_TRUE(std::isfinite(trace.continuity_cost));
+  EXPECT_TRUE(std::isfinite(trace.singularity_metric));
+}

@@ -9,6 +9,7 @@
 
 #include "runtime/planner_preflight.hpp"
 #include "runtime/planner_trace.hpp"
+#include "runtime/planner_pipeline.hpp"
 #include "runtime/planning_utils.hpp"
 #include "runtime/pose_utils.hpp"
 #include "runtime/unified_retimer.hpp"
@@ -38,18 +39,56 @@ bool move_absj_violates_soft_limit(const std::vector<double> &joints,
   return false;
 }
 
+void append_degradation_if(std::vector<std::string> &degradation_chain,
+                           bool condition,
+                           const std::string &message) {
+  if (condition && !message.empty()) {
+    degradation_chain.push_back(message);
+  }
+}
+
+std::string build_plan_explanation_summary(const MotionPlan &plan,
+                                           const PlannerSelectionPolicyDescriptor &policy) {
+  std::string summary = "plan_explanation[policy=" + policy.name + "; candidate=" + plan.selected_candidate +
+                        "; backend=" + plan.primary_backend + "; branch=" + plan.selected_branch +
+                        "; stop_point=" + plan.recommended_stop_point + "; retimer=" + plan.retimer_family + "]";
+  if (!plan.degradation_chain.empty()) {
+    summary += " degradation=";
+    for (std::size_t i = 0; i < plan.degradation_chain.size(); ++i) {
+      if (i != 0) {
+        summary += '|';
+      }
+      summary += plan.degradation_chain[i];
+    }
+  }
+  return summary;
+}
+
 void apply_unified_trajectory(PlannedSegment &segment, const UnifiedTrajectoryResult &trajectory) {
   segment.joint_trajectory = trajectory.samples.positions;
   segment.joint_velocity_trajectory = trajectory.samples.velocities;
   segment.joint_acceleration_trajectory = trajectory.samples.accelerations;
   segment.trajectory_dt = trajectory.samples.sample_dt;
   segment.trajectory_total_time = trajectory.samples.total_time;
+  segment.retimer_note = to_string(trajectory.metadata.note);
+}
+
+void apply_preflight_metadata(PlannedSegment &segment, const PlannerPreflightReport &preflight) {
+  segment.planner_primary_backend = preflight.primary_backend;
+  segment.planner_fallback_backend = preflight.fallback_backend;
+  segment.planner_selected_branch = preflight.selected_branch;
+  segment.planner_recommended_stop_point = preflight.recommended_stop_point;
+  segment.planner_branch_switch_risk = preflight.branch_switch_risk;
+  segment.planner_singularity_risk = preflight.singularity_risk;
+  segment.planner_continuity_risk = preflight.continuity_risk;
+  segment.planner_soft_limit_risk = preflight.soft_limit_risk;
 }
 
 void append_retimer_note(std::vector<std::string> &notes,
                          std::size_t segment_index,
                          const RetimerMetadata &metadata) {
-  if (metadata.note == RetimerNote::nominal) {
+  if (metadata.note == RetimerNote::nominal && !metadata.blend_trim_applied &&
+      !metadata.cartesian_fallback_used && metadata.detail.empty()) {
     return;
   }
   notes.push_back(describeRetimerMetadata(metadata, "segment " + std::to_string(segment_index)));
@@ -581,6 +620,7 @@ bool sample_cartesian_segment(CartesianRunSegment &segment,
 
 bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
                          const MotionRequest &request,
+                         const PlannerPreflightReport &preflight,
                          const std::vector<MotionCommandSpec> &commands,
                          std::size_t global_offset,
                          std::vector<double> &current_joints,
@@ -600,6 +640,7 @@ bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
     run_segment.segment.target_cartesian = cmd.target_cartesian;
     run_segment.segment.aux_cartesian = cmd.aux_cartesian;
     run_segment.segment.path_family = path_family(cmd.kind);
+    apply_preflight_metadata(run_segment.segment, preflight);
     run_segment.requested_conf = cmd.requested_conf;
     run_segment.speed_mps = clamp_cartesian_speed_mps(run_segment.segment.speed);
 
@@ -649,8 +690,15 @@ bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
     run_segments.push_back(std::move(run_segment));
   }
 
+  const bool allow_blend = preflight.recommended_stop_point == "blended";
   for (std::size_t index = 0; index + 1 < run_segments.size(); ++index) {
     if (run_segments[index].segment.zone <= 0) {
+      continue;
+    }
+    if (!allow_blend) {
+      notes.push_back(zone_fallback_note(global_offset + index,
+                                         global_offset + index + 1,
+                                         "preflight recommended " + preflight.recommended_stop_point));
       continue;
     }
     std::string reason;
@@ -699,8 +747,14 @@ bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
                                                             : retimed.samples.error_message;
       return false;
     }
+    auto retimed_metadata = retimed.metadata;
+    retimed_metadata.blend_trim_applied = run_segment.segment.path_blended;
+    if (run_segment.segment.path_blended && retimed_metadata.detail.empty()) {
+      retimed_metadata.detail = "path_blended";
+    }
     apply_unified_trajectory(run_segment.segment, retimed);
-    append_retimer_note(notes, global_offset + segments.size(), retimed.metadata);
+    run_segment.segment.retimer_note = to_string(retimed_metadata.note);
+    append_retimer_note(notes, global_offset + segments.size(), retimed_metadata);
     run_segment.segment.target_joints = last_joints;
     run_segment.segment.target_cartesian = vector_from_pose(segment_final_pose(run_segment));
     const auto retimed_cartesian_points =
@@ -889,24 +943,20 @@ bool blend_joint_segment_pair(PlannedSegment &current, PlannedSegment &next) {
   return true;
 }
 
-void apply_joint_zone_blending(std::vector<PlannedSegment> &segments, std::vector<std::string> &notes) {
+void apply_joint_zone_blending(std::vector<PlannedSegment> &segments,
+                              std::vector<std::string> &notes,
+                              const PlannerPreflightReport &preflight) {
   if (segments.size() < 2) {
     return;
   }
 
+  const bool allow_blend = preflight.recommended_stop_point == "blended";
   for (std::size_t i = 0; i + 1 < segments.size(); ++i) {
     if (segments[i].zone <= 0) {
       continue;
     }
     const auto current_family = blend_family(segments[i].kind);
     const auto next_family = blend_family(segments[i + 1].kind);
-
-    if (current_family == BlendFamily::joint && next_family == BlendFamily::joint) {
-      if (!blend_joint_segment_pair(segments[i], segments[i + 1])) {
-        notes.push_back(zone_fallback_note(i, i + 1));
-      }
-      continue;
-    }
 
     if (current_family != BlendFamily::none && next_family != BlendFamily::none &&
         current_family != next_family) {
@@ -916,6 +966,20 @@ void apply_joint_zone_blending(std::vector<PlannedSegment> &segments, std::vecto
 
     if (current_family == BlendFamily::cartesian_lookahead && next_family == BlendFamily::none) {
       notes.insert(notes.begin(), mixed_mode_fallback_note(i, i + 1));
+      continue;
+    }
+
+    if (!allow_blend) {
+      notes.push_back(zone_fallback_note(i, i + 1,
+                                         "preflight recommended " + preflight.recommended_stop_point));
+      continue;
+    }
+
+    if (current_family == BlendFamily::joint && next_family == BlendFamily::joint) {
+      if (!blend_joint_segment_pair(segments[i], segments[i + 1])) {
+        notes.push_back(zone_fallback_note(i, i + 1));
+      }
+      continue;
     }
   }
 }
@@ -935,6 +999,32 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
     return plan;
   }
   appendPlannerTrace(plan.notes, preflight, request.request_id);
+  auto effective_preflight = preflight;
+  auto planner_candidates = buildPlannerExecutionCandidates(request, preflight);
+  const auto selected_candidate = selectPlannerExecutionCandidate(planner_candidates);
+  if (!selected_candidate.requested_stop_point.empty()) {
+    effective_preflight.recommended_stop_point = selected_candidate.requested_stop_point;
+  }
+  plan.selection_policy = describePlannerSelectionPolicy().name;
+  plan.selected_candidate = selected_candidate.name;
+  plan.candidate_summaries = summarizePlannerExecutionCandidates(planner_candidates);
+  plan.primary_backend = effective_preflight.primary_backend;
+  plan.fallback_backend = effective_preflight.fallback_backend;
+  plan.selected_branch = effective_preflight.selected_branch;
+  plan.recommended_stop_point = effective_preflight.recommended_stop_point;
+  plan.retimer_family = effective_preflight.retimer_family;
+  plan.dominant_motion_kind = effective_preflight.dominant_motion_kind;
+  plan.estimated_duration = effective_preflight.estimated_duration;
+  plan.branch_switch_risk = effective_preflight.branch_switch_risk;
+  plan.singularity_risk = effective_preflight.singularity_risk;
+  plan.continuity_risk = effective_preflight.continuity_risk;
+  plan.soft_limit_risk = effective_preflight.soft_limit_risk;
+  if (selected_candidate.name != "nominal") {
+    const auto degradation_message = "planner selected candidate " + selected_candidate.name +
+                                     " with stop_point=" + plan.recommended_stop_point;
+    plan.notes.push_back(degradation_message);
+    plan.degradation_chain.push_back(degradation_message);
+  }
 
   auto current_joints = request.start_joints;
   plan.segments.reserve(request.commands.size());
@@ -956,6 +1046,7 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
                                                   request.commands.begin() + static_cast<long>(run_end));
       if (!build_cartesian_run(*kinematics_,
                                request,
+                               effective_preflight,
                                run_commands,
                                index,
                                current_joints,
@@ -978,6 +1069,7 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
     segment.target_cartesian = cmd.target_cartesian;
     segment.aux_cartesian = cmd.aux_cartesian;
     segment.path_family = path_family(cmd.kind);
+    apply_preflight_metadata(segment, effective_preflight);
 
     if (cmd.use_preplanned_trajectory) {
       if (cmd.preplanned_trajectory.empty()) {
@@ -1019,8 +1111,13 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
           plan.error_message = format_motion_failure(classify_motion_failure_reason(detail), detail);
           return plan;
         }
+        auto retimed_metadata = trajectory.metadata;
         apply_unified_trajectory(segment, trajectory);
-        append_retimer_note(plan.notes, plan.segments.size(), trajectory.metadata);
+        append_retimer_note(plan.notes, plan.segments.size(), retimed_metadata);
+        append_degradation_if(plan.degradation_chain,
+                              retimed_metadata.note != RetimerNote::nominal || retimed_metadata.blend_trim_applied ||
+                                  retimed_metadata.cartesian_fallback_used,
+                              describeRetimerMetadata(retimed_metadata, "segment " + std::to_string(plan.segments.size())));
         break;
       }
       case MotionKind::move_j: {
@@ -1045,6 +1142,10 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
           return plan;
         }
         segment.target_joints = selected.joints;
+        if (!selected.branch_id.empty()) {
+          segment.planner_selected_branch = selected.branch_id;
+          plan.selected_branch = selected.branch_id;
+        }
         const auto trajectory = retimeJointPathWithUnifiedSpeed(
             {current_joints, segment.target_joints},
             request.trajectory_dt,
@@ -1058,10 +1159,40 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
           plan.error_message = format_motion_failure(classify_motion_failure_reason(detail), detail);
           return plan;
         }
+        auto retimed_metadata = trajectory.metadata;
         apply_unified_trajectory(segment, trajectory);
-        append_retimer_note(plan.notes, plan.segments.size(), trajectory.metadata);
+        append_retimer_note(plan.notes, plan.segments.size(), retimed_metadata);
+        append_degradation_if(plan.degradation_chain,
+                              retimed_metadata.note != RetimerNote::nominal || retimed_metadata.blend_trim_applied ||
+                                  retimed_metadata.cartesian_fallback_used,
+                              describeRetimerMetadata(retimed_metadata, "segment " + std::to_string(plan.segments.size())));
+        const auto &trace = kinematics_->lastTrace();
         if (!selected.note.empty()) {
           plan.notes.push_back(selected.note + " branch=" + selected.branch_id);
+        }
+        if (!trace.request_kind.empty()) {
+          if (!trace.primary_backend.empty()) {
+            segment.planner_primary_backend = trace.primary_backend;
+            plan.primary_backend = trace.primary_backend;
+          }
+          if (!trace.fallback_backend.empty()) {
+            segment.planner_fallback_backend = trace.fallback_backend;
+            plan.fallback_backend = trace.fallback_backend;
+          }
+          if (!trace.selected_branch.empty()) {
+            segment.planner_selected_branch = trace.selected_branch;
+            plan.selected_branch = trace.selected_branch;
+          }
+          segment.planner_continuity_risk = std::max(segment.planner_continuity_risk, trace.continuity_cost);
+          segment.planner_singularity_risk = std::max(segment.planner_singularity_risk, trace.singularity_metric);
+          plan.continuity_risk = std::max(plan.continuity_risk, trace.continuity_cost);
+          plan.singularity_risk = std::max(plan.singularity_risk, trace.singularity_metric);
+          plan.notes.push_back("ik_trace.kind=" + trace.request_kind +
+                               ";backend=" + trace.primary_backend +
+                               ";fallback=" + (trace.fallback_used ? std::string("true") : std::string("false")) +
+                               ";branch=" + trace.selected_branch +
+                               ";continuity=" + std::to_string(trace.continuity_cost) +
+                               ";singularity=" + std::to_string(trace.singularity_metric));
         }
         break;
       }
@@ -1109,8 +1240,13 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
           plan.error_message = format_motion_failure(classify_motion_failure_reason(detail), detail);
           return plan;
         }
+        auto retimed_metadata = retimed.metadata;
         apply_unified_trajectory(segment, retimed);
-        append_retimer_note(plan.notes, plan.segments.size(), retimed.metadata);
+        append_retimer_note(plan.notes, plan.segments.size(), retimed_metadata);
+        append_degradation_if(plan.degradation_chain,
+                              retimed_metadata.note != RetimerNote::nominal || retimed_metadata.blend_trim_applied ||
+                                  retimed_metadata.cartesian_fallback_used,
+                              describeRetimerMetadata(retimed_metadata, "segment " + std::to_string(plan.segments.size())));
         const auto retimed_cartesian_points =
             resampleCartesianPosePath(cart_trajectory.points, segment.joint_trajectory.size());
         if (!project_joint_derivatives_from_cartesian(*kinematics_,
@@ -1143,9 +1279,23 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
     ++index;
   }
 
-  apply_joint_zone_blending(plan.segments, plan.notes);
+  apply_joint_zone_blending(plan.segments, plan.notes, effective_preflight);
+  plan.estimated_duration = 0.0;
   for (auto &segment : plan.segments) {
+    if (segment.path_blended || segment.blend_to_next) {
+      segment.retimer_note = "blend_trim_applied";
+      append_degradation_if(plan.degradation_chain,
+                            true,
+                            "segment blend trim applied for " + std::string(to_string(segment.kind)));
+    }
     populate_joint_derivatives(segment);
+    plan.estimated_duration += segment.trajectory_total_time;
+  }
+  const auto policy = describePlannerSelectionPolicy();
+  plan.selection_policy = policy.name;
+  plan.explanation_summary = build_plan_explanation_summary(plan, policy);
+  if (!plan.explanation_summary.empty()) {
+    plan.notes.push_back(plan.explanation_summary);
   }
   return plan;
 }

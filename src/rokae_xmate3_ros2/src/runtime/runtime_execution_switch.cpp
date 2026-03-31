@@ -156,7 +156,11 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
         active_trajectory_goal_ = std::move(retimed_goal);
         dispatched_speed_scale_ = active_speed_scale_;
         trajectory_state = backend.readTrajectoryExecutionState();
-        active_status_.message = "retimed";
+        RuntimeEvent retimed_event;
+        retimed_event.type = RuntimeEventType::trajectory_retimed;
+        retimed_event.request_id = active_request_id_;
+        retimed_event.message = "retimed";
+        state_machine_.apply(active_status_, runtime_phase_, retimed_event);
       } else if (!retime_message.empty()) {
         active_status_.message = retime_message;
       }

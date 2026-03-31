@@ -39,6 +39,16 @@ inline constexpr std::array<std::array<double, 2>, kDoF> kDefaultSoftLimits{{
     {{kJointLimitMin[5], kJointLimitMax[5]}}
 }};
 
+[[nodiscard]] constexpr const auto &jointNames() noexcept { return kJointNames; }
+[[nodiscard]] constexpr const auto &jointLimitMin() noexcept { return kJointLimitMin; }
+[[nodiscard]] constexpr const auto &jointLimitMax() noexcept { return kJointLimitMax; }
+[[nodiscard]] constexpr const auto &jointVelocityLimit() noexcept { return kJointVelocityLimit; }
+[[nodiscard]] constexpr const auto &jointAccelerationLimit() noexcept { return kJointAccelerationLimit; }
+[[nodiscard]] constexpr const auto &jointJerkHint() noexcept { return kJointJerkHint; }
+[[nodiscard]] constexpr const auto &directTorqueLimit() noexcept { return kDirectTorqueLimit; }
+[[nodiscard]] constexpr const auto &directTorqueRateLimit() noexcept { return kDirectTorqueRateLimit; }
+[[nodiscard]] constexpr const auto &defaultSoftLimits() noexcept { return kDefaultSoftLimits; }
+
 namespace official_dh {
 inline constexpr std::array<double, kDoF> kA = {0.0, 0.394, 0.0, 0.0, 0.0, 0.0};
 inline constexpr std::array<double, kDoF> kAlpha = {
@@ -46,6 +56,10 @@ inline constexpr std::array<double, kDoF> kAlpha = {
     -1.5707963267948966, 1.5707963267948966, 0.0};
 inline constexpr std::array<double, kDoF> kD = {0.3415, 0.0, 0.0, 0.366, 0.0, 0.2503};
 inline constexpr std::array<double, kDoF> kThetaOffset = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+[[nodiscard]] constexpr const auto &officialDhA() noexcept { return kA; }
+[[nodiscard]] constexpr const auto &officialDhAlpha() noexcept { return kAlpha; }
+[[nodiscard]] constexpr const auto &officialDhD() noexcept { return kD; }
+[[nodiscard]] constexpr const auto &officialDhThetaOffset() noexcept { return kThetaOffset; }
 }  // namespace official_dh
 
 namespace improved_dh {
@@ -55,6 +69,10 @@ inline constexpr std::array<double, kDoF> kAlpha = {
     1.5707963267948966, -1.5707963267948966, 1.5707963267948966};
 inline constexpr std::array<double, kDoF> kD = {0.3415, 0.0, 0.0, 0.366, 0.0, 0.2503};
 inline constexpr std::array<double, kDoF> kJointOffset = {0.0, -1.5707963267948966, 1.5707963267948966, 0.0, 0.0, 0.0};
+[[nodiscard]] constexpr const auto &improvedDhA() noexcept { return kA; }
+[[nodiscard]] constexpr const auto &improvedDhAlpha() noexcept { return kAlpha; }
+[[nodiscard]] constexpr const auto &improvedDhD() noexcept { return kD; }
+[[nodiscard]] constexpr const auto &improvedDhJointOffset() noexcept { return kJointOffset; }
 }  // namespace improved_dh
 
 namespace legacy_dh = improved_dh;

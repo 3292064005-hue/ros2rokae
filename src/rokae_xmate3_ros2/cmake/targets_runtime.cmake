@@ -8,6 +8,7 @@ add_library(${PROJECT_NAME}_runtime_motion_core OBJECT
   src/runtime/planner_core.cpp
   src/runtime/planner_preflight.cpp
   src/runtime/planner_trace.cpp
+  src/runtime/planner_pipeline.cpp
   src/runtime/planning_utils.cpp
   src/runtime/request_adapter.cpp
   src/runtime/request_coordinator.cpp
@@ -38,6 +39,7 @@ add_library(${PROJECT_NAME}_runtime_state OBJECT
   src/runtime/runtime_state_utils.cpp
   src/runtime/runtime_catalog_service.cpp
   src/runtime/runtime_profile_service.cpp
+  src/runtime/planning_capability_service.cpp
   src/runtime/controller_state.cpp
   src/runtime/runtime_context.cpp
   src/runtime/operation_state_adapter.cpp

@@ -6,6 +6,9 @@ uint32 active_request_count
 uint32 active_goal_count
 string active_request_id
 string active_execution_backend
+string last_plan_summary
+string last_selected_candidate
+string last_runtime_event
 string last_plan_failure
 string last_retimer_note
 float64 last_servo_dt
@@ -21,8 +24,19 @@ string rt_prearm_status
 string rt_watchdog_summary
 uint32 rt_late_cycle_count
 float64 rt_max_gap_ms
+float64 rt_avg_gap_ms
+uint32 rt_consecutive_late_cycles
+uint32 rt_stale_state_count
+uint32 rt_command_starvation_windows
+string rt_last_trigger_reason
+string[] recent_runtime_events
+string event_bus_summary
+uint32 runtime_event_count
+uint32 planning_rejection_count
+uint32 watchdog_trigger_count
 
 string profile_capability_summary
+string planning_capability_summary
 string runtime_option_summary
 uint32 tool_catalog_size
 uint32 wobj_catalog_size

@@ -2,7 +2,10 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!-- ==================== ROS2 Control 宏 ==================== -->
-  <xacro:macro name="xMate3_ros2_control" params="name:=xMate3_ros2_control">
+  <xacro:macro name="xMate3_ros2_control" params="name:=xMate3_ros2_control package_share:=. backend_mode:=jtc">
+    <xacro:property
+      name="ros2_control_config"
+      value="${str(package_share) + '/config/' + ('ros2_control_rt.yaml' if str(backend_mode) == 'hybrid' else 'ros2_control_nrt.yaml')}"/>
 
     <ros2_control name="${name}" type="system">
       <hardware>
@@ -55,7 +58,7 @@
 
     <gazebo>
       <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
-        <parameters>$(arg package_share)/config/ros2_control.yaml</parameters>
+        <parameters>${ros2_control_config}</parameters>
       </plugin>
     </gazebo>
 

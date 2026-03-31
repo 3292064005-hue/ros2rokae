@@ -24,10 +24,10 @@ class XCoreControllerPlugin : public ModelPlugin {
   XCoreControllerPlugin() = default;
   ~XCoreControllerPlugin() override;
 
-  void Load(physics::ModelPtr model, sdf::ElementPtr sdf) override;
+ void Load(physics::ModelPtr model, sdf::ElementPtr sdf) override;
 
  private:
-  void OnUpdate();
+  void OnUpdate(const common::UpdateInfo &info);
   void ExecuteMotion();
 
   physics::ModelPtr model_;
@@ -39,6 +39,8 @@ class XCoreControllerPlugin : public ModelPlugin {
 
   std::array<std::pair<double, double>, 6> original_joint_limits_{};
   double current_update_dt_ = kDefaultTrajectorySampleDt;
+  common::Time last_sim_time_{};
+  bool has_last_sim_time_ = false;
   std::mutex update_cycle_mutex_;
 
   JointStateCache joint_state_cache_;

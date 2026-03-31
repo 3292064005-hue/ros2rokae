@@ -71,6 +71,15 @@ std::string classify_motion_failure_reason(std::string_view message) {
   if (contains_token(message, "soft limit")) {
     return "soft_limit_violation";
   }
+  if (contains_token(message, "continuity")) {
+    return "continuity_risk_high";
+  }
+  if (contains_token(message, "branch")) {
+    return "branch_switch_risk_high";
+  }
+  if (contains_token(message, "retim")) {
+    return "retime_failed";
+  }
   if (contains_token(message, "confData") || contains_token(message, "requested conf")) {
     return "conf_mismatch";
   }

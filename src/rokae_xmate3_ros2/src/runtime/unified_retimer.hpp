@@ -35,6 +35,12 @@ enum class RetimerNote : std::uint8_t {
   degenerate_path,
 };
 
+enum class RetimerPolicy : std::uint8_t {
+  nominal,
+  conservative,
+  online_safe,
+};
+
 struct CanonicalTrajectorySamples {
   std::vector<std::vector<double>> positions;
   std::vector<std::vector<double>> velocities;
@@ -48,11 +54,29 @@ struct CanonicalTrajectorySamples {
 
 struct RetimerMetadata {
   RetimerSourceFamily source_family{RetimerSourceFamily::joint};
+  RetimerPolicy policy{RetimerPolicy::nominal};
   double total_duration{0.0};
   double sample_dt{0.0};
   double effective_speed_scale{1.0};
   bool clamped{false};
+  bool velocity_clamped{false};
+  bool acceleration_clamped{false};
+  bool jerk_constrained{false};
+  bool blend_trim_applied{false};
+  bool cartesian_fallback_used{false};
+  std::string detail;
   RetimerNote note{RetimerNote::nominal};
+};
+
+
+struct RetimerValidationReport {
+  bool ok{false};
+  std::size_t waypoint_count{0};
+  bool sample_dt_clamped{false};
+  bool velocity_limit_clamped{false};
+  bool acceleration_limit_clamped{false};
+  bool degenerate_path{false};
+  std::string error_message;
 };
 
 struct UnifiedTrajectoryResult {
@@ -64,15 +88,24 @@ struct UnifiedTrajectoryResult {
 
 [[nodiscard]] const char *to_string(RetimerSourceFamily source_family) noexcept;
 [[nodiscard]] const char *to_string(RetimerNote note) noexcept;
+[[nodiscard]] const char *to_string(RetimerPolicy policy) noexcept;
 [[nodiscard]] std::string describeRetimerMetadata(const RetimerMetadata &metadata,
                                                   std::string_view context = {},
                                                   std::string_view detail = {});
 
-[[nodiscard]] JointRetimerConfig makeUnifiedRetimerConfig(double sample_dt);
+[[nodiscard]] JointRetimerConfig makeUnifiedRetimerConfig(double sample_dt, RetimerPolicy policy = RetimerPolicy::nominal);
 
 [[nodiscard]] UnifiedRetimerLimits makeUnifiedRetimerLimits(double max_velocity,
                                                             double max_acceleration,
-                                                            double blend_radius);
+                                                            double blend_radius,
+                                                            RetimerPolicy policy = RetimerPolicy::nominal);
+
+[[nodiscard]] RetimerValidationReport validateUnifiedRetimerInput(
+    const std::vector<std::vector<double>> &waypoints,
+    double sample_dt,
+    const std::array<double, 6> &velocity_limits,
+    const std::array<double, 6> &acceleration_limits,
+    RetimerPolicy policy = RetimerPolicy::nominal);
 
 [[nodiscard]] UnifiedTrajectoryResult retimeJointWithUnifiedConfig(
     const std::vector<double> &start,
@@ -81,7 +114,8 @@ struct UnifiedTrajectoryResult {
     double max_velocity,
     double max_acceleration,
     double blend_radius,
-    RetimerSourceFamily source_family = RetimerSourceFamily::joint);
+    RetimerSourceFamily source_family = RetimerSourceFamily::joint,
+    RetimerPolicy policy = RetimerPolicy::nominal);
 
 [[nodiscard]] UnifiedTrajectoryResult retimeJointWithUnifiedLimits(
     const std::vector<double> &start,
@@ -89,7 +123,8 @@ struct UnifiedTrajectoryResult {
     double sample_dt,
     const std::array<double, 6> &velocity_limits,
     const std::array<double, 6> &acceleration_limits,
-    RetimerSourceFamily source_family = RetimerSourceFamily::joint);
+    RetimerSourceFamily source_family = RetimerSourceFamily::joint,
+    RetimerPolicy policy = RetimerPolicy::nominal);
 
 [[nodiscard]] std::array<double, 6> scaledUnifiedVelocityLimits(double speed_mm_per_s);
 
@@ -101,7 +136,8 @@ struct UnifiedTrajectoryResult {
     const std::array<double, 6> &velocity_limits,
     const std::array<double, 6> &acceleration_limits,
     RetimerSourceFamily source_family = RetimerSourceFamily::joint,
-    double effective_speed_scale = 1.0);
+    double effective_speed_scale = 1.0,
+    RetimerPolicy policy = RetimerPolicy::nominal);
 
 [[nodiscard]] UnifiedTrajectoryResult retimeJointPathWithUnifiedConfig(
     const std::vector<std::vector<double>> &waypoints,
@@ -110,14 +146,16 @@ struct UnifiedTrajectoryResult {
     double max_acceleration,
     double blend_radius,
     RetimerSourceFamily source_family = RetimerSourceFamily::joint,
-    double effective_speed_scale = 1.0);
+    double effective_speed_scale = 1.0,
+    RetimerPolicy policy = RetimerPolicy::nominal);
 
 [[nodiscard]] UnifiedTrajectoryResult retimeJointPathWithUnifiedSpeed(
     const std::vector<std::vector<double>> &waypoints,
     double sample_dt,
     double speed_mm_per_s,
     RetimerSourceFamily source_family = RetimerSourceFamily::joint,
-    double effective_speed_scale = 1.0);
+    double effective_speed_scale = 1.0,
+    RetimerPolicy policy = RetimerPolicy::nominal);
 
 [[nodiscard]] std::vector<std::vector<double>> resampleCartesianPosePath(
     const std::vector<std::vector<double>> &poses,
@@ -126,12 +164,14 @@ struct UnifiedTrajectoryResult {
 [[nodiscard]] UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
     ::gazebo::xMate3Kinematics &kinematics,
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &request,
-    double sample_dt);
+    double sample_dt,
+    RetimerPolicy policy = RetimerPolicy::nominal);
 
 [[nodiscard]] UnifiedTrajectoryResult retimeReplayWithUnifiedConfig(
     const ReplayPathAsset &asset,
     double rate,
-    double sample_dt);
+    double sample_dt,
+    RetimerPolicy policy = RetimerPolicy::nominal);
 
 }  // namespace rokae_xmate3_ros2::runtime
 

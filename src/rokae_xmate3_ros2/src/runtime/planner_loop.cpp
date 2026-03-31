@@ -114,7 +114,7 @@ void MotionRuntime::plannerLoop() {
     }
     if (!plan.valid()) {
       RuntimeEvent fail_event;
-      fail_event.type = RuntimeEventType::failed;
+      fail_event.type = RuntimeEventType::planning_rejected;
       fail_event.request_id = request.request_id;
       fail_event.message = plan.error_message.empty() ? std::string{"planning failed"} : plan.error_message;
       fail_event.total_segments = active_status_.total_segments;

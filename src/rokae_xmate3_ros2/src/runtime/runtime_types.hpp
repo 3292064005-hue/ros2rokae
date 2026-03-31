@@ -101,13 +101,38 @@ struct PlannedSegment {
   double path_exit_trim_m = 0.0;
   bool path_blended = false;
   double blend_length_m = 0.0;
+  std::string planner_primary_backend{"kdl"};
+  std::string planner_fallback_backend{"improved_dh"};
+  std::string planner_selected_branch{"nearest_seed"};
+  std::string planner_recommended_stop_point{"segment_start"};
+  std::string retimer_note{"nominal"};
+  double planner_branch_switch_risk = 0.0;
+  double planner_singularity_risk = 0.0;
+  double planner_continuity_risk = 0.0;
+  double planner_soft_limit_risk = 0.0;
 };
 
 struct MotionPlan {
   std::string request_id;
   std::vector<PlannedSegment> segments;
   std::vector<std::string> notes;
+  std::vector<std::string> degradation_chain;
   std::string error_message;
+  std::string primary_backend{"kdl"};
+  std::string fallback_backend{"improved_dh"};
+  std::string selected_branch{"nearest_seed"};
+  std::string recommended_stop_point{"segment_start"};
+  std::string retimer_family{"unified"};
+  std::string selection_policy{"risk_weighted"};
+  std::string selected_candidate{"nominal"};
+  std::vector<std::string> candidate_summaries;
+  std::string explanation_summary;
+  std::string dominant_motion_kind{"none"};
+  double estimated_duration = 0.0;
+  double branch_switch_risk = 0.0;
+  double singularity_risk = 0.0;
+  double continuity_risk = 0.0;
+  double soft_limit_risk = 0.0;
 
   [[nodiscard]] bool valid() const noexcept {
     return error_message.empty() && !segments.empty();
@@ -173,6 +198,7 @@ struct RuntimeStatus {
   ExecutionBackend execution_backend = ExecutionBackend::none;
   ControlOwner control_owner = ControlOwner::none;
   RuntimePhase runtime_phase = RuntimePhase::idle;
+  std::string last_event{"reset"};
 
   [[nodiscard]] bool terminal() const noexcept {
     return state == ExecutionState::completed || state == ExecutionState::completed_relaxed ||

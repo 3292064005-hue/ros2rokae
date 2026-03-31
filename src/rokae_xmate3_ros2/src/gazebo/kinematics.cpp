@@ -62,6 +62,9 @@ xMate3Kinematics::xMate3Kinematics() {
                              rokae_xmate3_ros2::spec::xmate3::kJointLimitMax.end());
     policy_ = detail::resolveKinematicsPolicy();
     backend_ = detail::makePreferredKinematicsBackend();
+    last_trace_.primary_backend = backendName();
+    last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.request_kind = "init";
 }
 
 // ==================================================
@@ -84,6 +87,12 @@ std::vector<Matrix4d> xMate3Kinematics::computeAllTransforms(const std::vector<d
 
 // -------------------------- 正运动学 - 完全保留你的原版 --------------------------
 Matrix4d xMate3Kinematics::forwardKinematics(const std::vector<double>& joints) {
+    last_trace_.request_kind = "fk";
+    last_trace_.primary_backend = backendName();
+    last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_used = false;
+    last_trace_.selected_branch.clear();
+    last_trace_.note.clear();
     if (backend_) {
         return backend_->computeForwardTransform(joints);
     }
@@ -144,7 +153,14 @@ xMate3Kinematics::SingularityAnalysis::SingularityAnalysis()
 std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolution(
         const std::vector<double>& target,
         const std::vector<double>& current_joints) {
+    last_trace_.request_kind = "ik_multi";
+    last_trace_.primary_backend = backendName();
+    last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_used = false;
+    last_trace_.selected_branch.clear();
+    last_trace_.note.clear();
     if (!backend_ || target.size() < 6 || current_joints.size() < 6) {
+        last_trace_.note = "invalid_ik_multi_input";
         return {};
     }
 
@@ -159,6 +175,11 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
     for (const auto &candidate : solved.candidates) {
         candidates.push_back(candidate.q);
     }
+    if (!solved.chosen_branch.empty()) {
+        last_trace_.selected_branch = solved.chosen_branch;
+    }
+    last_trace_.singularity_metric = solved.singularity_metric;
+    last_trace_.note = solved.message;
     return candidates;
 }
 
@@ -175,7 +196,14 @@ std::vector<double> xMate3Kinematics::inverseKinematics(
 std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
         const std::vector<double>& target,
         const std::vector<double>& seed_joints) {
+    last_trace_.request_kind = "ik_seeded";
+    last_trace_.primary_backend = backendName();
+    last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_used = false;
+    last_trace_.selected_branch.clear();
+    last_trace_.note.clear();
     if (!backend_ || target.size() < 6 || seed_joints.size() < 6) {
+        last_trace_.note = "invalid_ik_seed_input";
         return {};
     }
 
@@ -184,11 +212,19 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
         seed_joints,
         joint_limits_min_,
         joint_limits_max_);
-    return backend_->solveSeeded(request).q;
+    const auto solved = backend_->solveSeeded(request);
+    last_trace_.selected_branch = solved.chosen_branch;
+    last_trace_.singularity_metric = solved.singularity_metric;
+    last_trace_.note = solved.message;
+    return solved.q;
 }
 
 xMate3Kinematics::Matrix6d xMate3Kinematics::computeJacobian(const std::vector<double>& joints) {
     ++debug_counters_.jacobian_calls;
+    last_trace_.request_kind = "jacobian";
+    last_trace_.primary_backend = backendName();
+    last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_used = false;
     if (backend_) {
         return backend_->computeJacobian(joints);
     }
@@ -322,6 +358,19 @@ xMate3Kinematics::IkSelectionResult xMate3Kinematics::selectBestIkSolution(
     result.branch_id = selected.branch_id;
     result.note = selected.note;
     result.message = selected.message;
+
+    last_trace_.request_kind = "ik_select";
+    last_trace_.primary_backend = backendName();
+    last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_used = selected.note.find("fallback") != std::string::npos ||
+                                selected.note.find("relaxed") != std::string::npos;
+    last_trace_.selected_branch = selected.branch_id;
+    last_trace_.note = selected.note.empty() ? selected.message : selected.note;
+    if (selected.success && !selected.q.empty()) {
+        const auto metrics = evaluateIkCandidate(selected.q, seed_joints);
+        last_trace_.continuity_cost = metrics.continuity_cost;
+        last_trace_.singularity_metric = metrics.singularity_metric;
+    }
     return result;
 }
 
@@ -354,8 +403,19 @@ bool xMate3Kinematics::buildCartesianJointTrajectory(
         cartesian_transforms.push_back(rpyToTransform(pose));
     }
 
-    return backend_->buildCartesianJointTrajectory(
+    const bool ok = backend_->buildCartesianJointTrajectory(
         cartesian_transforms, initial_seed, backend_options, joint_trajectory, last_joints, error_message);
+    last_trace_.request_kind = "ik_trajectory";
+    last_trace_.primary_backend = backendName();
+    last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_used = false;
+    last_trace_.note = ok ? "trajectory_projection_ok" : error_message;
+    if (ok && !joint_trajectory.empty()) {
+        const auto metrics = evaluateIkCandidate(joint_trajectory.back(), initial_seed);
+        last_trace_.continuity_cost = metrics.continuity_cost;
+        last_trace_.singularity_metric = metrics.singularity_metric;
+    }
+    return ok;
 }
 
 bool xMate3Kinematics::projectCartesianJointDerivatives(
@@ -379,12 +439,18 @@ bool xMate3Kinematics::projectCartesianJointDerivatives(
     debug_counters_.jacobian_calls += joint_trajectory.size();
     debug_counters_.svd_calls += joint_trajectory.size();
 
-    return backend_->projectCartesianJointDerivatives(
+    const bool ok = backend_->projectCartesianJointDerivatives(
         cartesian_transforms,
         joint_trajectory,
         trajectory_dt,
         joint_velocity_trajectory,
         joint_acceleration_trajectory);
+    last_trace_.request_kind = "ik_derivatives";
+    last_trace_.primary_backend = backendName();
+    last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_used = false;
+    last_trace_.note = ok ? "derivative_projection_ok" : "derivative_projection_failed";
+    return ok;
 }
 
 void xMate3Kinematics::resetDebugCounters() {
@@ -411,6 +477,10 @@ const char *xMate3Kinematics::backendName() const noexcept {
 
 const KinematicsPolicy &xMate3Kinematics::policy() const noexcept {
     return policy_;
+}
+
+const xMate3Kinematics::RequestTrace &xMate3Kinematics::lastTrace() const noexcept {
+    return last_trace_;
 }
 
 // -------------------------- 改进DH变换矩阵 - 完全保留你的原版 --------------------------

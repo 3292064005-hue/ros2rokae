@@ -19,6 +19,7 @@ class RuntimeDiagnosticsState {
   void updateRuntimeStatus(const RuntimeStatus &status);
   void updateShutdownContract(const RuntimeContractView &view);
   void notePlanFailure(const std::string &message);
+  void notePlanSummary(const std::string &summary, const std::string &selected_candidate = "nominal");
   void noteRetimerNote(const std::string &message);
   void setLastServoDt(double dt);
   void setSessionModes(int motion_mode, int rt_mode);
@@ -26,10 +27,21 @@ class RuntimeDiagnosticsState {
   void setLoopMetrics(double loop_hz, double state_stream_hz, double command_latency_ms);
   void setRtSubscriptionPlan(const std::string &summary);
   void setRtPrearmStatus(const std::string &status);
-  void setRtWatchdogSummary(const std::string &summary, std::uint32_t late_cycle_count, double max_gap_ms);
+  void setRtWatchdogSummary(const std::string &summary,
+                            std::uint32_t late_cycle_count,
+                            double max_gap_ms,
+                            double avg_gap_ms,
+                            std::uint32_t consecutive_late_cycles,
+                            std::uint32_t stale_state_count,
+                            std::uint32_t command_starvation_windows,
+                            const std::string &last_trigger_reason);
   void setProfileCapabilitySummary(const std::string &summary);
+  void setPlanningCapabilitySummary(const std::string &summary);
   void setRuntimeOptionSummary(const std::string &summary);
-  void setCatalogSizes(std::uint32_t tool_count, std::uint32_t wobj_count, std::uint32_t project_count, std::uint32_t register_count);
+  void setCatalogSizes(std::uint32_t tool_count,
+                       std::uint32_t wobj_count,
+                       std::uint32_t project_count,
+                       std::uint32_t register_count);
   [[nodiscard]] RuntimeDiagnosticsSnapshot snapshot() const;
 
  private:

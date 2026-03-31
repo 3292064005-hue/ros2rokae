@@ -14,6 +14,7 @@ struct RtPrearmCheckInput {
   bool power_on = false;
   bool network_tolerance_configured = true;
   std::string active_profile{"unknown"};
+  std::vector<std::string> capability_flags;
   RtSubscriptionPlan subscription_plan;
 };
 

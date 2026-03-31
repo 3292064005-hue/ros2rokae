@@ -17,11 +17,17 @@ void appendPlannerTrace(std::vector<std::string> &notes,
   if (!report.auxiliary_backend.empty()) {
     notes.push_back("planner_aux_backend=" + report.auxiliary_backend);
   }
+  if (!report.fallback_backend.empty()) {
+    notes.push_back("planner_fallback_backend=" + report.fallback_backend);
+  }
   if (!report.retimer_family.empty()) {
     notes.push_back("planner_retimer_family=" + report.retimer_family);
   }
   if (!report.branch_policy.empty()) {
     notes.push_back("planner_branch_policy=" + report.branch_policy);
+  }
+  if (!report.selected_branch.empty()) {
+    notes.push_back("planner_selected_branch=" + report.selected_branch);
   }
   if (!report.dominant_motion_kind.empty()) {
     notes.push_back("planner_motion_kind=" + report.dominant_motion_kind);
@@ -31,6 +37,15 @@ void appendPlannerTrace(std::vector<std::string> &notes,
   notes.push_back(std::string("planner_avoid_singularity=") + (report.avoid_singularity ? "true" : "false"));
   notes.push_back(std::string("planner_soft_limit_enabled=") + (report.soft_limit_enabled ? "true" : "false"));
   notes.push_back(std::string("planner_fallback_permitted=") + (report.fallback_permitted ? "true" : "false"));
+  notes.push_back(std::string("planner_fallback_used=") + (report.fallback_used ? "true" : "false"));
+  notes.push_back("planner_estimated_duration=" + std::to_string(report.estimated_duration));
+  notes.push_back("planner_branch_switch_risk=" + std::to_string(report.branch_switch_risk));
+  notes.push_back("planner_singularity_risk=" + std::to_string(report.singularity_risk));
+  notes.push_back("planner_continuity_risk=" + std::to_string(report.continuity_risk));
+  notes.push_back("planner_soft_limit_risk=" + std::to_string(report.soft_limit_risk));
+  if (!report.recommended_stop_point.empty()) {
+    notes.push_back("planner_recommended_stop_point=" + report.recommended_stop_point);
+  }
   notes.insert(notes.end(), report.notes.begin(), report.notes.end());
 }
 

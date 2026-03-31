@@ -45,9 +45,9 @@ constexpr double kTrajectoryCompletionInferenceGraceSec = 0.35;
 constexpr double kTrajectoryCompletionWallClockGraceSec = 0.5;
 constexpr double kTrajectoryCompletionInferenceVelocityRadPerSec = 0.02;
 
-std::array<double, 6> vectorToArray(const std::vector<double> &values,
-                                    const std::array<double, 6> &fallback,
-                                    double min_value) {
+[[maybe_unused]] std::array<double, 6> vectorToArray(const std::vector<double> &values,
+                                                     const std::array<double, 6> &fallback,
+                                                     double min_value) {
   std::array<double, 6> resolved = fallback;
   if (values.size() < resolved.size()) {
     return resolved;
@@ -61,7 +61,7 @@ std::array<double, 6> vectorToArray(const std::vector<double> &values,
   return resolved;
 }
 
-BackendMode parseBackendMode(const std::string &value) {
+[[maybe_unused]] BackendMode parseBackendMode(const std::string &value) {
   if (value == "effort") {
     return BackendMode::effort;
   }
@@ -71,7 +71,7 @@ BackendMode parseBackendMode(const std::string &value) {
   return BackendMode::hybrid;
 }
 
-const char *toString(BackendMode mode) {
+[[maybe_unused]] const char *toString(BackendMode mode) {
   switch (mode) {
     case BackendMode::effort:
       return "effort";
@@ -83,7 +83,7 @@ const char *toString(BackendMode mode) {
   }
 }
 
-std::vector<std::string> diagnosticCapabilityFlags(BackendMode mode) {
+[[maybe_unused]] std::vector<std::string> diagnosticCapabilityFlags(BackendMode mode) {
   std::vector<std::string> flags{
       "simulation.gazebo11",
       "ros2.humble",

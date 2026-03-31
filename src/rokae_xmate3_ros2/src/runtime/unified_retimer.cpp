@@ -91,11 +91,20 @@ struct ReplayVectorSample {
 [[nodiscard]] RetimerMetadata make_metadata(RetimerSourceFamily source_family,
                                             double effective_speed_scale = 1.0,
                                             bool clamped = false,
-                                            RetimerNote note = RetimerNote::nominal) {
+                                            RetimerNote note = RetimerNote::nominal,
+                                            RetimerPolicy policy = RetimerPolicy::nominal) {
   RetimerMetadata metadata;
   metadata.source_family = source_family;
+  metadata.policy = policy;
   metadata.effective_speed_scale = effective_speed_scale;
   metadata.clamped = clamped;
+  metadata.velocity_clamped = clamped;
+  metadata.acceleration_clamped = clamped;
+  metadata.jerk_constrained = true;
+  metadata.cartesian_fallback_used = note == RetimerNote::cartesian_fallback_to_joint;
+  metadata.detail = std::fabs(effective_speed_scale - 1.0) > 1e-9
+                        ? ("effective_speed_scale=" + std::to_string(effective_speed_scale))
+                        : std::string{};
   if (note != RetimerNote::nominal) {
     metadata.note = note;
   } else if (clamped) {
@@ -112,10 +121,11 @@ struct ReplayVectorSample {
                                                       RetimerSourceFamily source_family,
                                                       double effective_speed_scale = 1.0,
                                                       bool clamped = false,
-                                                      RetimerNote note = RetimerNote::nominal) {
+                                                      RetimerNote note = RetimerNote::nominal,
+                                                      RetimerPolicy policy = RetimerPolicy::nominal) {
   UnifiedTrajectoryResult result;
   result.samples = canonical_samples(std::move(trajectory));
-  result.metadata = make_metadata(source_family, effective_speed_scale, clamped, note);
+  result.metadata = make_metadata(source_family, effective_speed_scale, clamped, note, policy);
   result.metadata.sample_dt = result.samples.sample_dt;
   result.metadata.total_duration = result.samples.total_time;
   return result;
@@ -124,6 +134,12 @@ struct ReplayVectorSample {
 void sync_metadata(UnifiedTrajectoryResult &result) {
   result.metadata.sample_dt = result.samples.sample_dt;
   result.metadata.total_duration = result.samples.total_time;
+  if (result.metadata.note == RetimerNote::cartesian_fallback_to_joint) {
+    result.metadata.cartesian_fallback_used = true;
+  }
+  if (result.metadata.note == RetimerNote::degenerate_path && result.metadata.detail.empty()) {
+    result.metadata.detail = "degenerate_path";
+  }
 }
 
 [[nodiscard]] double sanitize_replay_time(double requested,
@@ -453,51 +469,132 @@ const char *to_string(RetimerNote note) noexcept {
   }
 }
 
-std::string describeRetimerMetadata(const RetimerMetadata &metadata,
-                                    std::string_view context,
-                                    std::string_view detail) {
-  std::ostringstream stream;
-  if (!context.empty()) {
-    stream << context << ' ';
+
+const char *to_string(RetimerPolicy policy) noexcept {
+  switch (policy) {
+    case RetimerPolicy::conservative:
+      return "conservative";
+    case RetimerPolicy::online_safe:
+      return "online_safe";
+    case RetimerPolicy::nominal:
+    default:
+      return "nominal";
   }
-  stream << "retimer[" << to_string(metadata.source_family) << "] note="
-         << to_string(metadata.note) << " sample_dt=" << metadata.sample_dt
-         << " total_time=" << metadata.total_duration
-         << " speed_scale=" << metadata.effective_speed_scale
-         << " clamped=" << (metadata.clamped ? "true" : "false");
-  if (!detail.empty()) {
-    stream << " detail=" << detail;
-  }
-  return stream.str();
 }
 
-JointRetimerConfig makeUnifiedRetimerConfig(double sample_dt) {
-  const auto planner_config = ::gazebo::TrajectoryPlanner::config();
+JointRetimerConfig makeUnifiedRetimerConfig(double sample_dt, RetimerPolicy policy) {
   JointRetimerConfig config;
-  config.joint_speed_limits_rad_per_sec = planner_config.joint_speed_limits_rad_per_sec;
-  config.joint_acc_limits_rad_per_sec2 = planner_config.joint_acc_limits_rad_per_sec2;
-  config.sample_dt = std::max(sample_dt, 1e-3);
-  config.min_sample_dt = planner_config.min_sample_dt;
-  config.max_sample_dt = planner_config.max_sample_dt;
-  config.max_joint_step_rad = planner_config.max_joint_step_rad;
+  config.sample_dt = std::clamp(sample_dt, config.min_sample_dt, config.max_sample_dt);
+  if (policy == RetimerPolicy::conservative) {
+    config.max_joint_step_rad *= 0.6;
+    config.max_sample_dt = std::min(config.max_sample_dt, 0.02);
+    config.sample_dt = std::clamp(config.sample_dt, config.min_sample_dt, config.max_sample_dt);
+  } else if (policy == RetimerPolicy::online_safe) {
+    config.max_joint_step_rad *= 0.5;
+    config.max_sample_dt = std::min(config.max_sample_dt, 0.005);
+    config.sample_dt = std::clamp(config.sample_dt, config.min_sample_dt, config.max_sample_dt);
+  }
   return config;
 }
 
 UnifiedRetimerLimits makeUnifiedRetimerLimits(double max_velocity,
                                               double max_acceleration,
-                                              double blend_radius) {
-  constexpr double kPi = 3.14159265358979323846;
-  const double blend_window = std::clamp(blend_radius, 0.0, 1.0);
-  const double smoothing_scale = 1.0 / (1.0 + 0.25 * blend_window);
+                                              double blend_radius,
+                                              RetimerPolicy policy) {
+  const auto planner_config = ::gazebo::TrajectoryPlanner::config();
+  const double min_velocity_limit =
+      *std::min_element(planner_config.joint_speed_limits_rad_per_sec.begin(),
+                        planner_config.joint_speed_limits_rad_per_sec.end());
+  const double min_acceleration_limit =
+      *std::min_element(planner_config.joint_acc_limits_rad_per_sec2.begin(),
+                        planner_config.joint_acc_limits_rad_per_sec2.end());
+  const double velocity = std::max(max_velocity, min_velocity_limit);
+  const double acceleration = std::max(max_acceleration, min_acceleration_limit);
+  const double blend_scale = 1.0 / (1.0 + 0.5 * std::max(blend_radius, 0.0));
+  double velocity_scale = blend_scale;
+  double acceleration_scale = blend_scale;
+  if (policy == RetimerPolicy::conservative) {
+    velocity_scale *= 0.85;
+    acceleration_scale *= 0.70;
+  } else if (policy == RetimerPolicy::online_safe) {
+    velocity_scale *= 0.70;
+    acceleration_scale *= 0.55;
+  }
+  return {uniform_axis_limits(velocity * velocity_scale, min_velocity_limit),
+          uniform_axis_limits(acceleration * acceleration_scale, min_acceleration_limit)};
+}
 
-  UnifiedRetimerLimits limits;
-  limits.velocity_limits =
-      uniform_axis_limits(std::clamp(max_velocity > 0.0 ? max_velocity : kPi, 0.05, kPi) * smoothing_scale, 0.05);
-  limits.acceleration_limits = uniform_axis_limits(
-      std::clamp(max_acceleration > 0.0 ? max_acceleration : 2.0 * kPi, 0.05, 10.0 * kPi) * smoothing_scale *
-          smoothing_scale,
-      0.05);
-  return limits;
+RetimerValidationReport validateUnifiedRetimerInput(
+    const std::vector<std::vector<double>> &waypoints,
+    double sample_dt,
+    const std::array<double, 6> &velocity_limits,
+    const std::array<double, 6> &acceleration_limits,
+    RetimerPolicy policy) {
+  RetimerValidationReport report;
+  report.waypoint_count = waypoints.size();
+  const auto config = makeUnifiedRetimerConfig(sample_dt, policy);
+  report.sample_dt_clamped = std::fabs(config.sample_dt - sample_dt) > 1e-9;
+  if (waypoints.empty()) {
+    report.error_message = "joint path is empty";
+    return report;
+  }
+  if (waypoints.size() == 1) {
+    report.ok = true;
+    report.degenerate_path = true;
+    return report;
+  }
+  for (const auto &waypoint : waypoints) {
+    if (waypoint.size() < 6) {
+      report.error_message = "joint waypoint dimension is less than 6";
+      return report;
+    }
+    for (double value : waypoint) {
+      if (!std::isfinite(value)) {
+        report.error_message = "joint waypoint contains non-finite value";
+        return report;
+      }
+    }
+  }
+  for (std::size_t axis = 0; axis < 6; ++axis) {
+    if (!std::isfinite(velocity_limits[axis]) || velocity_limits[axis] <= 0.0) {
+      report.error_message = "velocity limit is non-positive";
+      return report;
+    }
+    if (!std::isfinite(acceleration_limits[axis]) || acceleration_limits[axis] <= 0.0) {
+      report.error_message = "acceleration limit is non-positive";
+      return report;
+    }
+  }
+  report.ok = true;
+  return report;
+}
+
+std::string describeRetimerMetadata(const RetimerMetadata &metadata,
+                                    std::string_view context,
+                                    std::string_view detail) {
+  std::ostringstream oss;
+  if (!context.empty()) {
+    oss << context << ' ';
+  }
+  oss << "retimer[" << to_string(metadata.source_family) << "]"
+      << " note=" << to_string(metadata.note)
+      << " sample_dt=" << metadata.sample_dt
+      << " total_duration=" << metadata.total_duration
+      << " policy=" << to_string(metadata.policy)
+      << " effective_speed_scale=" << metadata.effective_speed_scale
+      << " clamped=" << (metadata.clamped ? "true" : "false")
+      << " velocity_clamped=" << (metadata.velocity_clamped ? "true" : "false")
+      << " acceleration_clamped=" << (metadata.acceleration_clamped ? "true" : "false")
+      << " jerk_constrained=" << (metadata.jerk_constrained ? "true" : "false")
+      << " blend_trim_applied=" << (metadata.blend_trim_applied ? "true" : "false")
+      << " cartesian_fallback_used=" << (metadata.cartesian_fallback_used ? "true" : "false");
+  if (!metadata.detail.empty()) {
+    oss << " detail=" << metadata.detail;
+  }
+  if (!detail.empty()) {
+    oss << " " << detail;
+  }
+  return oss.str();
 }
 
 UnifiedTrajectoryResult retimeJointWithUnifiedConfig(const std::vector<double> &start,
@@ -506,9 +603,10 @@ UnifiedTrajectoryResult retimeJointWithUnifiedConfig(const std::vector<double> &
                                                      double max_velocity,
                                                      double max_acceleration,
                                                      double blend_radius,
-                                                     RetimerSourceFamily source_family) {
+                                                     RetimerSourceFamily source_family,
+                                                     RetimerPolicy policy) {
   return retimeJointPathWithUnifiedConfig(
-      {start, target}, sample_dt, max_velocity, max_acceleration, blend_radius, source_family);
+      {start, target}, sample_dt, max_velocity, max_acceleration, blend_radius, source_family, 1.0, policy);
 }
 
 UnifiedTrajectoryResult retimeJointWithUnifiedLimits(const std::vector<double> &start,
@@ -516,9 +614,10 @@ UnifiedTrajectoryResult retimeJointWithUnifiedLimits(const std::vector<double> &
                                                      double sample_dt,
                                                      const std::array<double, 6> &velocity_limits,
                                                      const std::array<double, 6> &acceleration_limits,
-                                                     RetimerSourceFamily source_family) {
+                                                     RetimerSourceFamily source_family,
+                                                     RetimerPolicy policy) {
   return retimeJointPathWithUnifiedLimits(
-      {start, target}, sample_dt, velocity_limits, acceleration_limits, source_family);
+      {start, target}, sample_dt, velocity_limits, acceleration_limits, source_family, 1.0, policy);
 }
 
 std::array<double, 6> scaledUnifiedVelocityLimits(double speed_mm_per_s) {
@@ -557,12 +656,23 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
     const std::array<double, 6> &velocity_limits,
     const std::array<double, 6> &acceleration_limits,
     RetimerSourceFamily source_family,
-    double effective_speed_scale) {
-  const auto config = makeUnifiedRetimerConfig(sample_dt);
+    double effective_speed_scale,
+    RetimerPolicy policy) {
+  const auto config = makeUnifiedRetimerConfig(sample_dt, policy);
   const bool sample_dt_clamped = std::fabs(config.sample_dt - sample_dt) > 1e-9;
-  auto result = wrap_trajectory({}, source_family, effective_speed_scale, sample_dt_clamped);
+  auto result = wrap_trajectory({}, source_family, effective_speed_scale, sample_dt_clamped, RetimerNote::nominal, policy);
   auto &trajectory = result.samples;
+  const auto validation = validateUnifiedRetimerInput(waypoints, sample_dt, velocity_limits, acceleration_limits, policy);
+  result.metadata.velocity_clamped = validation.velocity_limit_clamped || result.metadata.clamped;
+  result.metadata.acceleration_clamped = validation.acceleration_limit_clamped || result.metadata.clamped;
   const auto normalized_waypoints = normalize_joint_waypoints(waypoints);
+  if (!validation.ok) {
+    trajectory.error_message = validation.error_message;
+    result.metadata.note = RetimerNote::degenerate_path;
+    result.metadata.detail = validation.error_message;
+    sync_metadata(result);
+    return result;
+  }
   if (normalized_waypoints.empty()) {
     trajectory.error_message = "joint path is empty";
     result.metadata.note = RetimerNote::degenerate_path;
@@ -576,6 +686,7 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
     trajectory.sample_dt = std::max(sample_dt, 1e-3);
     trajectory.total_time = 0.0;
     result.metadata.note = RetimerNote::degenerate_path;
+    result.metadata.detail = "single_waypoint_hold";
     sync_metadata(result);
     return result;
   }
@@ -647,24 +758,27 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedConfig(const std::vector<std::
                                                          double max_acceleration,
                                                          double blend_radius,
                                                          RetimerSourceFamily source_family,
-                                                         double effective_speed_scale) {
-  const auto limits = makeUnifiedRetimerLimits(max_velocity, max_acceleration, blend_radius);
+                                                         double effective_speed_scale,
+                                                         RetimerPolicy policy) {
+  const auto limits = makeUnifiedRetimerLimits(max_velocity, max_acceleration, blend_radius, policy);
   return retimeJointPathWithUnifiedLimits(
-      waypoints, sample_dt, limits.velocity_limits, limits.acceleration_limits, source_family, effective_speed_scale);
+      waypoints, sample_dt, limits.velocity_limits, limits.acceleration_limits, source_family, effective_speed_scale, policy);
 }
 
 UnifiedTrajectoryResult retimeJointPathWithUnifiedSpeed(const std::vector<std::vector<double>> &waypoints,
                                                         double sample_dt,
                                                         double speed_mm_per_s,
                                                         RetimerSourceFamily source_family,
-                                                        double effective_speed_scale) {
+                                                        double effective_speed_scale,
+                                                        RetimerPolicy policy) {
   return retimeJointPathWithUnifiedLimits(
       waypoints,
       sample_dt,
       scaledUnifiedVelocityLimits(speed_mm_per_s),
       scaledUnifiedAccelerationLimits(speed_mm_per_s),
       source_family,
-      effective_speed_scale);
+      effective_speed_scale,
+      policy);
 }
 
 std::vector<std::vector<double>> resampleCartesianPosePath(const std::vector<std::vector<double>> &poses,
@@ -696,8 +810,9 @@ std::vector<std::vector<double>> resampleCartesianPosePath(const std::vector<std
 UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
     ::gazebo::xMate3Kinematics &kinematics,
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &request,
-    double sample_dt) {
-  auto result = wrap_trajectory({}, RetimerSourceFamily::s_trajectory);
+    double sample_dt,
+    RetimerPolicy policy) {
+  auto result = wrap_trajectory({}, RetimerSourceFamily::s_trajectory, 1.0, false, RetimerNote::nominal, policy);
   auto &trajectory = result.samples;
 
   std::vector<double> start(request.start_joint_pos.begin(), request.start_joint_pos.end());
@@ -743,7 +858,9 @@ UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
       request.max_velocity,
       request.max_acceleration,
       request.blend_radius,
-      RetimerSourceFamily::s_trajectory);
+      RetimerSourceFamily::s_trajectory,
+      1.0,
+      policy);
   if (retimed.empty()) {
     retimed.samples.error_message = retimed.samples.error_message.empty()
                                            ? "cartesian unified retimer failed"
@@ -775,9 +892,10 @@ UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
 
 UnifiedTrajectoryResult retimeReplayWithUnifiedConfig(const ReplayPathAsset &asset,
                                                       double rate,
-                                                      double sample_dt) {
+                                                      double sample_dt,
+                                                      RetimerPolicy policy) {
   auto result = wrap_trajectory(
-      {}, RetimerSourceFamily::replay, std::max(rate, 0.05), false, RetimerNote::replay_retimed);
+      {}, RetimerSourceFamily::replay, std::max(rate, 0.05), false, RetimerNote::replay_retimed, policy);
   auto &trajectory = result.samples;
   if (asset.samples.empty()) {
     trajectory.error_message = "Path is empty";
