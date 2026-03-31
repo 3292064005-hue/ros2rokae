@@ -12,21 +12,25 @@ void RuntimeDiagnosticsState::configure(const std::string &backend_mode,
   snapshot_.backend_mode = backend_mode.empty() ? std::string{"unknown"} : backend_mode;
   snapshot_.capability_flags = capability_flags;
   snapshot_.active_profile = active_profile.empty() ? std::string{"unknown"} : active_profile;
+  snapshot_.rt_prearm_status = snapshot_.active_profile.find("rt") != std::string::npos ? std::string{"pending"} : std::string{"not_applicable"};
 }
 
 void RuntimeDiagnosticsState::updateRuntimeStatus(const RuntimeStatus &status) {
   std::lock_guard<std::mutex> lock(mutex_);
   snapshot_.control_owner = to_string(status.control_owner);
   snapshot_.runtime_phase = to_string(status.runtime_phase);
+  snapshot_.active_execution_backend = to_string(status.execution_backend);
   if (!status.request_id.empty() && !status.terminal()) {
-    snapshot_.active_request_count = std::max<std::uint32_t>(snapshot_.active_request_count, 1u);
-  } else if (snapshot_.shutdown_phase == "running") {
-    snapshot_.active_request_count = 0;
+    snapshot_.active_request_count = 1u;
+    snapshot_.active_request_id = status.request_id;
+  } else {
+    snapshot_.active_request_count = 0u;
+    snapshot_.active_request_id.clear();
   }
   if (status.execution_backend == ExecutionBackend::jtc && !status.terminal()) {
-    snapshot_.active_goal_count = std::max<std::uint32_t>(snapshot_.active_goal_count, 1u);
-  } else if (snapshot_.shutdown_phase == "running") {
-    snapshot_.active_goal_count = 0;
+    snapshot_.active_goal_count = 1u;
+  } else {
+    snapshot_.active_goal_count = 0u;
   }
   if (status.state == ExecutionState::failed && !status.message.empty()) {
     snapshot_.last_plan_failure = status.message;
@@ -86,6 +90,62 @@ void RuntimeDiagnosticsState::setLoopMetrics(double loop_hz, double state_stream
   snapshot_.loop_hz = std::isfinite(loop_hz) ? std::max(0.0, loop_hz) : 0.0;
   snapshot_.state_stream_hz = std::isfinite(state_stream_hz) ? std::max(0.0, state_stream_hz) : 0.0;
   snapshot_.command_latency_ms = std::isfinite(command_latency_ms) ? std::max(0.0, command_latency_ms) : 0.0;
+}
+
+void RuntimeDiagnosticsState::setRtSubscriptionPlan(const std::string &summary) {
+  if (summary.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.rt_subscription_plan = summary;
+}
+
+void RuntimeDiagnosticsState::setRtPrearmStatus(const std::string &status) {
+  if (status.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.rt_prearm_status = status;
+}
+
+void RuntimeDiagnosticsState::setRtWatchdogSummary(const std::string &summary,
+                                                   std::uint32_t late_cycle_count,
+                                                   double max_gap_ms) {
+  if (summary.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.rt_watchdog_summary = summary;
+  snapshot_.rt_late_cycle_count = late_cycle_count;
+  snapshot_.rt_max_gap_ms = std::isfinite(max_gap_ms) ? std::max(0.0, max_gap_ms) : 0.0;
+}
+
+
+void RuntimeDiagnosticsState::setProfileCapabilitySummary(const std::string &summary) {
+  if (summary.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.profile_capability_summary = summary;
+}
+
+void RuntimeDiagnosticsState::setRuntimeOptionSummary(const std::string &summary) {
+  if (summary.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.runtime_option_summary = summary;
+}
+
+void RuntimeDiagnosticsState::setCatalogSizes(std::uint32_t tool_count,
+                                              std::uint32_t wobj_count,
+                                              std::uint32_t project_count,
+                                              std::uint32_t register_count) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.tool_catalog_size = tool_count;
+  snapshot_.wobj_catalog_size = wobj_count;
+  snapshot_.project_catalog_size = project_count;
+  snapshot_.register_catalog_size = register_count;
 }
 
 RuntimeDiagnosticsSnapshot RuntimeDiagnosticsState::snapshot() const {

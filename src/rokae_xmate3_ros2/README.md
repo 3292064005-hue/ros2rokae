@@ -45,6 +45,7 @@
 更严格的当前实现面判断见 [docs/IMPLEMENTATION_AUDIT.md](docs/IMPLEMENTATION_AUDIT.md)，剩余硬化任务见 [docs/HARDENING_BACKLOG.md](docs/HARDENING_BACKLOG.md)。
 
 ### 运动能力
+- RT 字段注册 / 订阅计划 / 预启动检查 / watchdog 诊断（仿真级）
 - `MoveAbsJ`
 - `MoveJ`
 - `MoveL`
@@ -66,6 +67,7 @@
 - `rokae/utility.h` 与官方示例同名工具头
 - `/xmate3/io/*` 与 `/xmate3/cobot/*` 双命名空间兼容
 - 寄存器、RL、奇异位规避、末端力矩等仿真接口
+- runtime-backed 寄存器命名空间描述（内部骨架）
 - 扩展主接口优先策略：`ReadRegisterEx / WriteRegisterEx / GetEndWrench / GetRlProjectInfo / SetXPanelVout` 为首选，旧接口保留兼容 façade
 - 兼容别名 `/xmate3/cobot/get_joint_torque`、`/xmate3/cobot/get_end_torque` 保留不变，底层类型统一到 `GetJointTorques` / `GetEndEffectorTorque`
 - 内建 `/xmate3/internal/validate_motion`、`/xmate3/internal/get_runtime_diagnostics` 和 `/xmate3/internal/runtime_status` 用于预验证与运行时诊断
@@ -183,6 +185,7 @@ ros2 run rokae_xmate3_ros2 example_25_rt_s_line
 ```bash
 ros2 service call /xmate3/internal/get_runtime_diagnostics rokae_xmate3_ros2/srv/GetRuntimeDiagnostics "{}"
 ros2 topic echo /xmate3/internal/runtime_status --once
+# diagnostics 里新增关注 rt_subscription_plan / rt_prearm_status / rt_watchdog_summary
 ```
 
 默认发布验收命令：
@@ -504,3 +507,33 @@ Licensed under the Apache License, Version 2.0.
 - `docs/MODEL_TRACEABILITY.md`：手册参数与内部表示映射
 - `docs/FIDELITY_POLICY.md`：StrictAligned / SimApprox / Experimental 语义
 - `config/ros2_control_nrt.yaml` / `config/ros2_control_rt.yaml`：控制周期配置拆分
+- `docs/RUNTIME_CATALOG_POLICY.md`：RL / tool / wobj 目录以 runtime 为唯一真相源
+
+
+## Pass 3 架构收口
+
+- 新增 `runtime_state_machine`，把 runtime 最终状态落地从执行循环里显式抽出。
+- 将 `QueryFacade` 继续拆成 state / kinematics / diagnostics 三个实现单元。
+- 将 SDK state 侧继续拆成 cache / queries 两块，减少 wrapper 混域。
+- 新增 `planner_preflight` 与 `planner_trace`，让 planner 进入“可解释、可拒绝”的结构化阶段。
+
+
+## Pass 4 平台定型
+
+- 新增 `runtime_catalog_service` 与 `query_catalog_service`，把 RL / tool / wobj 目录正式收回 runtime query 域。
+- `ValidateMotion` 现在先运行结构化 `planner_preflight`，再进入 planner，从而稳定输出 preflight / backend / branch policy 线索。
+- 增加 `test_planner_preflight` 与 `test_runtime_catalog_service`，把解释型规划和 runtime 目录真相源写进测试。
+
+
+## Pass 6 additions
+
+- Runtime profile capability matrix
+- Runtime option catalog descriptors
+- Diagnostics exposure for profile/runtime-option/catalog summaries
+
+
+## Pass 7 highlights
+
+- Added an internal/runtime profile capability query surface
+- Runtime diagnostics now expose the active request id and execution backend
+- SDK wrapper can fetch profile and runtime-option capability snapshots

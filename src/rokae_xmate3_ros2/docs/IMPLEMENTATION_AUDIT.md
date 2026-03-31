@@ -54,9 +54,13 @@ What is in place:
 - runtime diagnostics now expose `motion_mode`, `rt_mode`, `active_profile`, `loop_hz`, `state_stream_hz`, `command_latency_ms`
 
 What is still missing for a stronger claim:
-- field-driven RT subscription registry
-- watchdog / pre-arm checks / richer RT loop stats
+- richer loop statistics and capability matrix exposure
 - stronger request-level tests around RT command semantics
+- controller-grade network / watchdog semantics
+
+Pass 5 progress:
+- field-driven RT registry and subscription plan scaffolding now exist
+- pre-arm checks and watchdog summaries now feed runtime diagnostics
 
 ### 4.6 IO and communication
 
@@ -70,6 +74,7 @@ What is in place:
 
 What is still approximate:
 - register and xPanel semantics are runtime/Gazebo models, not controller-native transport
+- register descriptor scaffolding exists but is not yet exposed as a preferred query contract
 
 ### 4.7 RL project interfaces
 
@@ -81,9 +86,10 @@ What is in place:
 - `PauseRLProject`
 - `SetProjectRunningOpt`
 - `GetToolCatalog` / `GetWobjCatalog`
+- query-domain catalog normalization via `runtime_catalog_service`
 
 What is still approximate:
-- project catalogs are runtime-backed simulated catalogs
+- project catalogs are runtime-backed normalized catalogs
 - execution semantics are not controller-native RL project execution
 
 ### 4.8 Cobot-specific interfaces
@@ -107,10 +113,10 @@ Status: **Not fully closed**
 What is in place:
 - planner runtime core and validation entrypoints
 - blended motion and retiming scaffolding
-- motion validation and preflight hooks
+- motion validation and structured preflight hooks
 
 What still needs hardening:
-- request-visible preflight reports
+- richer request-visible preflight reports
 - stronger continuity and branch-stability enforcement
 - clearer failure reporting for fallback and branch switches
 
@@ -147,3 +153,17 @@ This package should now be treated as:
 > not yet a controller-grade parity implementation.
 
 That is the correct baseline for future work.
+
+
+## Pass 6 additions
+
+- Runtime profile capability matrix
+- Runtime option catalog descriptors
+- Diagnostics exposure for profile/runtime-option/catalog summaries
+
+
+## Pass 7 additions
+
+- profile capability query surface
+- runtime diagnostics now expose active request id and execution backend
+- SDK wrapper can fetch profile and runtime-option capability snapshots

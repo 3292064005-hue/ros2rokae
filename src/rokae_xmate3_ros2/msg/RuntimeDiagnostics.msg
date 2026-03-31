@@ -4,6 +4,8 @@ string runtime_phase
 string shutdown_phase
 uint32 active_request_count
 uint32 active_goal_count
+string active_request_id
+string active_execution_backend
 string last_plan_failure
 string last_retimer_note
 float64 last_servo_dt
@@ -14,3 +16,15 @@ string active_profile
 float64 loop_hz
 float64 state_stream_hz
 float64 command_latency_ms
+string rt_subscription_plan
+string rt_prearm_status
+string rt_watchdog_summary
+uint32 rt_late_cycle_count
+float64 rt_max_gap_ms
+
+string profile_capability_summary
+string runtime_option_summary
+uint32 tool_catalog_size
+uint32 wobj_catalog_size
+uint32 project_catalog_size
+uint32 register_catalog_size

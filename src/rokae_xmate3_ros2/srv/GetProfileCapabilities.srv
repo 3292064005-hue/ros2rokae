@@ -1,0 +1,20 @@
+# Runtime profile and option capability snapshot
+---
+bool success
+string active_profile
+string[] profile_names
+string[] owner_rules
+string[] required_controllers
+string[] preferred_contracts
+string[] diagnostics_expectations
+string[] motion_families_flattened
+uint32[] motion_family_counts
+bool[] rt_capable
+bool[] sim_approx
+bool[] experimental
+bool[] active
+string[] option_names
+string[] option_values
+string[] option_mutability
+string[] option_sources
+string message

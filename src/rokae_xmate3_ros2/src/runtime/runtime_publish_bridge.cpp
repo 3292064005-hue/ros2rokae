@@ -38,6 +38,8 @@ rokae_xmate3_ros2::msg::RuntimeDiagnostics RuntimePublishBridge::buildRuntimeDia
   msg.shutdown_phase = snapshot.shutdown_phase;
   msg.active_request_count = snapshot.active_request_count;
   msg.active_goal_count = snapshot.active_goal_count;
+  msg.active_request_id = snapshot.active_request_id;
+  msg.active_execution_backend = snapshot.active_execution_backend;
   msg.last_plan_failure = snapshot.last_plan_failure;
   msg.last_retimer_note = snapshot.last_retimer_note;
   msg.last_servo_dt = snapshot.last_servo_dt;
@@ -48,6 +50,17 @@ rokae_xmate3_ros2::msg::RuntimeDiagnostics RuntimePublishBridge::buildRuntimeDia
   msg.loop_hz = snapshot.loop_hz;
   msg.state_stream_hz = snapshot.state_stream_hz;
   msg.command_latency_ms = snapshot.command_latency_ms;
+  msg.rt_subscription_plan = snapshot.rt_subscription_plan;
+  msg.rt_prearm_status = snapshot.rt_prearm_status;
+  msg.rt_watchdog_summary = snapshot.rt_watchdog_summary;
+  msg.rt_late_cycle_count = snapshot.rt_late_cycle_count;
+  msg.rt_max_gap_ms = snapshot.rt_max_gap_ms;
+  msg.profile_capability_summary = snapshot.profile_capability_summary;
+  msg.runtime_option_summary = snapshot.runtime_option_summary;
+  msg.tool_catalog_size = snapshot.tool_catalog_size;
+  msg.wobj_catalog_size = snapshot.wobj_catalog_size;
+  msg.project_catalog_size = snapshot.project_catalog_size;
+  msg.register_catalog_size = snapshot.register_catalog_size;
   return msg;
 }
 

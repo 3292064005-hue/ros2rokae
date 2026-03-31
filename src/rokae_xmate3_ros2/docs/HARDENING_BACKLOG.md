@@ -42,15 +42,25 @@ Needed work:
 - watchdog / pre-arm checks
 - richer loop statistics and diagnostics tests
 
+Progress in Pass 5:
+- added `rt_field_registry`
+- added `rt_subscription_plan`
+- added `rt_watchdog` and `rt_prearm_checks`
+- surfaced RT subscription / prearm / watchdog data through runtime diagnostics
+
 ## P4 — Runtime catalog normalization
 
 Goal:
 - normalize RL / tool / wobj runtime truth
 
-Needed work:
-- explicit runtime catalog models
-- tests for preferred and legacy wrappers
-- docs showing runtime as the only truth source
+Progress in Pass 4:
+- added `runtime_catalog_service`
+- moved `GetRlProjectInfo` / `GetToolCatalog` / `GetWobjCatalog` into the query domain
+- added runtime-catalog unit coverage and policy documentation
+
+Remaining work:
+- extend normalized catalogs into SDK legacy wrappers
+- add register namespace descriptors as a runtime-backed catalog
 
 ## P5 — Contract and docs lock-in
 
@@ -61,3 +71,9 @@ Needed work:
 - more contract tests
 - no chapter-level overclaiming in README
 - every preferred/legacy pair documented in one place
+
+## P0 — Runtime state machine
+
+- make terminal runtime status writes go through an explicit `RuntimeStateMachine`
+- keep `planner_loop` and `runtime_execution_switch` as event producers, not final state authorities
+- prove the split with unit tests

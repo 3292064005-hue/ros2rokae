@@ -162,64 +162,6 @@ void IoProgramFacade::handleSetProjectRunningOpt(const rokae_xmate3_ros2::srv::S
   res.applied_loop = program_state_.rlLoopMode();
 }
 
-void IoProgramFacade::handleGetRlProjectInfo(const rokae_xmate3_ros2::srv::GetRlProjectInfo::Request &req,
-                                             rokae_xmate3_ros2::srv::GetRlProjectInfo::Response &res) const {
-  (void)req;
-  const auto catalog = program_state_.rlProjectCatalog();
-  for (const auto &info : catalog) {
-    res.project_names.push_back(info.name);
-    res.is_running.push_back(info.is_running);
-    res.run_rates.push_back(info.run_rate);
-    res.loop_modes.push_back(info.loop_mode);
-  }
-  res.active_project_name = program_state_.loadedRlProjectName();
-  res.current_episode = program_state_.rlCurrentEpisode();
-  res.success = true;
-  res.error_code = 0;
-  res.error_msg.clear();
-}
-
-void IoProgramFacade::handleGetToolCatalog(const rokae_xmate3_ros2::srv::GetToolCatalog::Request &req,
-                                           rokae_xmate3_ros2::srv::GetToolCatalog::Response &res) const {
-  (void)req;
-  const auto tools = tooling_state_.toolCatalog();
-  for (const auto &info : tools) {
-    res.names.push_back(info.name);
-    res.aliases.push_back(info.alias);
-    res.robot_held.push_back(info.robotHeld);
-    res.masses.push_back(info.load.mass);
-    res.pose_flattened.push_back(info.pos.x);
-    res.pose_flattened.push_back(info.pos.y);
-    res.pose_flattened.push_back(info.pos.z);
-    res.pose_flattened.push_back(info.pos.rx);
-    res.pose_flattened.push_back(info.pos.ry);
-    res.pose_flattened.push_back(info.pos.rz);
-  }
-  res.success = true;
-  res.error_code = 0;
-  res.error_msg.clear();
-}
-
-void IoProgramFacade::handleGetWobjCatalog(const rokae_xmate3_ros2::srv::GetWobjCatalog::Request &req,
-                                           rokae_xmate3_ros2::srv::GetWobjCatalog::Response &res) const {
-  (void)req;
-  const auto wobjs = tooling_state_.wobjCatalog();
-  for (const auto &info : wobjs) {
-    res.names.push_back(info.name);
-    res.aliases.push_back(info.alias);
-    res.robot_held.push_back(info.robotHeld);
-    res.pose_flattened.push_back(info.pos.x);
-    res.pose_flattened.push_back(info.pos.y);
-    res.pose_flattened.push_back(info.pos.z);
-    res.pose_flattened.push_back(info.pos.rx);
-    res.pose_flattened.push_back(info.pos.ry);
-    res.pose_flattened.push_back(info.pos.rz);
-  }
-  res.success = true;
-  res.error_code = 0;
-  res.error_msg.clear();
-}
-
 void IoProgramFacade::handleGetDI(const rokae_xmate3_ros2::srv::GetDI::Request &req,
                                   rokae_xmate3_ros2::srv::GetDI::Response &res) const {
   res.state = data_store_state_.getDI(req.board, req.port);

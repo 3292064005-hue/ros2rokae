@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include "runtime/planner_preflight.hpp"
+#include "runtime/planner_trace.hpp"
 #include "runtime/planning_utils.hpp"
 #include "runtime/pose_utils.hpp"
 #include "runtime/unified_retimer.hpp"
@@ -908,12 +910,12 @@ void apply_joint_zone_blending(std::vector<PlannedSegment> &segments, std::vecto
 
     if (current_family != BlendFamily::none && next_family != BlendFamily::none &&
         current_family != next_family) {
-      notes.push_back(mixed_mode_fallback_note(i, i + 1));
+      notes.insert(notes.begin(), mixed_mode_fallback_note(i, i + 1));
       continue;
     }
 
     if (current_family == BlendFamily::cartesian_lookahead && next_family == BlendFamily::none) {
-      notes.push_back(mixed_mode_fallback_note(i, i + 1));
+      notes.insert(notes.begin(), mixed_mode_fallback_note(i, i + 1));
     }
   }
 }
@@ -926,14 +928,13 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
   MotionPlan plan;
   plan.request_id = request.request_id;
 
-  if (request.commands.empty()) {
-    plan.error_message = format_motion_failure("unreachable_pose", "motion request is empty");
+  const auto preflight = runPlannerPreflight(request);
+  if (!preflight.ok) {
+    plan.error_message = format_motion_failure(preflight.reject_reason, preflight.detail);
+    appendPlannerTrace(plan.notes, preflight, request.request_id);
     return plan;
   }
-  if (request.start_joints.size() < 6) {
-    plan.error_message = format_motion_failure("unreachable_pose", "start_joints must contain 6 values");
-    return plan;
-  }
+  appendPlannerTrace(plan.notes, preflight, request.request_id);
 
   auto current_joints = request.start_joints;
   plan.segments.reserve(request.commands.size());

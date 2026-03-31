@@ -1,7 +1,11 @@
 #ifndef ROKAE_XMATE3_ROS2_RUNTIME_CONTROL_BRIDGE_HPP
 #define ROKAE_XMATE3_ROS2_RUNTIME_CONTROL_BRIDGE_HPP
 
+#include <vector>
+
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
+#include "runtime/rt_subscription_plan.hpp"
+#include "runtime/rt_watchdog.hpp"
 #include "runtime/runtime_context.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
@@ -14,6 +18,9 @@ struct RuntimeControlBridgeConfig {
   double collision_confirm_window_sec = 0.01;
   double collision_debounce_sec = 0.10;
   double servo_lag_warning_sec = 0.004;
+  std::vector<std::string> rt_default_fields{"q_m", "dq_m", "tau_m"};
+  bool rt_use_state_data_in_loop = true;
+  bool rt_network_tolerance_configured = true;
 };
 
 struct ControlTickResult {
@@ -43,6 +50,8 @@ class RuntimeControlBridge {
   std::size_t collision_candidate_axis_ = 0;
   bool collision_candidate_active_ = false;
   std::size_t servo_lag_warning_count_ = 0;
+  RtSubscriptionPlan default_rt_plan_{};
+  RtWatchdog rt_watchdog_{};
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

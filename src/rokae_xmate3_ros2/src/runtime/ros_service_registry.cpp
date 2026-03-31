@@ -103,11 +103,11 @@ void RosBindings::initServices() {
   services_.push_back(detail::CreateFacadeService<rokae_xmate3_ros2::srv::SetProjectRunningOpt>(
       node_, "/xmate3/cobot/set_project_running_opt", io_program_facade_.get(), &IoProgramFacade::handleSetProjectRunningOpt));
   services_.push_back(detail::CreateFacadeService<rokae_xmate3_ros2::srv::GetRlProjectInfo>(
-      node_, "/xmate3/cobot/get_rl_project_info", io_program_facade_.get(), &IoProgramFacade::handleGetRlProjectInfo));
+      node_, "/xmate3/cobot/get_rl_project_info", query_facade_.get(), &QueryFacade::handleGetRlProjectInfo));
   services_.push_back(detail::CreateFacadeService<rokae_xmate3_ros2::srv::GetToolCatalog>(
-      node_, "/xmate3/cobot/get_tools_info", io_program_facade_.get(), &IoProgramFacade::handleGetToolCatalog));
+      node_, "/xmate3/cobot/get_tools_info", query_facade_.get(), &QueryFacade::handleGetToolCatalog));
   services_.push_back(detail::CreateFacadeService<rokae_xmate3_ros2::srv::GetWobjCatalog>(
-      node_, "/xmate3/cobot/get_wobjs_info", io_program_facade_.get(), &IoProgramFacade::handleGetWobjCatalog));
+      node_, "/xmate3/cobot/get_wobjs_info", query_facade_.get(), &QueryFacade::handleGetWobjCatalog));
   services_.push_back(detail::CreateFacadeService<rokae_xmate3_ros2::srv::SetAvoidSingularity>(
       node_, "/xmate3/cobot/set_avoid_singularity", control_facade_.get(), &ControlFacade::handleSetAvoidSingularity));
   services_.push_back(detail::CreateFacadeService<rokae_xmate3_ros2::srv::GetAvoidSingularity>(
@@ -126,6 +126,8 @@ void RosBindings::initServices() {
       node_, "/xmate3/internal/validate_motion", query_facade_.get(), &QueryFacade::handleValidateMotion));
   services_.push_back(detail::CreateFacadeService<rokae_xmate3_ros2::srv::GetRuntimeDiagnostics>(
       node_, "/xmate3/internal/get_runtime_diagnostics", query_facade_.get(), &QueryFacade::handleGetRuntimeDiagnostics));
+  services_.push_back(detail::CreateFacadeService<rokae_xmate3_ros2::srv::GetProfileCapabilities>(
+      node_, "/xmate3/internal/get_profile_capabilities", query_facade_.get(), &QueryFacade::handleGetProfileCapabilities));
 
   services_.push_back(detail::CreateFacadeService<rokae_xmate3_ros2::srv::GetDI>(
       node_, "/xmate3/io/get_di", io_program_facade_.get(), &IoProgramFacade::handleGetDI));

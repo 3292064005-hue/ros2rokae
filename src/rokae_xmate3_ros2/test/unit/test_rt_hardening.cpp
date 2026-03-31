@@ -1,0 +1,68 @@
+#include <gtest/gtest.h>
+
+#include <chrono>
+
+#include "runtime/rt_field_registry.hpp"
+#include "runtime/rt_prearm_checks.hpp"
+#include "runtime/rt_subscription_plan.hpp"
+#include "runtime/rt_watchdog.hpp"
+#include "rokae_xmate3_ros2/types.hpp"
+
+namespace rokae_xmate3_ros2::runtime {
+
+TEST(RtHardening, FieldRegistryRecognizesDefaultFields) {
+  EXPECT_TRUE(isRtFieldSupported(rokae::RtSupportedFields::jointPos_m));
+  EXPECT_TRUE(isRtFieldSupported(rokae::RtSupportedFields::jointVel_m));
+  EXPECT_TRUE(isRtFieldSupported(rokae::RtSupportedFields::tau_m));
+  EXPECT_FALSE(isRtFieldSupported("unknown_field"));
+  EXPECT_GT(rtFieldBytes(rokae::RtSupportedFields::tcpPose_m), rtFieldBytes(rokae::RtSupportedFields::jointPos_m));
+}
+
+TEST(RtHardening, SubscriptionPlanRejectsUnsupportedFieldsAndWrongInLoopRate) {
+  const auto bad_fields = buildRtSubscriptionPlan({"unknown_field"}, std::chrono::milliseconds(1), true);
+  EXPECT_FALSE(bad_fields.ok);
+  EXPECT_EQ(bad_fields.status, "unsupported_fields");
+
+  const auto wrong_rate = buildRtSubscriptionPlan(defaultRtFieldSet(), std::chrono::milliseconds(2), true);
+  EXPECT_FALSE(wrong_rate.ok);
+  EXPECT_EQ(wrong_rate.status, "in_loop_requires_1ms");
+
+  const auto ok = buildRtSubscriptionPlan(defaultRtFieldSet(), std::chrono::milliseconds(1), true);
+  EXPECT_TRUE(ok.ok);
+  EXPECT_EQ(ok.status, "armed_in_loop");
+  EXPECT_FALSE(ok.accepted_fields.empty());
+}
+
+TEST(RtHardening, PrearmRequiresRtModePowerAndValidPlan) {
+  RtPrearmCheckInput input;
+  input.motion_mode = static_cast<int>(rokae::MotionControlMode::RtCommand);
+  input.rt_mode = static_cast<int>(rokae::RtControllerMode::jointPosition);
+  input.power_on = true;
+  input.active_profile = "rt_simulated";
+  input.network_tolerance_configured = true;
+  input.subscription_plan = buildRtSubscriptionPlan(defaultRtFieldSet(), std::chrono::milliseconds(1), true);
+
+  const auto ready = evaluateRtPrearm(input);
+  EXPECT_TRUE(ready.ok);
+  EXPECT_EQ(ready.status, "ready");
+
+  input.power_on = false;
+  const auto power_off = evaluateRtPrearm(input);
+  EXPECT_FALSE(power_off.ok);
+  EXPECT_EQ(power_off.status, "power_off");
+}
+
+TEST(RtHardening, WatchdogTracksLateCyclesAndGap) {
+  RtWatchdog watchdog(0.004, 0.050);
+  watchdog.observeCycle(0.001, true, true);
+  watchdog.observeCycle(0.006, true, true);
+  watchdog.observeCycle(0.003, false, false);
+  const auto snapshot = watchdog.snapshot();
+  EXPECT_EQ(snapshot.late_cycle_count, 1u);
+  EXPECT_GT(snapshot.max_gap_ms, 5.0);
+  EXPECT_TRUE(snapshot.stale_state);
+  EXPECT_TRUE(snapshot.command_starvation);
+  EXPECT_NE(snapshot.summary.find("late_cycles=1"), std::string::npos);
+}
+
+}  // namespace rokae_xmate3_ros2::runtime

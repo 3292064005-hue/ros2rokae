@@ -47,6 +47,7 @@
 #include "rokae_xmate3_ros2/srv/get_posture.hpp"
 #include "rokae_xmate3_ros2/srv/get_power_state.hpp"
 #include "rokae_xmate3_ros2/srv/get_runtime_diagnostics.hpp"
+#include "rokae_xmate3_ros2/srv/get_profile_capabilities.hpp"
 #include "rokae_xmate3_ros2/srv/get_rt_joint_data.hpp"
 #include "rokae_xmate3_ros2/srv/get_soft_limit.hpp"
 #include "rokae_xmate3_ros2/srv/get_toolset.hpp"
@@ -178,6 +179,8 @@ class QueryFacade {
                            rokae_xmate3_ros2::srv::GetPowerState::Response &res) const;
   void handleGetRuntimeDiagnostics(const rokae_xmate3_ros2::srv::GetRuntimeDiagnostics::Request &req,
                                    rokae_xmate3_ros2::srv::GetRuntimeDiagnostics::Response &res) const;
+  void handleGetProfileCapabilities(const rokae_xmate3_ros2::srv::GetProfileCapabilities::Request &req,
+                                     rokae_xmate3_ros2::srv::GetProfileCapabilities::Response &res) const;
   void handleGetInfo(const rokae_xmate3_ros2::srv::GetInfo::Request &req,
                      rokae_xmate3_ros2::srv::GetInfo::Response &res) const;
   void handleGetOperateMode(const rokae_xmate3_ros2::srv::GetOperateMode::Request &req,
@@ -212,6 +215,12 @@ class QueryFacade {
                             rokae_xmate3_ros2::srv::GetRtJointData::Response &res) const;
   void handleGetAvoidSingularity(const rokae_xmate3_ros2::srv::GetAvoidSingularity::Request &req,
                                  rokae_xmate3_ros2::srv::GetAvoidSingularity::Response &res) const;
+  void handleGetRlProjectInfo(const rokae_xmate3_ros2::srv::GetRlProjectInfo::Request &req,
+                              rokae_xmate3_ros2::srv::GetRlProjectInfo::Response &res) const;
+  void handleGetToolCatalog(const rokae_xmate3_ros2::srv::GetToolCatalog::Request &req,
+                            rokae_xmate3_ros2::srv::GetToolCatalog::Response &res) const;
+  void handleGetWobjCatalog(const rokae_xmate3_ros2::srv::GetWobjCatalog::Request &req,
+                            rokae_xmate3_ros2::srv::GetWobjCatalog::Response &res) const;
   void handleCalcJointTorque(const rokae_xmate3_ros2::srv::CalcJointTorque::Request &req,
                              rokae_xmate3_ros2::srv::CalcJointTorque::Response &res) const;
   void handleGenerateSTrajectory(const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &req,
@@ -270,12 +279,6 @@ class IoProgramFacade {
                             rokae_xmate3_ros2::srv::PauseRLProject::Response &res) const;
   void handleSetProjectRunningOpt(const rokae_xmate3_ros2::srv::SetProjectRunningOpt::Request &req,
                                   rokae_xmate3_ros2::srv::SetProjectRunningOpt::Response &res) const;
-  void handleGetRlProjectInfo(const rokae_xmate3_ros2::srv::GetRlProjectInfo::Request &req,
-                              rokae_xmate3_ros2::srv::GetRlProjectInfo::Response &res) const;
-  void handleGetToolCatalog(const rokae_xmate3_ros2::srv::GetToolCatalog::Request &req,
-                            rokae_xmate3_ros2::srv::GetToolCatalog::Response &res) const;
-  void handleGetWobjCatalog(const rokae_xmate3_ros2::srv::GetWobjCatalog::Request &req,
-                            rokae_xmate3_ros2::srv::GetWobjCatalog::Response &res) const;
   void handleGetDI(const rokae_xmate3_ros2::srv::GetDI::Request &req,
                    rokae_xmate3_ros2::srv::GetDI::Response &res) const;
   void handleGetDO(const rokae_xmate3_ros2::srv::GetDO::Request &req,

@@ -1,6 +1,7 @@
 #include "runtime/runtime_control_bridge.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <sstream>
 #include <utility>
@@ -9,6 +10,10 @@
 
 #include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
 #include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/types.hpp"
+#include "runtime/rt_prearm_checks.hpp"
+#include "runtime/runtime_catalog_service.hpp"
+#include "runtime/runtime_profile_service.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 namespace {
@@ -131,7 +136,12 @@ bool detect_collision_event(const RobotSnapshot &snapshot,
 
 RuntimeControlBridge::RuntimeControlBridge(RuntimeContext &runtime_context,
                                            RuntimeControlBridgeConfig config)
-    : runtime_context_(runtime_context), config_(std::move(config)) {}
+    : runtime_context_(runtime_context),
+      config_(std::move(config)),
+      default_rt_plan_(buildRtSubscriptionPlan(config_.rt_default_fields,
+                                               std::chrono::milliseconds(1),
+                                               config_.rt_use_state_data_in_loop)),
+      rt_watchdog_(config_.servo_lag_warning_sec) {}
 
 ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
                                              const RobotSnapshot &snapshot,
@@ -146,12 +156,50 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   const double loop_hz = (dt > 1e-9 && std::isfinite(dt)) ? 1.0 / dt : 0.0;
   runtime_context_.diagnosticsState().setLoopMetrics(loop_hz, loop_hz, std::max(dt, 0.0) * 1000.0);
   runtime_context_.diagnosticsState().setSessionModes(session_state.motionMode(), session_state.rtControlMode());
+  runtime_context_.diagnosticsState().setRtSubscriptionPlan(default_rt_plan_.summary());
+  const auto active_profile = runtime_context_.diagnosticsState().snapshot().active_profile;
+  const RtPrearmCheckInput prearm_input{
+      session_state.motionMode(),
+      session_state.rtControlMode(),
+      session_state.powerOn(),
+      config_.rt_network_tolerance_configured,
+      active_profile,
+      default_rt_plan_};
+  const auto prearm_report = evaluateRtPrearm(prearm_input);
+  runtime_context_.diagnosticsState().setRtPrearmStatus(prearm_report.summary());
+  const bool rt_command_expected = session_state.motionMode() == static_cast<int>(rokae::MotionControlMode::RtCommand);
+  rt_watchdog_.observeCycle(dt, true, !rt_command_expected || session_state.powerOn());
+  const auto watchdog_snapshot = rt_watchdog_.snapshot();
+  runtime_context_.diagnosticsState().setRtWatchdogSummary(
+      watchdog_snapshot.summary,
+      watchdog_snapshot.late_cycle_count,
+      watchdog_snapshot.max_gap_ms);
+  const auto profiles = buildRuntimeProfileCatalog(
+      runtime_context_.diagnosticsState().snapshot().backend_mode,
+      active_profile,
+      runtime_context_.diagnosticsState().snapshot().capability_flags);
+  runtime_context_.diagnosticsState().setProfileCapabilitySummary(summarizeRuntimeProfileCatalog(profiles));
+  const auto options = buildRuntimeOptionCatalog(motion_options, session_state);
+  runtime_context_.diagnosticsState().setRuntimeOptionSummary(summarizeRuntimeOptionCatalog(options));
+  runtime_context_.diagnosticsState().setCatalogSizes(
+      static_cast<std::uint32_t>(buildRuntimeToolCatalog(tooling_state).size()),
+      static_cast<std::uint32_t>(buildRuntimeWobjCatalog(tooling_state).size()),
+      static_cast<std::uint32_t>(buildRuntimeProjectCatalog(runtime_context_.programState()).size()),
+      static_cast<std::uint32_t>(buildRuntimeRegisterCatalog(runtime_context_.dataStoreState()).size()));
 
   if (!session_state.powerOn()) {
     servo_accumulator_sec_ = 0.0;
     collision_candidate_active_ = false;
     collision_candidate_time_sec_ = 0.0;
     collision_debounce_remaining_sec_ = 0.0;
+    rt_watchdog_.reset();
+    {
+      const auto watchdog_snapshot = rt_watchdog_.snapshot();
+      runtime_context_.diagnosticsState().setRtWatchdogSummary(
+          watchdog_snapshot.summary,
+          watchdog_snapshot.late_cycle_count,
+          watchdog_snapshot.max_gap_ms);
+    }
     motion_runtime.stop("power off");
     backend.clearControl();
     result.control_cleared = true;
@@ -172,6 +220,14 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
     servo_accumulator_sec_ = 0.0;
     collision_candidate_active_ = false;
     collision_candidate_time_sec_ = 0.0;
+    rt_watchdog_.reset();
+    {
+      const auto watchdog_snapshot = rt_watchdog_.snapshot();
+      runtime_context_.diagnosticsState().setRtWatchdogSummary(
+          watchdog_snapshot.summary,
+          watchdog_snapshot.late_cycle_count,
+          watchdog_snapshot.max_gap_ms);
+    }
     backend.setControlOwner(ControlOwner::none);
     backend.clearControl();
     result.control_cleared = true;
@@ -184,6 +240,14 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
     servo_accumulator_sec_ = 0.0;
     collision_candidate_active_ = false;
     collision_candidate_time_sec_ = 0.0;
+    rt_watchdog_.reset();
+    {
+      const auto watchdog_snapshot = rt_watchdog_.snapshot();
+      runtime_context_.diagnosticsState().setRtWatchdogSummary(
+          watchdog_snapshot.summary,
+          watchdog_snapshot.late_cycle_count,
+          watchdog_snapshot.max_gap_ms);
+    }
     motion_runtime.stop("soft limit exceeded during execution");
     backend.setControlOwner(ControlOwner::none);
     backend.clearControl();
@@ -209,6 +273,14 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
           collision_axis,
           collision_message)) {
     servo_accumulator_sec_ = 0.0;
+    rt_watchdog_.reset();
+    {
+      const auto watchdog_snapshot = rt_watchdog_.snapshot();
+      runtime_context_.diagnosticsState().setRtWatchdogSummary(
+          watchdog_snapshot.summary,
+          watchdog_snapshot.late_cycle_count,
+          watchdog_snapshot.max_gap_ms);
+    }
     if (collision_detection.behaviour == 2) {
       motion_runtime.setActiveSpeedScale(config_.collision_slow_scale);
       collision_message += "; applying stop2 slowdown before stop";

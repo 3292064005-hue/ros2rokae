@@ -390,6 +390,26 @@ struct RLProjectInfo {
   bool loop_mode = false;
 };
 
+struct RuntimeProfileCapability {
+  std::string name;
+  std::string owner_rule;
+  std::string required_controller;
+  std::string preferred_contract;
+  std::string diagnostics_expectation;
+  std::vector<std::string> allowed_motion_families;
+  bool rt_capable = false;
+  bool sim_approx = true;
+  bool experimental = false;
+  bool active = false;
+};
+
+struct RuntimeOptionDescriptor {
+  std::string name;
+  std::string value;
+  std::string mutability;
+  std::string source;
+};
+
 struct WorkToolInfo {
   std::string name;
   std::string alias;

@@ -30,6 +30,7 @@
 #include "rokae_xmate3_ros2/srv/connect.hpp"
 #include "rokae_xmate3_ros2/srv/disconnect.hpp"
 #include "rokae_xmate3_ros2/srv/get_info.hpp"
+#include "rokae_xmate3_ros2/srv/get_profile_capabilities.hpp"
 #include "rokae_xmate3_ros2/srv/get_power_state.hpp"
 #include "rokae_xmate3_ros2/srv/set_power_state.hpp"
 #include "rokae_xmate3_ros2/srv/get_operate_mode.hpp"
@@ -126,6 +127,10 @@ public:
     rokae::OperationState operationState(std::error_code& ec);
     std::vector<rokae::LogInfo> queryControllerLog(unsigned int count, std::error_code& ec);
     void clearServoAlarm(std::error_code& ec);
+    bool getProfileCapabilities(std::string& active_profile,
+                                std::vector<rokae::RuntimeProfileCapability>& profiles,
+                                std::vector<rokae::RuntimeOptionDescriptor>& options,
+                                std::error_code& ec);
 
     // ==================== 4.3 位姿/关节/运动学核心接口 ====================
     std::array<double, 6> jointPos(std::error_code& ec);
@@ -376,6 +381,12 @@ private:
         std::chrono::steady_clock::time_point previous_state_time_;
         std::array<double, 6> previous_joint_velocity_{};
         std::array<double, 6> previous_joint_torque_{};
+        std::array<double, 6> previous_pose_abc_{};
+        std::array<double, 6> previous_pose_velocity_{};
+        bool has_previous_pose_ = false;
+        std::string rt_state_plan_summary_ = "inactive";
+        std::uint32_t rt_state_late_cycle_count_ = 0;
+        double rt_state_max_gap_ms_ = 0.0;
         rokae::Toolset toolset_cache_;
 
         // 模型和实时控制器占位
@@ -398,6 +409,7 @@ private:
         rclcpp::Client<rokae_xmate3_ros2::srv::Connect>::SharedPtr xmate3_robot_connect_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::Disconnect>::SharedPtr xmate3_robot_disconnect_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GetInfo>::SharedPtr xmate3_robot_get_info_client_;
+        rclcpp::Client<rokae_xmate3_ros2::srv::GetProfileCapabilities>::SharedPtr xmate3_internal_get_profile_capabilities_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GetPowerState>::SharedPtr xmate3_robot_get_power_state_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::SetPowerState>::SharedPtr xmate3_robot_set_power_state_client_;
         rclcpp::Client<rokae_xmate3_ros2::srv::GetOperateMode>::SharedPtr xmate3_robot_get_operate_mode_client_;

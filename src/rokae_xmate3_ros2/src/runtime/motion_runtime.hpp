@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 #include "runtime/executor_core.hpp"
+#include "runtime/runtime_state_machine.hpp"
 #include "rokae_xmate3_ros2/runtime/owner_arbiter.hpp"
 #include "runtime/planner_core.hpp"
 #include "rokae_xmate3_ros2/runtime/shutdown_coordinator.hpp"
@@ -80,6 +81,7 @@ class MotionRuntime {
   std::optional<TrajectoryExecutionGoal> active_trajectory_goal_;
   double dispatched_speed_scale_ = 1.0;
   RuntimePhase runtime_phase_ = RuntimePhase::idle;
+  RuntimeStateMachine state_machine_;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

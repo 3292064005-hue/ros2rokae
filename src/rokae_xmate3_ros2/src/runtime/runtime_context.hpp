@@ -6,7 +6,12 @@
 #include "runtime/controller_state.hpp"
 #include "runtime/motion_runtime.hpp"
 #include "runtime/request_coordinator.hpp"
-#include "runtime/runtime_state.hpp"
+#include "runtime/session_state.hpp"
+#include "runtime/motion_options_state.hpp"
+#include "runtime/tooling_state.hpp"
+#include "runtime/data_store_state.hpp"
+#include "runtime/program_state.hpp"
+#include "runtime/diagnostics_state.hpp"
 #include "runtime/runtime_types.hpp"
 
 namespace rokae_xmate3_ros2::runtime {

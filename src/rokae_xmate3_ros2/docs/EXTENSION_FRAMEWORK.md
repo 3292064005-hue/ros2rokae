@@ -97,9 +97,16 @@ Expand into a full subsystem with:
 - pre-arm checks
 - mode capability matrix
 
+Current baseline after Pass 5:
+- field registry exists
+- subscription plan builder exists
+- watchdog exists
+- pre-arm checks exist
+- remaining work is stronger loop statistics, capability matrix, and contract exposure
+
 ### Communication / RL / cobot semantics
 
-Stabilize these runtime domains:
+Stabilize these runtime domains through `runtime_catalog_service` and runtime-owned read models:
 
 - register namespaces and indexed references
 - RL project/task catalogs
@@ -126,3 +133,17 @@ Before merging any future feature, ask:
 - Did I define a preferred contract and a compatibility contract, or is the surface ambiguous?
 - Can diagnostics explain the feature when it fails?
 - Is there a test proving the alignment claim?
+
+
+## Pass 6 additions
+
+- Runtime profile capability matrix
+- Runtime option catalog descriptors
+- Diagnostics exposure for profile/runtime-option/catalog summaries
+
+
+## Pass 7 additions
+
+- explicit profile capability query surface
+- runtime diagnostics now include active request and execution backend summaries
+- SDK wrapper profile capability accessors

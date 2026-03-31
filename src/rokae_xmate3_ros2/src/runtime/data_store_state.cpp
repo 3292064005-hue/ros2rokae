@@ -30,6 +30,16 @@ std::string DataStoreState::registerValue(const std::string &key) const {
   return it == register_bank_.end() ? std::string() : it->second;
 }
 
+std::vector<std::string> DataStoreState::registerKeys() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<std::string> keys;
+  keys.reserve(register_bank_.size());
+  for (const auto &entry : register_bank_) {
+    keys.push_back(entry.first);
+  }
+  return keys;
+}
+
 void DataStoreState::setCustomData(const std::string &topic, const std::string &value) {
   std::lock_guard<std::mutex> lock(mutex_);
   custom_data_bank_[topic] = value;

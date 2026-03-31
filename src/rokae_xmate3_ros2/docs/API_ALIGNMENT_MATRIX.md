@@ -36,6 +36,8 @@ This project tracks alignment at the **individual-interface level**. Do not inte
 |---|---|---|---|---|
 | realtime mode selection | `SetRtControlMode` | Preferred | Experimental | State machine bug fixed; still a simulated facade. |
 | loop / state stream diagnostics | `RuntimeDiagnostics`, runtime status topic | Preferred | Experimental | Exposes active profile, loop rate, stream rate, latency. |
+
+| runtime profile / option capability query | `GetProfileCapabilities` | Preferred | SimApprox | Runtime-backed profile and option descriptor surface. |
 | RT command loop | `robot_rt.cpp`, runtime control bridge | Preferred | Experimental | Simulated facade, not controller-grade UDP timing. |
 | RT profile selection | `ros2_control_rt.yaml` | Preferred | Experimental | Explicit split from NRT profile is enforced. |
 
