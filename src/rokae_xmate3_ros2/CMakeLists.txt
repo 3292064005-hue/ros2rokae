@@ -34,7 +34,12 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 pkg_check_modules(OROCOS_KDL REQUIRED orocos-kdl)
 find_program(XACRO_EXECUTABLE xacro REQUIRED)
 
-set(ROKAE_SYSTEM_PYTHON "/usr/bin/python3")
+set(ROKAE_SYSTEM_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH
+  "Interpreter used by release/test wrappers; override with -DROKAE_SYSTEM_PYTHON=/path/to/python3 or ROKAE_PYTHON_EXECUTABLE"
+)
+if(DEFINED ENV{ROKAE_PYTHON_EXECUTABLE} AND NOT "$ENV{ROKAE_PYTHON_EXECUTABLE}" STREQUAL "")
+  set(ROKAE_SYSTEM_PYTHON "$ENV{ROKAE_PYTHON_EXECUTABLE}")
+endif()
 if(NOT EXISTS "${ROKAE_SYSTEM_PYTHON}")
   set(ROKAE_SYSTEM_PYTHON "${Python3_EXECUTABLE}")
 endif()

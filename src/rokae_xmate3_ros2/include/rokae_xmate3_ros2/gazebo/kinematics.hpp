@@ -72,10 +72,24 @@ public:
         std::string primary_backend{"none"};
         std::string fallback_backend{"none"};
         bool fallback_used = false;
+        std::string fallback_reason;
+        std::string seed_source;
         std::string selected_branch;
         std::string note;
         double continuity_cost = std::numeric_limits<double>::infinity();
         double singularity_metric = 1.0;
+    };
+
+    struct RequestContractState {
+        bool active = false;
+        bool violated = false;
+        std::string request_id;
+        std::string locked_primary_backend{"none"};
+        std::string locked_fallback_backend{"none"};
+        std::string violation_reason;
+        std::string last_request_kind;
+        std::string last_fallback_reason;
+        std::string last_seed_source;
     };
 
     xMate3Kinematics();
@@ -161,6 +175,9 @@ public:
     [[nodiscard]] const char *backendName() const noexcept;
     [[nodiscard]] const KinematicsPolicy &policy() const noexcept;
     [[nodiscard]] const RequestTrace &lastTrace() const noexcept;
+    void beginRequestContract(const std::string& request_id) const;
+    void endRequestContract() const;
+    [[nodiscard]] RequestContractState requestContractState() const noexcept;
 
  private:
     struct SingularityAnalysis;
@@ -171,11 +188,13 @@ public:
     KinematicsPolicy policy_{};
     std::shared_ptr<detail::KinematicsBackend> backend_;
     mutable RequestTrace last_trace_{};
+    mutable RequestContractState request_contract_{};
     std::vector<Matrix4d> computeAllTransforms(const std::vector<double>& joints);
     Matrix4d dhTransform(int i, double theta);
     Matrix4d rpyToTransform(const std::vector<double>& pose);
     Vector6d computePoseError(const Matrix4d& T_target, const Matrix4d& T_current);
     [[nodiscard]] SingularityAnalysis analyzeSingularity(const std::vector<double>& joints);
+    void applyRequestContract() const;
 };
 
 } // namespace gazebo

@@ -156,7 +156,7 @@ source install/setup.bash
 ```
 
 release build、`ctest` 与源码归档打包建议统一通过 `src/rokae_xmate3_ros2/tools/clean_build_env.sh` 运行。
-它会固定 `/usr/bin/python3`，并清理 Conda 相关环境变量，避免影子库路径污染构建或发布结果。
+它会优先使用 `ROKAE_PYTHON_EXECUTABLE` 或当前系统 `python3`，并清理 Conda 相关环境变量，避免影子库路径污染构建或发布结果。
 release-grade build/test/package 必须通过这个 wrapper 运行；它只负责清理环境污染，不再向运行时主动注入当前目录或 `build/*`、`install/*` 动态库路径。
 
 ### 3. 启动仿真
@@ -172,6 +172,23 @@ ros2 launch rokae_xmate3_ros2 xmate3_simulation.launch.py
 ros2 launch rokae_xmate3_ros2 xmate3_gazebo.launch.py
 ros2 launch rokae_xmate3_ros2 rviz_only.launch.py
 ```
+
+
+推荐把门禁命令固化为：
+```bash
+src/rokae_xmate3_ros2/tools/run_quick_gate.sh ~/ros2_ws0
+src/rokae_xmate3_ros2/tools/run_release_gate.sh ~/ros2_ws0
+```
+
+原生 ROS facade `rokae::ros2::xMateRobot` 默认要求 RL/catalog 读取来自 authoritative runtime；
+SDK 兼容 wrapper (`rokae::Robot_T` / `rokae::Cobot` / `rokae::xMateRobot`) 默认保留旧缓存回退语义，以避免历史调用方回归。
+若需要强制兼容 wrapper 也走 strict runtime authority，请显式设置：
+```bash
+export ROKAE_SDK_STRICT_RUNTIME_AUTHORITY=true
+export ROKAE_SDK_LEGACY_CATALOG_FALLBACK=false
+```
+
+说明：Gazebo/runtime facade 目前**不实现**控制器原生 `ppToMain()`，该接口会返回 `function_not_supported`，避免把未实现路径伪装成成功。
 
 ### 4. 运行示例
 
@@ -264,6 +281,7 @@ Do not distribute:
 - workspace snapshots
 - manually zipped source trees
 - archives containing `Testing/`, `build/`, `log/`, `__pycache__`, `.pyc`, `.pdf` or `tmp_*`
+- target-environment acceptance is automated via `tools/run_target_env_acceptance.sh` and `.github/workflows/acceptance-humble-gazebo11.yml`
 
 Recommended release flow:
 
@@ -537,3 +555,18 @@ Licensed under the Apache License, Version 2.0.
 - Added an internal/runtime profile capability query surface
 - Runtime diagnostics now expose the active request id and execution backend
 - SDK wrapper can fetch profile and runtime-option capability snapshots
+
+
+## ROS integration ownership
+
+- `rokae::ros2::xMateRobot` now accepts `RosClientOptions` so embedded callers can inject an external ROS `Context` / `Node` / `Executor` instead of forcing wrapper-owned globals.
+- SDK compatibility headers are split into a true umbrella (`rokae/sdk_shim.hpp`) plus narrower entrypoints. `rokae/planner.h` is no longer pulled in by `rokae/robot.h`.
+- planner / IK requests now lock a single primary backend per request. Any relaxed fallback path becomes a visible contract violation instead of a silent success path.
+
+
+## Environment contract
+
+See `docs/ENVIRONMENT_LOCK.md` for the pinned ROS/Gazebo/Python assumptions used by the gate scripts and launch path resolution.
+
+
+SDK-compatible wrappers (`rokae::Robot_T`, `rokae::Cobot`, `rokae::xMateRobot`) now default to the legacy catalog fallback policy across both their historical constructors and the `RosClientOptions` injection path so that historical SDK call sites keep their prior behavior unless they explicitly opt into strict runtime authority. The native ROS facade (`rokae::ros2::xMateRobot`) still defaults to strict runtime authority.

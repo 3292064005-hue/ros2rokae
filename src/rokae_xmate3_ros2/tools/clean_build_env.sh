@@ -44,6 +44,23 @@ filter_path_list() {
   printf '%s' "${joined}"
 }
 
+
+source_ros_environment() {
+  local ros_setup=""
+  if [ -n "${ROKAE_ROS_SETUP:-}" ] && [ -f "${ROKAE_ROS_SETUP}" ]; then
+    ros_setup="${ROKAE_ROS_SETUP}"
+  elif [ -n "${ROS_DISTRO:-}" ] && [ -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]; then
+    ros_setup="/opt/ros/${ROS_DISTRO}/setup.bash"
+  elif [ -f "/opt/ros/humble/setup.bash" ]; then
+    ros_setup="/opt/ros/humble/setup.bash"
+  fi
+
+  if [ -n "${ros_setup}" ]; then
+    # shellcheck disable=SC1090
+    . "${ros_setup}"
+  fi
+}
+
 unset CONDA_PREFIX
 unset CONDA_DEFAULT_ENV
 unset CONDA_PROMPT_MODIFIER
@@ -72,10 +89,26 @@ else
   export PATH="${SYSTEM_PATH}"
 fi
 
-export Python3_EXECUTABLE="/usr/bin/python3"
-export Python_EXECUTABLE="/usr/bin/python3"
-export PYTHON_EXECUTABLE="/usr/bin/python3"
-export AMENT_PYTHON_EXECUTABLE="/usr/bin/python3"
+SYSTEM_PYTHON="${ROKAE_PYTHON_EXECUTABLE:-$(command -v python3 || true)}"
+if [ -z "${SYSTEM_PYTHON}" ]; then
+  echo "clean_build_env: python3 not found in PATH and ROKAE_PYTHON_EXECUTABLE is unset" >&2
+  exit 72
+fi
+
+export Python3_EXECUTABLE="${SYSTEM_PYTHON}"
+export Python_EXECUTABLE="${SYSTEM_PYTHON}"
+export PYTHON_EXECUTABLE="${SYSTEM_PYTHON}"
+export AMENT_PYTHON_EXECUTABLE="${SYSTEM_PYTHON}"
 export ROKAE_CLEAN_ENV_ACTIVE="1"
+source_ros_environment
+
+case "$1" in
+  colcon|ctest|ros2)
+    if [ -z "${AMENT_PREFIX_PATH:-}" ] && [ -z "${COLCON_PREFIX_PATH:-}" ]; then
+      echo "clean_build_env: ROS environment is not available; source /opt/ros/<distro>/setup.bash or set ROKAE_ROS_SETUP" >&2
+      exit 78
+    fi
+    ;;
+esac
 
 exec "$@"

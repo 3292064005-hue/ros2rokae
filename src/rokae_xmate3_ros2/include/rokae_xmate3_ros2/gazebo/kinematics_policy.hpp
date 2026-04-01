@@ -41,6 +41,17 @@ struct KinematicsPolicy {
   [[nodiscard]] std::string fallbackBackendName() const {
     return fallback_mode == FallbackMode::ImprovedDh ? "improved_dh" : "none";
   }
+
+  [[nodiscard]] std::string ikSeedModeName() const {
+    switch (ik_seed_mode) {
+      case IkSeedMode::CurrentState:
+        return "current_state";
+      case IkSeedMode::ImprovedDhBranches:
+        return "improved_dh_branches";
+      default:
+        return "mixed";
+    }
+  }
 };
 
 }  // namespace gazebo

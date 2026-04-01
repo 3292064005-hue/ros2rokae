@@ -10,21 +10,51 @@ namespace gazebo {
 
 namespace runtime = rokae_xmate3_ros2::runtime;
 
+namespace {
+
+rclcpp::Node::SharedPtr makeBootstrapNode(const RuntimeBootstrap::RosIntegrationOptions& options) {
+  if (options.node) {
+    return options.node;
+  }
+  if (options.context) {
+    rclcpp::NodeOptions node_options;
+    node_options.context(options.context);
+    return std::make_shared<rclcpp::Node>("xcore_gazebo_controller", node_options);
+  }
+  return std::make_shared<rclcpp::Node>("xcore_gazebo_controller");
+}
+
+}  // namespace
+
 RuntimeBootstrap::RuntimeBootstrap(BackendMode backend_mode,
                                    std::vector<physics::JointPtr> *joints,
                                    const std::array<std::pair<double, double>, 6> *original_joint_limits,
                                    const std::vector<std::string> *joint_names,
                                    JointStateFetcher joint_state_fetcher)
+    : RuntimeBootstrap(backend_mode,
+                       joints,
+                       original_joint_limits,
+                       joint_names,
+                       std::move(joint_state_fetcher),
+                       RosIntegrationOptions{}) {}
+
+RuntimeBootstrap::RuntimeBootstrap(BackendMode backend_mode,
+                                   std::vector<physics::JointPtr> *joints,
+                                   const std::array<std::pair<double, double>, 6> *original_joint_limits,
+                                   const std::vector<std::string> *joint_names,
+                                   JointStateFetcher joint_state_fetcher,
+                                   RosIntegrationOptions ros_integration)
     : backend_mode_(backend_mode),
       joints_(joints),
       original_joint_limits_(original_joint_limits),
       joint_names_(joint_names),
       joint_state_fetcher_(std::move(joint_state_fetcher)),
+      ros_integration_(std::move(ros_integration)),
       runtime_context_(std::make_unique<runtime::RuntimeContext>()) {}
 
 RuntimeBootstrap::~RuntimeBootstrap() {
   shutdown("bootstrap shutdown");
-  if (executor_) {
+  if (executor_ && !attached_external_executor_) {
     executor_->cancel();
   }
   if (executor_thread_.joinable()) {
@@ -39,16 +69,15 @@ RuntimeBootstrap::~RuntimeBootstrap() {
     } catch (const std::exception &) {
     }
   }
+  attached_external_executor_ = false;
 }
 
 void RuntimeBootstrap::start() {
-  if (!rclcpp::ok()) {
-    int argc = 0;
-    char **argv = nullptr;
-    rclcpp::init(argc, argv);
+  if (!ros_integration_.node && !ros_integration_.context) {
+    ros_context_lease_ = rokae_xmate3_ros2::runtime::RosContextOwner::acquire("gazebo_runtime_bootstrap");
   }
 
-  node_ = std::make_shared<rclcpp::Node>("xcore_gazebo_controller");
+  node_ = makeBootstrapNode(ros_integration_);
   trajectory_sample_dt_ = std::clamp(
       node_->declare_parameter("trajectory_sample_dt", kDefaultTrajectorySampleDt),
       kMinTrajectorySampleDt,
@@ -224,8 +253,21 @@ void RuntimeBootstrap::start() {
   runtime_context_->diagnosticsState().setSessionModes(
       runtime_context_->sessionState().motionMode(),
       runtime_context_->sessionState().rtControlMode());
-  executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
-  executor_->add_node(node_);
+  if (ros_integration_.executor && ros_integration_.attach_to_executor) {
+    executor_ = ros_integration_.executor;
+    auto node_base = node_->get_node_base_interface();
+    const bool already_associated =
+        node_base && node_base->get_associated_with_executor_atomic().load();
+    if (already_associated) {
+      attached_external_executor_ = true;
+    } else {
+      executor_->add_node(node_);
+      attached_external_executor_ = true;
+    }
+  } else {
+    executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+    executor_->add_node(node_);
+  }
 
   auto time_provider = [this]() { return node_->get_clock()->now(); };
   auto trajectory_dt_provider = [this]() { return trajectory_sample_dt_; };
@@ -285,13 +327,15 @@ void RuntimeBootstrap::start() {
             response->message.c_str());
       });
 
-  executor_thread_ = std::thread([this]() {
-    try {
-      executor_->spin();
-    } catch (const std::exception &e) {
-      RCLCPP_ERROR(node_->get_logger(), "ROS executor stopped unexpectedly: %s", e.what());
-    }
-  });
+  if (!attached_external_executor_) {
+    executor_thread_ = std::thread([this]() {
+      try {
+        executor_->spin();
+      } catch (const std::exception &e) {
+        RCLCPP_ERROR(node_->get_logger(), "ROS executor stopped unexpectedly: %s", e.what());
+      }
+    });
+  }
 
   RCLCPP_INFO(
       node_->get_logger(),

@@ -1,0 +1,33 @@
+name: acceptance-humble-gazebo11
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_gate:
+        description: "Run the heavier release gate bundle"
+        required: false
+        default: "false"
+      launch_smoke:
+        description: "Also run launch smoke checks inside the locked image"
+        required: false
+        default: "true"
+  push:
+    branches: [main, master]
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build locked target image and run acceptance bundle
+        shell: bash
+        run: |
+          set -e
+          EXTRA_ARGS=()
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.release_gate }}" = "true" ]; then
+            EXTRA_ARGS+=(--release-gate)
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.launch_smoke }}" = "true" ]; then
+            EXTRA_ARGS+=(--launch-smoke)
+          fi
+          ./tools/run_target_env_acceptance.sh "${EXTRA_ARGS[@]}"

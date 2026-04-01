@@ -565,3 +565,40 @@ TEST(MotionPlannerCoreTest, HighRiskMoveJSelectsConservativePlannerCandidate) {
   }
   EXPECT_TRUE(found_selected);
 }
+
+TEST(MotionPlannerCoreTest, RequestContractLocksSinglePrimaryBackendAcrossPlan) {
+  gazebo::xMate3Kinematics kinematics;
+  const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
+
+  rt::MotionRequest request;
+  request.request_id = "single_primary_backend";
+  request.start_joints = start_joints;
+  request.default_speed = 100;
+  request.default_zone = 0;
+  request.strict_conf = false;
+  request.avoid_singularity = true;
+  request.trajectory_dt = 0.01;
+
+  rt::MotionCommandSpec line;
+  line.kind = rt::MotionKind::move_l;
+  line.target_cartesian = start_pose;
+  line.target_cartesian[0] -= 0.01;
+  request.commands.push_back(line);
+
+  rt::MotionPlanner planner;
+  const auto plan = planner.plan(request);
+  ASSERT_TRUE(plan.valid()) << plan.error_message;
+  ASSERT_FALSE(plan.segments.empty());
+  for (const auto &segment : plan.segments) {
+    EXPECT_EQ(segment.planner_primary_backend, plan.primary_backend);
+  }
+  bool found_contract_note = false;
+  for (const auto &note : plan.notes) {
+    if (note.find("request_contract.status=single_primary_backend_locked") != std::string::npos) {
+      found_contract_note = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_contract_note);
+}

@@ -17,9 +17,9 @@ Goal:
 - one FK / IK / Jacobian / planner inverse-projection request uses exactly one primary backend
 
 Needed work:
-- request-level tracing in kinematics
-- request-level tests proving no silent backend mixing
-- planner tests that bind continuity scoring to the same primary backend used for solving
+- request-level tracing in kinematics [done]
+- request-level tests proving no silent backend mixing [done]
+- planner tests that bind continuity scoring to the same primary backend used for solving [done]
 
 ## P2 — Planner preflight reporting
 
@@ -77,3 +77,9 @@ Needed work:
 - make terminal runtime status writes go through an explicit `RuntimeStateMachine`
 - keep `planner_loop` and `runtime_execution_switch` as event producers, not final state authorities
 - prove the split with unit tests
+
+
+## 2026-04 strict runtime authority landing
+- SDK wrapper 的 `projectInfo/toolsInfo/wobjsInfo/setProjectRunningOpt/pauseProject` 默认不再把 runtime 失败静默伪装成成功。
+- 仅当显式设置 `ROKAE_SDK_LEGACY_CATALOG_FALLBACK=true` 时，允许返回旧缓存作为兼容旁路。
+- wrapper 析构不再调用全局 `rclcpp::shutdown()`；ROS 生命周期改由进程级 `RosContextOwner` 统一持有。

@@ -24,6 +24,7 @@
 #include "runtime/runtime_publish_bridge.hpp"
 #include "runtime/ros_bindings.hpp"
 #include "rokae_xmate3_ros2/runtime/shutdown_coordinator.hpp"
+#include "rokae_xmate3_ros2/runtime/ros_context_owner.hpp"
 #include "rokae_xmate3_ros2/msg/operation_state.hpp"
 #include "rokae_xmate3_ros2/msg/runtime_diagnostics.hpp"
 
@@ -31,6 +32,13 @@ namespace gazebo {
 
 class RuntimeBootstrap {
  public:
+  struct RosIntegrationOptions {
+    std::shared_ptr<rclcpp::Context> context;
+    rclcpp::Node::SharedPtr node;
+    std::shared_ptr<rclcpp::Executor> executor;
+    bool attach_to_executor = true;
+  };
+
   using JointStateFetcher = std::function<void(std::array<double, 6> &,
                                                std::array<double, 6> &,
                                                std::array<double, 6> &)>;
@@ -40,6 +48,12 @@ class RuntimeBootstrap {
                    const std::array<std::pair<double, double>, 6> *original_joint_limits,
                    const std::vector<std::string> *joint_names,
                    JointStateFetcher joint_state_fetcher);
+  RuntimeBootstrap(BackendMode backend_mode,
+                   std::vector<physics::JointPtr> *joints,
+                   const std::array<std::pair<double, double>, 6> *original_joint_limits,
+                   const std::vector<std::string> *joint_names,
+                   JointStateFetcher joint_state_fetcher,
+                   RosIntegrationOptions ros_integration);
   ~RuntimeBootstrap();
 
   void start();
@@ -80,7 +94,10 @@ class RuntimeBootstrap {
   JointStateFetcher joint_state_fetcher_;
 
   rclcpp::Node::SharedPtr node_;
-  std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
+  std::shared_ptr<rclcpp::Executor> executor_;
+  std::shared_ptr<rokae_xmate3_ros2::runtime::RosContextOwner::Lease> ros_context_lease_;
+  RosIntegrationOptions ros_integration_;
+  bool attached_external_executor_ = false;
   std::thread executor_thread_;
   std::unique_ptr<xMate3Kinematics> kinematics_;
 

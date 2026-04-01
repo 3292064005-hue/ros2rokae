@@ -64,6 +64,8 @@ xMate3Kinematics::xMate3Kinematics() {
     backend_ = detail::makePreferredKinematicsBackend();
     last_trace_.primary_backend = backendName();
     last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_reason.clear();
+    last_trace_.seed_source = policy_.ikSeedModeName();
     last_trace_.request_kind = "init";
 }
 
@@ -90,9 +92,12 @@ Matrix4d xMate3Kinematics::forwardKinematics(const std::vector<double>& joints) 
     last_trace_.request_kind = "fk";
     last_trace_.primary_backend = backendName();
     last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_reason.clear();
+    last_trace_.seed_source = policy_.ikSeedModeName();
     last_trace_.fallback_used = false;
     last_trace_.selected_branch.clear();
     last_trace_.note.clear();
+    applyRequestContract();
     if (backend_) {
         return backend_->computeForwardTransform(joints);
     }
@@ -156,11 +161,14 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
     last_trace_.request_kind = "ik_multi";
     last_trace_.primary_backend = backendName();
     last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_reason.clear();
+    last_trace_.seed_source = policy_.ikSeedModeName();
     last_trace_.fallback_used = false;
     last_trace_.selected_branch.clear();
     last_trace_.note.clear();
     if (!backend_ || target.size() < 6 || current_joints.size() < 6) {
         last_trace_.note = "invalid_ik_multi_input";
+        applyRequestContract();
         return {};
     }
 
@@ -180,6 +188,7 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
     }
     last_trace_.singularity_metric = solved.singularity_metric;
     last_trace_.note = solved.message;
+    applyRequestContract();
     return candidates;
 }
 
@@ -199,11 +208,14 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
     last_trace_.request_kind = "ik_seeded";
     last_trace_.primary_backend = backendName();
     last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_reason.clear();
+    last_trace_.seed_source = policy_.ikSeedModeName();
     last_trace_.fallback_used = false;
     last_trace_.selected_branch.clear();
     last_trace_.note.clear();
     if (!backend_ || target.size() < 6 || seed_joints.size() < 6) {
         last_trace_.note = "invalid_ik_seed_input";
+        applyRequestContract();
         return {};
     }
 
@@ -216,6 +228,7 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
     last_trace_.selected_branch = solved.chosen_branch;
     last_trace_.singularity_metric = solved.singularity_metric;
     last_trace_.note = solved.message;
+    applyRequestContract();
     return solved.q;
 }
 
@@ -224,6 +237,8 @@ xMate3Kinematics::Matrix6d xMate3Kinematics::computeJacobian(const std::vector<d
     last_trace_.request_kind = "jacobian";
     last_trace_.primary_backend = backendName();
     last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_reason.clear();
+    last_trace_.seed_source = policy_.ikSeedModeName();
     last_trace_.fallback_used = false;
     if (backend_) {
         return backend_->computeJacobian(joints);
@@ -362,15 +377,19 @@ xMate3Kinematics::IkSelectionResult xMate3Kinematics::selectBestIkSolution(
     last_trace_.request_kind = "ik_select";
     last_trace_.primary_backend = backendName();
     last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_reason.clear();
+    last_trace_.seed_source = policy_.ikSeedModeName();
     last_trace_.fallback_used = selected.note.find("fallback") != std::string::npos ||
                                 selected.note.find("relaxed") != std::string::npos;
     last_trace_.selected_branch = selected.branch_id;
     last_trace_.note = selected.note.empty() ? selected.message : selected.note;
+    last_trace_.fallback_reason = selected.note;
     if (selected.success && !selected.q.empty()) {
         const auto metrics = evaluateIkCandidate(selected.q, seed_joints);
         last_trace_.continuity_cost = metrics.continuity_cost;
         last_trace_.singularity_metric = metrics.singularity_metric;
     }
+    applyRequestContract();
     return result;
 }
 
@@ -408,6 +427,8 @@ bool xMate3Kinematics::buildCartesianJointTrajectory(
     last_trace_.request_kind = "ik_trajectory";
     last_trace_.primary_backend = backendName();
     last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_reason.clear();
+    last_trace_.seed_source = policy_.ikSeedModeName();
     last_trace_.fallback_used = false;
     last_trace_.note = ok ? "trajectory_projection_ok" : error_message;
     if (ok && !joint_trajectory.empty()) {
@@ -415,6 +436,7 @@ bool xMate3Kinematics::buildCartesianJointTrajectory(
         last_trace_.continuity_cost = metrics.continuity_cost;
         last_trace_.singularity_metric = metrics.singularity_metric;
     }
+    applyRequestContract();
     return ok;
 }
 
@@ -448,8 +470,11 @@ bool xMate3Kinematics::projectCartesianJointDerivatives(
     last_trace_.request_kind = "ik_derivatives";
     last_trace_.primary_backend = backendName();
     last_trace_.fallback_backend = policy_.fallbackBackendName();
+    last_trace_.fallback_reason.clear();
+    last_trace_.seed_source = policy_.ikSeedModeName();
     last_trace_.fallback_used = false;
     last_trace_.note = ok ? "derivative_projection_ok" : "derivative_projection_failed";
+    applyRequestContract();
     return ok;
 }
 
@@ -481,6 +506,47 @@ const KinematicsPolicy &xMate3Kinematics::policy() const noexcept {
 
 const xMate3Kinematics::RequestTrace &xMate3Kinematics::lastTrace() const noexcept {
     return last_trace_;
+}
+
+void xMate3Kinematics::beginRequestContract(const std::string& request_id) const {
+    request_contract_ = RequestContractState{};
+    request_contract_.active = true;
+    request_contract_.request_id = request_id;
+    request_contract_.locked_primary_backend = backendName();
+    request_contract_.locked_fallback_backend = policy_.fallbackBackendName();
+}
+
+void xMate3Kinematics::endRequestContract() const {
+    request_contract_.active = false;
+}
+
+xMate3Kinematics::RequestContractState xMate3Kinematics::requestContractState() const noexcept {
+    return request_contract_;
+}
+
+void xMate3Kinematics::applyRequestContract() const {
+    if (!request_contract_.active) {
+        return;
+    }
+    request_contract_.last_request_kind = last_trace_.request_kind;
+    request_contract_.last_fallback_reason = last_trace_.fallback_reason;
+    request_contract_.last_seed_source = last_trace_.seed_source;
+    if (request_contract_.locked_primary_backend.empty() || request_contract_.locked_primary_backend == "none") {
+        request_contract_.locked_primary_backend = last_trace_.primary_backend;
+    }
+    if (!last_trace_.primary_backend.empty() && request_contract_.locked_primary_backend != last_trace_.primary_backend) {
+        request_contract_.violated = true;
+        request_contract_.violation_reason =
+            "primary backend changed within one request: locked=" + request_contract_.locked_primary_backend +
+            " observed=" + last_trace_.primary_backend + " during " + last_trace_.request_kind;
+        return;
+    }
+    if (policy_.require_single_backend_per_request && last_trace_.fallback_used) {
+        request_contract_.violated = true;
+        request_contract_.violation_reason =
+            "fallback path used within single-primary request during " + last_trace_.request_kind +
+            (last_trace_.fallback_reason.empty() ? std::string{} : std::string{" reason="} + last_trace_.fallback_reason);
+    }
 }
 
 // -------------------------- 改进DH变换矩阵 - 完全保留你的原版 --------------------------

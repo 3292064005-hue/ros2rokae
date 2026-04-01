@@ -277,3 +277,25 @@ TEST(KinematicsBackendTest, SelectionTraceCapturesBackendBranchAndMetrics) {
   EXPECT_TRUE(std::isfinite(trace.continuity_cost));
   EXPECT_TRUE(std::isfinite(trace.singularity_metric));
 }
+
+TEST(KinematicsBackendTest, RequestContractRejectsRelaxedConfFallback) {
+  gazebo::xMate3Kinematics kinematics;
+  const std::vector<double> seed = {0.5, 0.15, 1.55, 0.0, 1.35, M_PI};
+  const auto target_pose = kinematics.forwardKinematicsRPY(seed);
+  const auto candidates = kinematics.inverseKinematicsMultiSolution(target_pose, seed);
+  ASSERT_FALSE(candidates.empty());
+
+  gazebo::xMate3Kinematics::CartesianIkOptions options;
+  options.strict_conf = false;
+  options.requested_conf = {-1, 0, 0, 0, 0, 0};
+
+  kinematics.beginRequestContract("conf_relaxed_fallback");
+  const auto selected = kinematics.selectBestIkSolution(candidates, target_pose, seed, options);
+  const auto contract = kinematics.requestContractState();
+  kinematics.endRequestContract();
+
+  ASSERT_TRUE(selected.success);
+  EXPECT_TRUE(contract.violated);
+  EXPECT_NE(contract.violation_reason.find("fallback path used within single-primary request"), std::string::npos);
+  EXPECT_EQ(contract.locked_primary_backend, kinematics.backendName());
+}

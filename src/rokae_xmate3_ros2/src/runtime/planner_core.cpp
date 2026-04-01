@@ -986,12 +986,26 @@ void apply_joint_zone_blending(std::vector<PlannedSegment> &segments,
 
 }  // namespace
 
+namespace {
+struct KinematicsRequestGuard {
+  explicit KinematicsRequestGuard(::gazebo::xMate3Kinematics& kinematics, std::string request_id)
+      : kinematics_(kinematics) {
+    kinematics_.beginRequestContract(request_id);
+  }
+  ~KinematicsRequestGuard() {
+    kinematics_.endRequestContract();
+  }
+  ::gazebo::xMate3Kinematics& kinematics_;
+};
+}  // namespace
+
 MotionPlanner::MotionPlanner() : kinematics_(std::make_unique<::gazebo::xMate3Kinematics>()) {}
 
 MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
   MotionPlan plan;
   plan.request_id = request.request_id;
 
+  KinematicsRequestGuard request_guard(*kinematics_, request.request_id.empty() ? std::string{"motion_plan"} : request.request_id);
   const auto preflight = runPlannerPreflight(request);
   if (!preflight.ok) {
     plan.error_message = format_motion_failure(preflight.reject_reason, preflight.detail);
@@ -1190,6 +1204,8 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
           plan.notes.push_back("ik_trace.kind=" + trace.request_kind +
                                ";backend=" + trace.primary_backend +
                                ";fallback=" + (trace.fallback_used ? std::string("true") : std::string("false")) +
+                               ";fallback_reason=" + trace.fallback_reason +
+                               ";seed_source=" + trace.seed_source +
                                ";branch=" + trace.selected_branch +
                                ";continuity=" + std::to_string(trace.continuity_cost) +
                                ";singularity=" + std::to_string(trace.singularity_metric));
@@ -1279,6 +1295,13 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
     ++index;
   }
 
+  const auto request_contract = kinematics_->requestContractState();
+  if (request_contract.violated) {
+    plan.error_message = format_motion_failure("backend_contract_violation", request_contract.violation_reason);
+    return plan;
+  }
+  plan.notes.push_back("request_contract.primary_backend=" + request_contract.locked_primary_backend);
+  plan.notes.push_back("request_contract.status=single_primary_backend_locked");
   apply_joint_zone_blending(plan.segments, plan.notes, effective_preflight);
   plan.estimated_duration = 0.0;
   for (auto &segment : plan.segments) {

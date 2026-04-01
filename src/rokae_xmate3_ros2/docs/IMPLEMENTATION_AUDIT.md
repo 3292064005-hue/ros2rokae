@@ -91,6 +91,7 @@ What is in place:
 What is still approximate:
 - project catalogs are runtime-backed normalized catalogs
 - execution semantics are not controller-native RL project execution
+- `ppToMain()` is not implemented in the Gazebo/runtime facade and now returns an explicit unsupported error instead of a fake success
 
 ### 4.8 Cobot-specific interfaces
 
@@ -167,3 +168,12 @@ That is the correct baseline for future work.
 - profile capability query surface
 - runtime diagnostics now expose active request id and execution backend
 - SDK wrapper can fetch profile and runtime-option capability snapshots
+
+
+## 2026-04 full-coverage follow-up
+- `rokae::ros2::xMateRobot` and SDK shim entrypoints now support externally injected ROS ownership via `RosClientOptions`.
+- planner / query IK requests now enforce a request-level single-primary-backend contract rather than only exposing trace metadata.
+- `rokae/sdk_shim.hpp` is now an umbrella over `detail/sdk_shim_core.hpp` and `detail/sdk_shim_planner.hpp`; `rokae/planner.h` is no longer transitively pulled by `rokae/robot.h`.
+
+
+SDK-compatible wrappers (`rokae::Robot_T`, `rokae::Cobot`, `rokae::xMateRobot`) now default to the legacy catalog fallback policy across both their historical constructors and the `RosClientOptions` injection path so that historical SDK call sites keep their prior behavior unless they explicitly opt into strict runtime authority. The native ROS facade (`rokae::ros2::xMateRobot`) still defaults to strict runtime authority.

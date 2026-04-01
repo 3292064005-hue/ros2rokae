@@ -14,6 +14,7 @@ from rokae_xmate3_ros2.srv import (
     Connect,
     SetMotionControlMode,
     SetOperateMode,
+    ValidateMotion,
 )
 
 from common import RuntimeCleanupMixin, RuntimeReadinessMixin
@@ -30,6 +31,9 @@ class JointStateProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin):
         )
         self._set_operate_mode_client = self.create_client(
             SetOperateMode, "/xmate3/cobot/set_operate_mode"
+        )
+        self._validate_motion_client = self.create_client(
+            ValidateMotion, "/xmate3/internal/validate_motion"
         )
         self._init_runtime_cleanup_clients()
         self._init_runtime_readiness_clients()
@@ -63,6 +67,7 @@ class JointStateProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin):
             (self._set_motion_control_mode_client, "/xmate3/cobot/set_motion_control_mode"),
             (self._set_operate_mode_client, "/xmate3/cobot/set_operate_mode"),
             (self._power_client, "/xmate3/cobot/set_power_state"),
+            (self._validate_motion_client, "/xmate3/internal/validate_motion"),
         ]
         deadline = time.monotonic() + timeout_sec
         for client, service_name in service_specs:

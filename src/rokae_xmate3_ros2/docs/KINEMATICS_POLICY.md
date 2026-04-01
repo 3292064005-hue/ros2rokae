@@ -16,3 +16,7 @@ The fallback backend is only allowed for seed generation, retry on primary failu
 - `ROKAE_KINEMATICS_PRIMARY=kdl|improved_dh`
 - `ROKAE_KINEMATICS_FALLBACK=improved_dh|none`
 - `ROKAE_KINEMATICS_IK_SEEDS=current|dh|mixed`
+
+## Contract enforcement
+- `xMate3Kinematics::beginRequestContract()` / `requestContractState()` lock the primary backend for one logical request.
+- If a request observes a fallback-marked IK selection note, the request is rejected as `backend_contract_violation` instead of silently mixing semantics.

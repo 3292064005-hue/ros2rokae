@@ -1,6 +1,26 @@
 #include "robot_internal.hpp"
 
+#include <cstdlib>
+
 namespace rokae::ros2 {
+
+namespace {
+
+rclcpp::Node::SharedPtr makeManagedNode(const RosClientOptions& options) {
+    if (options.node) {
+        return options.node;
+    }
+    if (options.context) {
+        rclcpp::NodeOptions node_options;
+        node_options.context(options.context);
+        return std::make_shared<rclcpp::Node>(options.node_name.empty() ? std::string{"xmate3_robot"} : options.node_name,
+                                              node_options);
+    }
+    return rclcpp::Node::make_shared(options.node_name.empty() ? std::string{"xmate3_robot"} : options.node_name);
+}
+
+}  // namespace
+
 
 void xMateRobot::Impl::init_node() {
     RCLCPP_INFO(node_->get_logger(), "xMate3 ROS2节点初始化完成, 节点名: %s", node_->get_name());
@@ -131,31 +151,34 @@ void xMateRobot::Impl::start_executor() {
 }
 
 void xMateRobot::Impl::stop_executor() {
-    if (executor_) {
+    if (executor_ && !attached_external_executor_) {
         executor_->cancel();
     }
     if (executor_thread_.joinable()) {
         executor_thread_.join();
     }
-    if (executor_ && node_) {
-        executor_->remove_node(node_);
+    if (executor_ && node_ && attached_external_executor_) {
+        try {
+            executor_->remove_node(node_);
+        } catch (const std::exception &) {
+        }
     }
+    attached_external_executor_ = false;
     executor_.reset();
 }
 
 xMateRobot::Impl::~Impl() {
     stop_executor();
+    ros_context_lease_.reset();
 }
 
 // Impl构造函数实现
 
 xMateRobot::Impl::Impl(const std::string& node_name) {
-    // 首先初始化ROS2（如果还没有初始化）
-    if (!rclcpp::ok()) {
-        rclcpp::init(0, nullptr);
-    }
-    // 然后创建节点
+    ros_context_lease_ = rokae_xmate3_ros2::runtime::RosContextOwner::acquire("sdk_wrapper_ctor");
     node_ = rclcpp::Node::make_shared(node_name);
+    catalog_policy_ = strictRuntimeCatalogPolicy();
+    applyCatalogPolicyFromEnvironment();
     init_node();
     init_clients();
     init_subscribers();
@@ -165,12 +188,44 @@ xMateRobot::Impl::Impl(const std::string& node_name) {
 xMateRobot::Impl::Impl(const std::string& remote_ip, const std::string& local_ip) {
     remote_ip_ = remote_ip;
     local_ip_ = local_ip;
-    // 首先初始化ROS2（如果还没有初始化）
-    if (!rclcpp::ok()) {
-        rclcpp::init(0, nullptr);
-    }
-    // 然后创建节点
+    ros_context_lease_ = rokae_xmate3_ros2::runtime::RosContextOwner::acquire("sdk_wrapper_ctor");
     node_ = rclcpp::Node::make_shared("xmate3_robot");
+    catalog_policy_ = strictRuntimeCatalogPolicy();
+    applyCatalogPolicyFromEnvironment();
+    init_node();
+    init_clients();
+    init_subscribers();
+    start_executor();
+}
+
+xMateRobot::Impl::Impl(const RosClientOptions& options) {
+    remote_ip_ = options.remote_ip.empty() ? std::string{"192.168.0.160"} : options.remote_ip;
+    local_ip_ = options.local_ip;
+    owns_node_ = !options.node;
+    if (!options.node && !options.context) {
+        ros_context_lease_ = rokae_xmate3_ros2::runtime::RosContextOwner::acquire("sdk_wrapper_ctor");
+    }
+    node_ = makeManagedNode(options);
+    if (options.executor && options.attach_to_executor && node_) {
+        executor_ = options.executor;
+        auto node_base = node_->get_node_base_interface();
+        const bool already_associated =
+            node_base && node_base->get_associated_with_executor_atomic().load();
+        if (already_associated) {
+            attached_external_executor_ = true;
+        } else {
+            try {
+                executor_->add_node(node_);
+                attached_external_executor_ = true;
+            } catch (const std::exception &) {
+                executor_.reset();
+                attached_external_executor_ = false;
+            }
+        }
+    }
+    catalog_policy_ = strictRuntimeCatalogPolicy();
+    applyCatalogPolicyFromEnvironment();
+    applyCatalogPolicyOverride(options.catalog_policy);
     init_node();
     init_clients();
     init_subscribers();
@@ -179,7 +234,58 @@ xMateRobot::Impl::Impl(const std::string& remote_ip, const std::string& local_ip
 
 // 通用服务等待工具函数
 
+void xMateRobot::Impl::applyCatalogPolicyFromEnvironment() {
+    const char *strict_env = std::getenv("ROKAE_SDK_STRICT_RUNTIME_AUTHORITY");
+    if (strict_env != nullptr) {
+        const std::string value(strict_env);
+        catalog_policy_.strict_runtime_authority = !(value == "0" || value == "false" || value == "off");
+    }
+    const char *legacy_env = std::getenv("ROKAE_SDK_LEGACY_CATALOG_FALLBACK");
+    if (legacy_env != nullptr) {
+        const std::string value(legacy_env);
+        catalog_policy_.allow_legacy_catalog_fallback = value == "1" || value == "true" || value == "on";
+    }
+}
+
+void xMateRobot::Impl::applyCatalogPolicyOverride(const std::optional<SdkCatalogConsistencyPolicy>& override_policy) {
+    if (override_policy.has_value()) {
+        catalog_policy_ = *override_policy;
+    }
+}
+
+bool xMateRobot::Impl::allowCatalogFallback(std::error_code& ec, bool fallback_available, const char* operation) {
+    if (!catalog_policy_.strict_runtime_authority && fallback_available) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "%s returning stale SDK cache because strict runtime authority is disabled",
+                    operation);
+        ec.clear();
+        return true;
+    }
+    if (catalog_policy_.allow_legacy_catalog_fallback && fallback_available) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "%s falling back to stale SDK cache because ROKAE_SDK_LEGACY_CATALOG_FALLBACK is enabled",
+                    operation);
+        ec.clear();
+        return true;
+    }
+
+    if (!ec) {
+        ec = std::make_error_code(std::errc::state_not_recoverable);
+    }
+    RCLCPP_ERROR(node_->get_logger(),
+                 "%s requires authoritative runtime state; stale SDK fallback is disabled",
+                 operation);
+    return false;
+}
+
 bool xMateRobot::Impl::wait_for_service(rclcpp::ClientBase::SharedPtr client, std::error_code& ec, int timeout_s) {
+    if (!client) {
+        ec = std::make_error_code(std::errc::bad_address);
+        if (node_) {
+            RCLCPP_ERROR(node_->get_logger(), "等待服务失败: client为空");
+        }
+        return false;
+    }
     if (!client->wait_for_service(std::chrono::seconds(timeout_s))) {
         ec = std::make_error_code(std::errc::host_unreachable);
         RCLCPP_ERROR(node_->get_logger(), "服务 %s 等待超时", client->get_service_name());
@@ -282,18 +388,19 @@ xMateRobot::xMateRobot(const std::string& node_name)
 xMateRobot::xMateRobot(const std::string& remote_ip, const std::string& local_ip)
     : impl_(std::make_shared<Impl>(remote_ip, local_ip)) {}
 
+xMateRobot::xMateRobot(const RosClientOptions& options)
+    : impl_(std::make_shared<Impl>(options)) {}
+
 // 析构函数
 
 xMateRobot::~xMateRobot() {
     std::error_code ec;
-    if (impl_->connected_) {
+    if (impl_ && impl_->connected_) {
         disconnectFromRobot(ec);
     }
     if (impl_) {
         impl_->stop_executor();
-    }
-    if (rclcpp::ok()) {
-        rclcpp::shutdown();
+        impl_->ros_context_lease_.reset();
     }
 }
 

@@ -32,6 +32,13 @@ void QueryFacade::handleCalcFk(const rokae_xmate3_ros2::srv::CalcFk::Request &re
 
 void QueryFacade::handleCalcIk(const rokae_xmate3_ros2::srv::CalcIk::Request &req,
                                rokae_xmate3_ros2::srv::CalcIk::Response &res) const {
+  struct RequestGuard {
+    explicit RequestGuard(::gazebo::xMate3Kinematics &kinematics) : kinematics_(kinematics) {
+      kinematics_.beginRequestContract("query_calc_ik");
+    }
+    ~RequestGuard() { kinematics_.endRequestContract(); }
+    ::gazebo::xMate3Kinematics &kinematics_;
+  } request_guard(kinematics_);
   std::vector<double> target(req.target_posture.begin(), req.target_posture.end());
   target = pose_utils::convertEndInRefToFlangeInBase(
       target, tooling_state_.toolset().tool_pose, tooling_state_.toolset().wobj_pose);
@@ -53,6 +60,12 @@ void QueryFacade::handleCalcIk(const rokae_xmate3_ros2::srv::CalcIk::Request &re
   ik_options.soft_limit_enabled = soft_limit.enabled;
   ik_options.soft_limits = soft_limit.limits;
   const auto selected = kinematics_.selectBestIkSolution(candidates, target, current, ik_options);
+  const auto request_contract = kinematics_.requestContractState();
+  if (request_contract.violated) {
+    res.success = false;
+    res.message = request_contract.violation_reason;
+    return;
+  }
   if (!selected.success) {
     res.success = false;
     res.message = selected.message;
@@ -369,6 +382,8 @@ void QueryFacade::handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMot
         res.notes.push_back("ik_trace.kind=" + trace.request_kind +
                             ";backend=" + trace.primary_backend +
                             ";fallback=" + (trace.fallback_used ? std::string("true") : std::string("false")) +
+                            ";fallback_reason=" + trace.fallback_reason +
+                            ";seed_source=" + trace.seed_source +
                             ";branch=" + trace.selected_branch +
                             ";continuity=" + std::to_string(trace.continuity_cost) +
                             ";singularity=" + std::to_string(trace.singularity_metric));

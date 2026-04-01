@@ -1,0 +1,70 @@
+name: gates
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release_gate:
+        description: "Run the heavier release gate bundle"
+        required: false
+        default: "false"
+
+jobs:
+  quick-gate:
+    runs-on: ubuntu-latest
+    container:
+      image: ros:humble-ros-base
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install package dependencies
+        run: |
+          set -e
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            python3-colcon-common-extensions \
+            python3-rosdep \
+            python3-vcstool \
+            libeigen3-dev
+          rosdep init 2>/dev/null || true
+          rosdep update
+      - name: Build and run quick gate
+        shell: bash
+        run: |
+          set -e
+          . /opt/ros/humble/setup.bash
+          mkdir -p /workspace/src
+          cp -R "$GITHUB_WORKSPACE" /workspace/src/rokae_xmate3_ros2
+          cd /workspace
+          rosdep install --from-paths src --ignore-src -r -y
+          /workspace/src/rokae_xmate3_ros2/tools/run_quick_gate.sh /workspace
+
+  release-gate:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.release_gate == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: ros:humble-ros-base
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install package dependencies
+        run: |
+          set -e
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            python3-colcon-common-extensions \
+            python3-rosdep \
+            python3-vcstool \
+            libeigen3-dev
+          rosdep init 2>/dev/null || true
+          rosdep update
+      - name: Build and run release gate
+        shell: bash
+        run: |
+          set -e
+          . /opt/ros/humble/setup.bash
+          mkdir -p /workspace/src
+          cp -R "$GITHUB_WORKSPACE" /workspace/src/rokae_xmate3_ros2
+          cd /workspace
+          rosdep install --from-paths src --ignore-src -r -y
+          /workspace/src/rokae_xmate3_ros2/tools/run_release_gate.sh /workspace

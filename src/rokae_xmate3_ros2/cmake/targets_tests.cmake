@@ -3,22 +3,29 @@ if(BUILD_TESTING)
   option(ROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS "Enable full Gazebo examples harness" OFF)
   option(ROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS "Enable Gazebo backend mode smoke harnesses" OFF)
   option(ROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS "Enable Gazebo teardown quality contract harness" OFF)
+  option(ROKAE_ENABLE_RELEASE_GATE "Enable the heavier release gate bundle (backend modes + teardown + catalog/lifecycle tests)" OFF)
+  if(ROKAE_ENABLE_RELEASE_GATE)
+    set(ROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS ON)
+    set(ROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS ON)
+    set(ROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS ON)
+  endif()
   find_package(ament_cmake_gtest REQUIRED)
   find_package(launch_testing_ament_cmake REQUIRED)
 
   # Common test target configuration macro
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rokae_test_utils.cmake)
 
-  if(EXISTS "/usr/bin/python3")
-    set(ROKAE_LAUNCH_TEST_PYTHON "/usr/bin/python3")
-  else()
-    set(ROKAE_LAUNCH_TEST_PYTHON "${Python3_EXECUTABLE}")
+  if(NOT Python3_EXECUTABLE)
+    message(FATAL_ERROR "Python3_EXECUTABLE must be configured for launch and harness tests")
   endif()
+  set(ROKAE_LAUNCH_TEST_PYTHON "${Python3_EXECUTABLE}")
   set(ROKAE_RUNTIME_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 
   ament_add_gtest(test_motion_planner_core
     test/unit/test_motion_planner_core.cpp
   )
+  set_tests_properties(test_motion_planner_core PROPERTIES LABELS "quick_gate")
+
   if(TARGET test_motion_planner_core)
     target_include_directories(test_motion_planner_core
       PRIVATE
@@ -37,6 +44,8 @@ if(BUILD_TESTING)
   ament_add_gtest(test_motion_runtime_state
     test/unit/test_motion_runtime_state.cpp
   )
+  set_tests_properties(test_motion_runtime_state PROPERTIES LABELS "quick_gate")
+
   if(TARGET test_motion_runtime_state)
     target_include_directories(test_motion_runtime_state
       PRIVATE
@@ -154,6 +163,48 @@ if(BUILD_TESTING)
   ament_add_gtest(test_service_facade
     test/unit/test_service_facade.cpp
   )
+  ament_add_gtest(test_ros_context_owner
+    test/unit/test_ros_context_owner.cpp
+  )
+  ament_add_gtest(test_sdk_catalog_policy
+    test/unit/test_sdk_catalog_policy.cpp
+  )
+  ament_add_gtest(test_service_registry_descriptors
+    test/unit/test_service_registry_descriptors.cpp
+  )
+  foreach(target_name IN ITEMS test_ros_context_owner test_sdk_catalog_policy test_service_registry_descriptors)
+    if(TARGET ${target_name})
+      target_include_directories(${target_name}
+        PRIVATE
+          include
+          ${CMAKE_CURRENT_BINARY_DIR}
+          ${CMAKE_CURRENT_SOURCE_DIR}/src
+          ${EIGEN3_INCLUDE_DIRS}
+      )
+      target_compile_features(${target_name} PUBLIC cxx_std_17)
+    endif()
+  endforeach()
+
+  foreach(target_name IN ITEMS test_ros_context_owner test_service_registry_descriptors)
+    if(TARGET ${target_name})
+      ament_target_dependencies(${target_name}
+        rclcpp
+        rclcpp_action
+      )
+      rokae_add_rosidl_dependency(${target_name})
+    endif()
+  endforeach()
+
+  set_tests_properties(test_ros_context_owner PROPERTIES LABELS "quick_gate")
+  set_tests_properties(test_sdk_catalog_policy PROPERTIES LABELS "quick_gate")
+  set_tests_properties(test_service_registry_descriptors PROPERTIES LABELS "quick_gate")
+
+add_test(
+  NAME repo_contract
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_repo_contract.py"
+)
+set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
+
   if(TARGET test_controller_state)
     target_include_directories(test_controller_state
       PRIVATE
@@ -169,6 +220,8 @@ if(BUILD_TESTING)
     rokae_add_rosidl_dependency(test_controller_state)
   endif()
 
+  set_tests_properties(test_request_coordinator PROPERTIES LABELS "quick_gate")
+
   if(TARGET test_request_coordinator)
     target_include_directories(test_request_coordinator
       PRIVATE
@@ -183,6 +236,8 @@ if(BUILD_TESTING)
     target_compile_features(test_request_coordinator PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_request_coordinator)
   endif()
+
+  set_tests_properties(test_runtime_diagnostics PROPERTIES LABELS "quick_gate")
 
   if(TARGET test_runtime_diagnostics)
     target_include_directories(test_runtime_diagnostics
@@ -229,6 +284,8 @@ if(BUILD_TESTING)
     target_compile_features(test_implementation_audit PUBLIC cxx_std_17)
   endif()
 
+  set_tests_properties(test_runtime_state_machine PROPERTIES LABELS "quick_gate")
+
   if(TARGET test_runtime_state_machine)
     target_include_directories(test_runtime_state_machine
       PRIVATE
@@ -243,6 +300,8 @@ if(BUILD_TESTING)
     target_compile_features(test_runtime_state_machine PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_state_machine)
   endif()
+
+  set_tests_properties(test_planner_preflight PROPERTIES LABELS "quick_gate")
 
   if(TARGET test_planner_preflight)
     target_include_directories(test_planner_preflight
@@ -259,6 +318,8 @@ if(BUILD_TESTING)
     rokae_add_rosidl_dependency(test_planner_preflight)
   endif()
 
+  set_tests_properties(test_runtime_catalog_service PROPERTIES LABELS "quick_gate")
+
   if(TARGET test_runtime_catalog_service)
     target_include_directories(test_runtime_catalog_service
       PRIVATE
@@ -273,6 +334,8 @@ if(BUILD_TESTING)
     target_compile_features(test_runtime_catalog_service PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_catalog_service)
   endif()
+
+  set_tests_properties(test_rt_hardening PROPERTIES LABELS "quick_gate")
 
   if(TARGET test_rt_hardening)
     target_include_directories(test_rt_hardening
@@ -289,6 +352,8 @@ if(BUILD_TESTING)
     rokae_add_rosidl_dependency(test_rt_hardening)
   endif()
 
+  set_tests_properties(test_runtime_state PROPERTIES LABELS "quick_gate")
+
   if(TARGET test_runtime_state)
     target_include_directories(test_runtime_state
       PRIVATE
@@ -303,6 +368,8 @@ if(BUILD_TESTING)
     target_compile_features(test_runtime_state PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_state)
   endif()
+
+  set_tests_properties(test_service_facade PROPERTIES LABELS "quick_gate")
 
   if(TARGET test_service_facade)
     target_include_directories(test_service_facade
@@ -456,7 +523,7 @@ class TestGazeboSdkRegression(unittest.TestCase):
     TIMEOUT 90
     PYTHON_EXECUTABLE "${ROKAE_LAUNCH_TEST_PYTHON}"
   )
-  set_tests_properties(gazebo_sdk_regression PROPERTIES RUN_SERIAL TRUE)
+  set_tests_properties(gazebo_sdk_regression PROPERTIES RUN_SERIAL TRUE LABELS "quick_gate")
 
   if(ROKAE_ENABLE_GAZEBO_STRICT_TESTS)
     set(GAZEBO_SDK_PRECISION_LAUNCH_TEST "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/gazebo_sdk_precision_launch_test.py")
@@ -608,7 +675,7 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
     TIMEOUT 180
     PYTHON_EXECUTABLE "${ROKAE_LAUNCH_TEST_PYTHON}"
   )
-  set_tests_properties(gazebo_examples_smoke PROPERTIES RUN_SERIAL TRUE)
+  set_tests_properties(gazebo_examples_smoke PROPERTIES RUN_SERIAL TRUE LABELS "quick_gate")
 
   if(ROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS)
     set(GAZEBO_EXAMPLES_FULL_COMMAND
@@ -636,7 +703,7 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
     )
     set_tests_properties(gazebo_examples_full PROPERTIES RUN_SERIAL TRUE)
     set_tests_properties(gazebo_examples_full PROPERTIES
-      LABELS "gazebo_integration_examples_full"
+      LABELS "gazebo_integration_examples_full;release_gate"
       TIMEOUT 1800
     )
   endif()
@@ -660,7 +727,7 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
     )
     set_tests_properties(gazebo_teardown_quality PROPERTIES
       RUN_SERIAL TRUE
-      LABELS "gazebo_teardown_quality"
+      LABELS "gazebo_teardown_quality;release_gate"
       TIMEOUT 240
     )
 

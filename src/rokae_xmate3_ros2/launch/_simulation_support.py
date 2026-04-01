@@ -1,4 +1,5 @@
 import os
+import sys
 
 import launch
 import launch_ros
@@ -74,6 +75,13 @@ def build_robot_state_publisher(robot_description):
     )
 
 
+def _gazebo_install_prefix():
+    env_prefix = os.environ.get("ROKAE_GAZEBO_PREFIX", "")
+    if env_prefix and os.path.isdir(env_prefix):
+        return env_prefix
+    return ""
+
+
 def build_environment_actions(pkg_share, pkg_lib_dir):
     existing_gazebo_model_path = os.environ.get("GAZEBO_MODEL_PATH", "")
     existing_gazebo_resource_path = os.environ.get("GAZEBO_RESOURCE_PATH", "")
@@ -89,11 +97,13 @@ def build_environment_actions(pkg_share, pkg_lib_dir):
     if os.path.isdir(gazebo_worlds_dir):
         gazebo_model_path_entries.append(gazebo_worlds_dir)
 
-    gazebo_resource_root = "/usr/share/gazebo-11"
+    gazebo_resource_root = _gazebo_install_prefix()
     gazebo_resource_path_entries = []
     if existing_gazebo_resource_path:
         gazebo_resource_path_entries.append(existing_gazebo_resource_path)
-    gazebo_resource_path_entries.extend([gazebo_resource_root, pkg_share])
+    if gazebo_resource_root:
+        gazebo_resource_path_entries.append(gazebo_resource_root)
+    gazebo_resource_path_entries.append(pkg_share)
 
     gazebo_plugin_path_entries = []
     if existing_gazebo_plugin_path:
@@ -109,7 +119,11 @@ def build_environment_actions(pkg_share, pkg_lib_dir):
 
 
 def build_gazebo_launch(world):
-    gazebo_launch_dir = os.path.join(get_package_share_directory("gazebo_ros"), "launch")
+    try:
+        gazebo_share = get_package_share_directory("gazebo_ros")
+    except PackageNotFoundError as exc:
+        raise RuntimeError("gazebo_ros package is required for simulation launch") from exc
+    gazebo_launch_dir = os.path.join(gazebo_share, "launch")
     return launch.actions.IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(gazebo_launch_dir, "gazebo.launch.py")),
         launch_arguments={
@@ -123,15 +137,26 @@ def build_gazebo_launch(world):
 
 
 def build_spawn_entity_action():
+    try:
+        gazebo_ros_share = get_package_share_directory("gazebo_ros")
+    except PackageNotFoundError as exc:
+        raise RuntimeError("gazebo_ros package is required to locate spawn_entity.py") from exc
+    gazebo_ros_prefix = os.path.dirname(os.path.dirname(gazebo_ros_share))
+    spawn_entity_script = os.path.join(gazebo_ros_prefix, "lib", "gazebo_ros", "spawn_entity.py")
+    if not os.path.isfile(spawn_entity_script):
+        raise RuntimeError(f"spawn_entity.py not found at expected path: {spawn_entity_script}")
+    python_bin = os.environ.get("ROKAE_PYTHON_EXECUTABLE", sys.executable)
+    if not python_bin or not os.path.exists(python_bin):
+        raise RuntimeError("A valid Python interpreter is required for spawn_entity.py")
     return launch.actions.ExecuteProcess(
         cmd=[
-            "/usr/bin/python3",
-            "/opt/ros/humble/lib/gazebo_ros/spawn_entity.py",
+            python_bin,
+            spawn_entity_script,
             "-topic", "/robot_description",
             "-entity", "xmate",
         ],
         output="screen",
-        additional_env={"PATH": "/usr/bin:/bin:" + os.environ.get("PATH", ""), "PYTHONHOME": ""},
+        additional_env={"PATH": os.environ.get("PATH", ""), "PYTHONHOME": ""},
     )
 
 

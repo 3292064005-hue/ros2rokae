@@ -29,6 +29,13 @@ class RosBindings {
               TrajectoryDtProvider trajectory_dt_provider,
               RequestIdGenerator request_id_generator);
 
+ public:
+  [[nodiscard]] const rclcpp::Node::SharedPtr &node() const noexcept { return node_; }
+  [[nodiscard]] ControlFacade *controlFacade() const noexcept { return control_facade_.get(); }
+  [[nodiscard]] QueryFacade *queryFacade() const noexcept { return query_facade_.get(); }
+  [[nodiscard]] IoProgramFacade *ioProgramFacade() const noexcept { return io_program_facade_.get(); }
+  [[nodiscard]] PathFacade *pathFacade() const noexcept { return path_facade_.get(); }
+
  private:
   void initServices();
   void registerCompatibilityAliases();

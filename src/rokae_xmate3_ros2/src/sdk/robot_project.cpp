@@ -1,13 +1,12 @@
 #include "robot_internal.hpp"
 
+#include <cmath>
+
 namespace rokae::ros2 {
 
 std::vector<rokae::RLProjectInfo> xMateRobot::projectInfo(std::error_code& ec) {
-    if (!impl_->connected_) {
-        ec = std::make_error_code(std::errc::not_connected);
-        return {};
-    }
-    if (impl_->xmate3_rl_get_project_info_client_ && impl_->wait_for_service(impl_->xmate3_rl_get_project_info_client_, ec)) {
+    const bool connected = impl_->connected_;
+    if (connected && impl_->xmate3_rl_get_project_info_client_ && impl_->wait_for_service(impl_->xmate3_rl_get_project_info_client_, ec)) {
         auto request = std::make_shared<rokae_xmate3_ros2::srv::GetRlProjectInfo::Request>();
         auto future = impl_->xmate3_rl_get_project_info_client_->async_send_request(request);
         if (impl_->wait_for_future(future) == rclcpp::FutureReturnCode::SUCCESS) {
@@ -27,18 +26,35 @@ std::vector<rokae::RLProjectInfo> xMateRobot::projectInfo(std::error_code& ec) {
                 ec.clear();
                 return projects;
             }
+            ec = std::make_error_code(std::errc::state_not_recoverable);
+        } else {
+            ec = std::make_error_code(std::errc::timed_out);
+        }
+    } else if (!connected) {
+        ec = std::make_error_code(std::errc::not_connected);
+    }
+
+    std::vector<rokae::RLProjectInfo> fallback_projects;
+    {
+        std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+        fallback_projects = impl_->projects_;
+        if (fallback_projects.empty() && !impl_->current_project_.name.empty()) {
+            fallback_projects.push_back(impl_->current_project_);
         }
     }
-    std::lock_guard<std::mutex> lock(impl_->state_mutex_);
-    if (impl_->projects_.empty() && !impl_->current_project_.name.empty()) {
-        impl_->projects_.push_back(impl_->current_project_);
+    if (!impl_->allowCatalogFallback(ec, !fallback_projects.empty(), "projectInfo")) {
+        return {};
     }
-    ec.clear();
-    return impl_->projects_;
+    return fallback_projects;
 }
 
 void xMateRobot::ppToMain(std::error_code& ec) {
-    ec.clear();
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    ec = std::make_error_code(std::errc::function_not_supported);
+    RCLCPP_WARN(impl_->node_->get_logger(), "ppToMain is not implemented in the Gazebo/runtime facade");
 }
 
 void xMateRobot::runProject(std::error_code& ec) {
@@ -56,6 +72,10 @@ void xMateRobot::runProject(std::error_code& ec) {
 }
 
 void xMateRobot::pauseProject(std::error_code& ec) {
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
     std::string project_name;
     {
         std::lock_guard<std::mutex> lock(impl_->state_mutex_);
@@ -65,44 +85,54 @@ void xMateRobot::pauseProject(std::error_code& ec) {
         ec = std::make_error_code(std::errc::invalid_argument);
         return;
     }
-    if (impl_->xmate3_rl_pause_project_client_ && impl_->wait_for_service(impl_->xmate3_rl_pause_project_client_, ec)) {
-        auto request = std::make_shared<rokae_xmate3_ros2::srv::PauseRLProject::Request>();
-        request->project_id = project_name;
-        auto future = impl_->xmate3_rl_pause_project_client_->async_send_request(request);
-        if (impl_->wait_for_future(future) == rclcpp::FutureReturnCode::SUCCESS) {
-            auto result = future.get();
-            if (result->success) {
-                std::lock_guard<std::mutex> lock(impl_->state_mutex_);
-                impl_->current_project_.is_running = false;
-                ec.clear();
-                return;
-            }
-        }
+    if (!impl_->xmate3_rl_pause_project_client_ || !impl_->wait_for_service(impl_->xmate3_rl_pause_project_client_, ec)) {
+        return;
     }
-    int finished_episode = 0;
-    (void)stopRLProject(project_name, finished_episode, ec);
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::PauseRLProject::Request>();
+    request->project_id = project_name;
+    auto future = impl_->xmate3_rl_pause_project_client_->async_send_request(request);
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::timed_out);
+        return;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return;
+    }
+    std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+    impl_->current_project_.is_running = false;
+    ec.clear();
 }
 
 void xMateRobot::setProjectRunningOpt(double rate, bool loop, std::error_code& ec) {
-    if (impl_->xmate3_rl_set_running_opt_client_ && impl_->wait_for_service(impl_->xmate3_rl_set_running_opt_client_, ec)) {
-        auto request = std::make_shared<rokae_xmate3_ros2::srv::SetProjectRunningOpt::Request>();
-        request->rate = rate;
-        request->loop = loop;
-        auto future = impl_->xmate3_rl_set_running_opt_client_->async_send_request(request);
-        if (impl_->wait_for_future(future) == rclcpp::FutureReturnCode::SUCCESS) {
-            auto result = future.get();
-            if (result->success) {
-                std::lock_guard<std::mutex> lock(impl_->state_mutex_);
-                impl_->current_project_.run_rate = result->applied_rate;
-                impl_->current_project_.loop_mode = result->applied_loop;
-                ec.clear();
-                return;
-            }
-        }
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    if (!std::isfinite(rate) || rate <= 0.0 || rate > 1.0) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return;
+    }
+    if (!impl_->xmate3_rl_set_running_opt_client_ || !impl_->wait_for_service(impl_->xmate3_rl_set_running_opt_client_, ec)) {
+        return;
+    }
+    auto request = std::make_shared<rokae_xmate3_ros2::srv::SetProjectRunningOpt::Request>();
+    request->rate = rate;
+    request->loop = loop;
+    auto future = impl_->xmate3_rl_set_running_opt_client_->async_send_request(request);
+    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
+        ec = std::make_error_code(std::errc::timed_out);
+        return;
+    }
+    auto result = future.get();
+    if (!result->success) {
+        ec = std::make_error_code(std::errc::operation_not_permitted);
+        return;
     }
     std::lock_guard<std::mutex> lock(impl_->state_mutex_);
-    impl_->current_project_.run_rate = std::max(0.0, rate);
-    impl_->current_project_.loop_mode = loop;
+    impl_->current_project_.run_rate = result->applied_rate;
+    impl_->current_project_.loop_mode = result->applied_loop;
     ec.clear();
 }
 
@@ -140,20 +170,31 @@ std::vector<rokae::WorkToolInfo> xMateRobot::toolsInfo(std::error_code& ec) {
                 ec.clear();
                 return tools;
             }
+            ec = std::make_error_code(std::errc::state_not_recoverable);
+        } else {
+            ec = std::make_error_code(std::errc::timed_out);
+        }
+    } else if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+    }
+    std::vector<rokae::WorkToolInfo> fallback_tools;
+    {
+        std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+        fallback_tools = impl_->tools_;
+        if (fallback_tools.empty() && !impl_->toolset_cache_.tool_name.empty()) {
+            rokae::WorkToolInfo info;
+            info.name = impl_->toolset_cache_.tool_name;
+            info.alias = info.name;
+            info.robotHeld = true;
+            info.pos = impl_->toolset_cache_.end;
+            info.load = impl_->toolset_cache_.load;
+            fallback_tools.push_back(info);
         }
     }
-    std::lock_guard<std::mutex> lock(impl_->state_mutex_);
-    if (impl_->tools_.empty()) {
-        rokae::WorkToolInfo info;
-        info.name = impl_->toolset_cache_.tool_name.empty() ? "tool0" : impl_->toolset_cache_.tool_name;
-        info.alias = info.name;
-        info.robotHeld = true;
-        info.pos = impl_->toolset_cache_.end;
-        info.load = impl_->toolset_cache_.load;
-        impl_->tools_.push_back(info);
+    if (!impl_->allowCatalogFallback(ec, !fallback_tools.empty(), "toolsInfo")) {
+        return {};
     }
-    ec.clear();
-    return impl_->tools_;
+    return fallback_tools;
 }
 
 std::vector<rokae::WorkToolInfo> xMateRobot::wobjsInfo(std::error_code& ec) {
@@ -187,19 +228,30 @@ std::vector<rokae::WorkToolInfo> xMateRobot::wobjsInfo(std::error_code& ec) {
                 ec.clear();
                 return wobjs;
             }
+            ec = std::make_error_code(std::errc::state_not_recoverable);
+        } else {
+            ec = std::make_error_code(std::errc::timed_out);
+        }
+    } else if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+    }
+    std::vector<rokae::WorkToolInfo> fallback_wobjs;
+    {
+        std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+        fallback_wobjs = impl_->wobjs_;
+        if (fallback_wobjs.empty() && !impl_->toolset_cache_.wobj_name.empty()) {
+            rokae::WorkToolInfo info;
+            info.name = impl_->toolset_cache_.wobj_name;
+            info.alias = info.name;
+            info.robotHeld = false;
+            info.pos = impl_->toolset_cache_.ref;
+            fallback_wobjs.push_back(info);
         }
     }
-    std::lock_guard<std::mutex> lock(impl_->state_mutex_);
-    if (impl_->wobjs_.empty()) {
-        rokae::WorkToolInfo info;
-        info.name = impl_->toolset_cache_.wobj_name.empty() ? "wobj0" : impl_->toolset_cache_.wobj_name;
-        info.alias = info.name;
-        info.robotHeld = false;
-        info.pos = impl_->toolset_cache_.ref;
-        impl_->wobjs_.push_back(info);
+    if (!impl_->allowCatalogFallback(ec, !fallback_wobjs.empty(), "wobjsInfo")) {
+        return {};
     }
-    ec.clear();
-    return impl_->wobjs_;
+    return fallback_wobjs;
 }
 
 bool xMateRobot::loadRLProject(const std::string& project_path, std::string& project_name, std::error_code& ec) {
