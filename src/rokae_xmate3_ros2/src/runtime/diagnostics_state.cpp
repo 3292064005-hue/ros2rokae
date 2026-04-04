@@ -228,6 +228,54 @@ void RuntimeDiagnosticsState::setRuntimeOptionSummary(const std::string &summary
   snapshot_.runtime_option_summary = summary;
 }
 
+
+void RuntimeDiagnosticsState::setSemanticSurface(const std::string &api_surface,
+                                                const std::string &result_source,
+                                                const std::string &rt_dispatch_mode) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!api_surface.empty()) {
+    snapshot_.last_api_surface = api_surface;
+  }
+  if (!result_source.empty()) {
+    snapshot_.last_result_source = result_source;
+  }
+  if (!rt_dispatch_mode.empty()) {
+    snapshot_.rt_dispatch_mode = rt_dispatch_mode;
+  }
+}
+
+void RuntimeDiagnosticsState::setRtStateSource(const std::string &source) {
+  if (source.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.rt_state_source = source;
+}
+
+void RuntimeDiagnosticsState::setModelExactnessSummary(const std::string &summary) {
+  if (summary.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.model_exactness_summary = summary;
+}
+
+void RuntimeDiagnosticsState::setModelBackendInfo(const std::string &primary_backend, bool fallback_used) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!primary_backend.empty()) {
+    snapshot_.model_primary_backend = primary_backend;
+  }
+  snapshot_.model_fallback_used = fallback_used;
+}
+
+void RuntimeDiagnosticsState::setCatalogProvenanceSummary(const std::string &summary) {
+  if (summary.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.catalog_provenance_summary = summary;
+}
+
 void RuntimeDiagnosticsState::setCatalogSizes(std::uint32_t tool_count,
                                               std::uint32_t wobj_count,
                                               std::uint32_t project_count,

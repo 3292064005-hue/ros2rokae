@@ -54,22 +54,7 @@ RuntimeBootstrap::RuntimeBootstrap(BackendMode backend_mode,
 
 RuntimeBootstrap::~RuntimeBootstrap() {
   shutdown("bootstrap shutdown");
-  if (executor_ && !attached_external_executor_) {
-    executor_->cancel();
-  }
-  if (executor_thread_.joinable()) {
-    executor_thread_.join();
-  }
-  if (executor_ && node_) {
-    try {
-      auto node_base = node_->get_node_base_interface();
-      if (node_base && node_base->get_associated_with_executor_atomic().load()) {
-        executor_->remove_node(node_);
-      }
-    } catch (const std::exception &) {
-    }
-  }
-  attached_external_executor_ = false;
+  releaseExecutorNode();
 }
 
 void RuntimeBootstrap::start() {
@@ -253,6 +238,21 @@ void RuntimeBootstrap::start() {
   runtime_context_->diagnosticsState().setSessionModes(
       runtime_context_->sessionState().motionMode(),
       runtime_context_->sessionState().rtControlMode());
+  attachExecutorNode();
+  initRuntimeBindings(control_bridge_config);
+  initPrepareShutdownService();
+  startExecutorThread();
+
+  RCLCPP_INFO(
+      node_->get_logger(),
+      "runtime diagnostics ready: backend=%s rt_level=experimental aliases=[get_joint_torque,get_end_torque] "
+      "services=[/xmate3/internal/validate_motion,/xmate3/internal/get_runtime_diagnostics] "
+      "topic=[/xmate3/internal/runtime_status]",
+      toString(backend_mode_));
+}
+
+
+void RuntimeBootstrap::attachExecutorNode() {
   if (ros_integration_.executor && ros_integration_.attach_to_executor) {
     executor_ = ros_integration_.executor;
     auto node_base = node_->get_node_base_interface();
@@ -260,15 +260,20 @@ void RuntimeBootstrap::start() {
         node_base && node_base->get_associated_with_executor_atomic().load();
     if (already_associated) {
       attached_external_executor_ = true;
-    } else {
-      executor_->add_node(node_);
-      attached_external_executor_ = true;
+      executor_node_added_by_bootstrap_ = false;
+      return;
     }
-  } else {
-    executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
     executor_->add_node(node_);
+    attached_external_executor_ = true;
+    executor_node_added_by_bootstrap_ = true;
+    return;
   }
+  executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+  executor_->add_node(node_);
+  executor_node_added_by_bootstrap_ = true;
+}
 
+void RuntimeBootstrap::initRuntimeBindings(const runtime::RuntimeControlBridgeConfig &control_bridge_config) {
   auto time_provider = [this]() { return node_->get_clock()->now(); };
   auto trajectory_dt_provider = [this]() { return trajectory_sample_dt_; };
   auto request_id_generator = [this](const std::string &prefix) {
@@ -287,7 +292,9 @@ void RuntimeBootstrap::start() {
       trajectory_dt_provider,
       request_id_generator);
   control_bridge_ = std::make_unique<runtime::RuntimeControlBridge>(*runtime_context_, control_bridge_config);
+}
 
+void RuntimeBootstrap::initPrepareShutdownService() {
   prepare_shutdown_service_ = node_->create_service<rokae_xmate3_ros2::srv::PrepareShutdown>(
       "/xmate3/internal/prepare_shutdown",
       [this](const std::shared_ptr<rokae_xmate3_ros2::srv::PrepareShutdown::Request> request,
@@ -326,23 +333,39 @@ void RuntimeBootstrap::start() {
             state.safe_to_stop_world ? "true" : "false",
             response->message.c_str());
       });
+}
 
-  if (!attached_external_executor_) {
-    executor_thread_ = std::thread([this]() {
-      try {
-        executor_->spin();
-      } catch (const std::exception &e) {
-        RCLCPP_ERROR(node_->get_logger(), "ROS executor stopped unexpectedly: %s", e.what());
-      }
-    });
+void RuntimeBootstrap::startExecutorThread() {
+  if (attached_external_executor_ || !executor_) {
+    return;
   }
+  executor_thread_ = std::thread([this]() {
+    try {
+      executor_->spin();
+    } catch (const std::exception &e) {
+      RCLCPP_ERROR(node_->get_logger(), "ROS executor stopped unexpectedly: %s", e.what());
+    }
+  });
+}
 
-  RCLCPP_INFO(
-      node_->get_logger(),
-      "runtime diagnostics ready: backend=%s rt_level=experimental aliases=[get_joint_torque,get_end_torque] "
-      "services=[/xmate3/internal/validate_motion,/xmate3/internal/get_runtime_diagnostics] "
-      "topic=[/xmate3/internal/runtime_status]",
-      toString(backend_mode_));
+void RuntimeBootstrap::releaseExecutorNode() {
+  if (executor_ && !attached_external_executor_) {
+    executor_->cancel();
+  }
+  if (executor_thread_.joinable()) {
+    executor_thread_.join();
+  }
+  if (executor_ && node_ && executor_node_added_by_bootstrap_) {
+    try {
+      auto node_base = node_->get_node_base_interface();
+      if (node_base && node_base->get_associated_with_executor_atomic().load()) {
+        executor_->remove_node(node_);
+      }
+    } catch (const std::exception &) {
+    }
+  }
+  attached_external_executor_ = false;
+  executor_node_added_by_bootstrap_ = false;
 }
 
 void RuntimeBootstrap::shutdown(const std::string &reason) {

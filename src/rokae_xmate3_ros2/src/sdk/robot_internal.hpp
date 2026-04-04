@@ -58,6 +58,7 @@
 #include "rokae_xmate3_ros2/srv/get_power_state.hpp"
 #include "rokae_xmate3_ros2/srv/get_profile_capabilities.hpp"
 #include "rokae_xmate3_ros2/srv/get_rl_project_info.hpp"
+#include "rokae_xmate3_ros2/srv/get_runtime_state_snapshot.hpp"
 #include "rokae_xmate3_ros2/srv/get_rt_joint_data.hpp"
 #include "rokae_xmate3_ros2/srv/get_soft_limit.hpp"
 #include "rokae_xmate3_ros2/srv/get_tool_catalog.hpp"
@@ -115,6 +116,9 @@ public:
     ~Impl();
 
     bool wait_for_service(rclcpp::ClientBase::SharedPtr client, std::error_code& ec, int timeout_s = 5);
+    bool wait_for_service(rclcpp::ClientBase::SharedPtr client,
+                          std::error_code& ec,
+                          std::chrono::nanoseconds timeout);
     void start_executor();
     void stop_executor();
     template<typename FutureT>
@@ -144,11 +148,21 @@ public:
      * @return true if the caller may continue with legacy cached data.
      */
     bool allowCatalogFallback(std::error_code& ec, bool fallback_available, const char* operation);
+    void publishCatalogProvenance(const std::string& provenance) const;
 
     void applyCatalogPolicyFromEnvironment();
     void applyCatalogPolicyOverride(const std::optional<SdkCatalogConsistencyPolicy>& override_policy);
 
     void cacheCommand(const rokae_xmate3_ros2::action::MoveAppend::Goal &goal);
+    void ensureToolingClients();
+    void ensureSafetyClients();
+    void ensureProjectClients();
+    void ensurePathClients();
+    void ensureDynamicsClients();
+    bool refreshRuntimeStateSnapshot(std::error_code& ec,
+                                     bool force = false,
+                                     std::chrono::milliseconds max_age = std::chrono::milliseconds(50));
+    void clearRuntimeStateSnapshotCache() noexcept;
     void clearCache();
     void resetMoveAppendState();
     void handleMoveAppendResult(
@@ -184,8 +198,29 @@ public:
     std::string move_append_result_message_;
 
     std::error_code last_error_code_;
+
+    void remember_last_error(const std::error_code &ec) noexcept { last_error_code_ = ec; }
     int max_cache_size_ = 100;
     unsigned long next_cmd_id_ = 1;
+    bool nrt_queue_initialized_ = false;
+    bool nrt_queue_has_cached_commands_ = false;
+    bool nrt_queue_remote_request_known_ = false;
+    std::string current_cached_command_family_;
+
+    void resetNrtQueueState() noexcept {
+        nrt_queue_initialized_ = false;
+        nrt_queue_has_cached_commands_ = false;
+        nrt_queue_remote_request_known_ = false;
+        current_cached_command_family_.clear();
+    }
+
+    void markNrtQueueInitialized() noexcept { nrt_queue_initialized_ = true; }
+    void markNrtCachedCommandsPresent() noexcept { nrt_queue_has_cached_commands_ = true; }
+    void markNrtRemoteRequestKnown() noexcept { nrt_queue_remote_request_known_ = true; }
+
+    [[nodiscard]] bool supportsIoPublicLane() const noexcept { return false; }
+    [[nodiscard]] bool supportsRlPublicLane() const noexcept { return false; }
+    [[nodiscard]] bool supportsCalibrationPublicLane() const noexcept { return false; }
 
     std::mutex event_mutex_;
     rokae::EventCallback move_event_watcher_;
@@ -194,17 +229,23 @@ public:
     rokae::EventInfo last_safety_event_;
 
     std::mutex state_cache_mutex_;
+    std::mutex client_init_mutex_;
     std::vector<std::string> state_fields_;
     std::chrono::steady_clock::duration state_interval_{std::chrono::milliseconds(1)};
     std::unordered_map<std::string, std::any> state_cache_;
+    bool runtime_state_snapshot_valid_ = false;
+    std::chrono::steady_clock::time_point runtime_state_snapshot_stamp_{};
+    rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot::Response runtime_state_snapshot_;
     bool has_previous_state_ = false;
-    std::chrono::steady_clock::time_point previous_state_time_;
+    std::chrono::steady_clock::time_point previous_state_time_{};
+    std::chrono::steady_clock::time_point rt_state_last_update_time_{};
     std::array<double, 6> previous_joint_velocity_{};
     std::array<double, 6> previous_joint_torque_{};
     std::array<double, 6> previous_pose_abc_{};
     std::array<double, 6> previous_pose_velocity_{};
     bool has_previous_pose_ = false;
     std::string rt_state_plan_summary_ = "inactive";
+    bool rt_state_plan_rejected_ = false;
     std::uint32_t rt_state_late_cycle_count_ = 0;
     double rt_state_max_gap_ms_ = 0.0;
     rokae::Toolset toolset_cache_;
@@ -214,6 +255,7 @@ public:
 
     std::vector<rokae::RLProjectInfo> projects_;
     rokae::RLProjectInfo current_project_;
+    std::string current_project_path_;
     std::vector<rokae::WorkToolInfo> tools_;
     std::vector<rokae::WorkToolInfo> wobjs_;
     SdkCatalogConsistencyPolicy catalog_policy_{};
@@ -226,6 +268,7 @@ public:
     rclcpp::Client<rokae_xmate3_ros2::srv::Disconnect>::SharedPtr xmate3_robot_disconnect_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::GetInfo>::SharedPtr xmate3_robot_get_info_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::GetProfileCapabilities>::SharedPtr xmate3_internal_get_profile_capabilities_client_;
+    rclcpp::Client<rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot>::SharedPtr xmate3_internal_get_runtime_state_snapshot_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::GetPowerState>::SharedPtr xmate3_robot_get_power_state_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::SetPowerState>::SharedPtr xmate3_robot_set_power_state_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::GetOperateMode>::SharedPtr xmate3_robot_get_operate_mode_client_;
@@ -304,6 +347,33 @@ private:
     void init_subscribers();
     void loadSdkPoliciesFromEnvironment();
 };
+
+class ScopedLastError final {
+public:
+    ScopedLastError(xMateRobot::Impl* impl, std::error_code& ec) noexcept
+        : impl_(impl), ec_(ec) {}
+
+    ~ScopedLastError() {
+        if (impl_ != nullptr) {
+            impl_->remember_last_error(ec_);
+        }
+    }
+
+    ScopedLastError(const ScopedLastError&) = delete;
+    ScopedLastError& operator=(const ScopedLastError&) = delete;
+
+private:
+    xMateRobot::Impl* impl_;
+    std::error_code& ec_;
+};
+
+inline ScopedLastError track_last_error(xMateRobot::Impl* impl, std::error_code& ec) noexcept {
+    return ScopedLastError(impl, ec);
+}
+
+inline ScopedLastError track_last_error(const std::unique_ptr<xMateRobot::Impl>& impl, std::error_code& ec) noexcept {
+    return ScopedLastError(impl.get(), ec);
+}
 
 } // namespace rokae::ros2
 

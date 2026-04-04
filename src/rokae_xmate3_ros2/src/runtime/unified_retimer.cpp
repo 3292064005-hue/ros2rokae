@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <sstream>
 
 #include "runtime/planning_utils.hpp"
@@ -11,31 +12,6 @@
 
 namespace rokae_xmate3_ros2::runtime {
 namespace {
-
-struct QuinticBlendSample {
-  double position = 0.0;
-  double velocity = 0.0;
-  double acceleration = 0.0;
-};
-
-[[nodiscard]] QuinticBlendSample sample_quintic_blend(double u, double total_scale, double total_time) {
-  const double clamped_u = std::clamp(u, 0.0, 1.0);
-  const double u2 = clamped_u * clamped_u;
-  const double u3 = u2 * clamped_u;
-  const double u4 = u3 * clamped_u;
-  const double u5 = u4 * clamped_u;
-  const double blend = 10.0 * u3 - 15.0 * u4 + 6.0 * u5;
-  const double blend_dot = 30.0 * u2 - 60.0 * u3 + 30.0 * u4;
-  const double blend_ddot = 60.0 * clamped_u - 180.0 * u2 + 120.0 * u3;
-
-  QuinticBlendSample sample;
-  sample.position = total_scale * blend;
-  if (total_time > 1e-9) {
-    sample.velocity = total_scale * blend_dot / total_time;
-    sample.acceleration = total_scale * blend_ddot / (total_time * total_time);
-  }
-  return sample;
-}
 
 std::array<double, 6> uniform_axis_limits(double value, double minimum_limit) {
   std::array<double, 6> limits{};
@@ -77,7 +53,7 @@ struct ReplayVectorSample {
   std::vector<double> velocity;
 };
 
-[[nodiscard]] CanonicalTrajectorySamples canonical_samples(QuinticRetimerResult trajectory) {
+[[nodiscard]] CanonicalTrajectorySamples canonical_samples(JointRetimerResult trajectory) {
   CanonicalTrajectorySamples samples;
   samples.positions = std::move(trajectory.positions);
   samples.velocities = std::move(trajectory.velocities);
@@ -117,7 +93,7 @@ struct ReplayVectorSample {
   return metadata;
 }
 
-[[nodiscard]] UnifiedTrajectoryResult wrap_trajectory(QuinticRetimerResult trajectory,
+[[nodiscard]] UnifiedTrajectoryResult wrap_trajectory(JointRetimerResult trajectory,
                                                       RetimerSourceFamily source_family,
                                                       double effective_speed_scale = 1.0,
                                                       bool clamped = false,
@@ -660,7 +636,7 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
     RetimerPolicy policy) {
   const auto config = makeUnifiedRetimerConfig(sample_dt, policy);
   const bool sample_dt_clamped = std::fabs(config.sample_dt - sample_dt) > 1e-9;
-  auto result = wrap_trajectory({}, source_family, effective_speed_scale, sample_dt_clamped, RetimerNote::nominal, policy);
+  auto result = wrap_trajectory(JointRetimerResult{}, source_family, effective_speed_scale, sample_dt_clamped, RetimerNote::nominal, policy);
   auto &trajectory = result.samples;
   const auto validation = validateUnifiedRetimerInput(waypoints, sample_dt, velocity_limits, acceleration_limits, policy);
   result.metadata.velocity_clamped = validation.velocity_limit_clamped || result.metadata.clamped;
@@ -704,12 +680,27 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
     return result;
   }
 
-  std::vector<double> path_start(6, 0.0);
   const auto axis_travel = joint_path_axis_travel(normalized_waypoints);
-  const std::vector<double> path_target(axis_travel.begin(), axis_travel.end());
-  trajectory.total_time = computeJointRetimerDuration(path_start, path_target, velocity_limits, acceleration_limits);
-  const double max_axis_travel =
-      *std::max_element(axis_travel.begin(), axis_travel.end());
+  const double max_axis_travel = *std::max_element(axis_travel.begin(), axis_travel.end());
+  double scalar_velocity_limit = std::numeric_limits<double>::infinity();
+  double scalar_acceleration_limit = std::numeric_limits<double>::infinity();
+  for (std::size_t axis = 0; axis < axis_travel.size(); ++axis) {
+    if (axis_travel[axis] <= 1e-9) {
+      continue;
+    }
+    const double path_ratio = total_path_length / axis_travel[axis];
+    scalar_velocity_limit = std::min(scalar_velocity_limit, velocity_limits[axis] * path_ratio);
+    scalar_acceleration_limit = std::min(scalar_acceleration_limit, acceleration_limits[axis] * path_ratio);
+  }
+  if (!std::isfinite(scalar_velocity_limit) || scalar_velocity_limit <= 0.0) {
+    scalar_velocity_limit = std::max(max_axis_travel, 1e-6);
+  }
+  if (!std::isfinite(scalar_acceleration_limit) || scalar_acceleration_limit <= 0.0) {
+    scalar_acceleration_limit = std::max(max_axis_travel, 1e-6);
+  }
+  StrictJerkLimitedScalarProfile path_profile;
+  path_profile.configure(total_path_length, scalar_velocity_limit, scalar_acceleration_limit, scalar_acceleration_limit);
+  trajectory.total_time = path_profile.total_time();
   const int interval_count = determine_path_interval_count(
       trajectory.total_time,
       config.sample_dt,
@@ -724,8 +715,11 @@ UnifiedTrajectoryResult retimeJointPathWithUnifiedLimits(
   trajectory.accelerations.reserve(static_cast<std::size_t>(interval_count) + 1);
 
   for (int index = 0; index <= interval_count; ++index) {
-    const double u = static_cast<double>(index) / static_cast<double>(interval_count);
-    const auto path_sample = sample_quintic_blend(u, total_path_length, trajectory.total_time);
+    const double t = static_cast<double>(index) * trajectory.sample_dt;
+    const double profile_time = (path_profile.total_time() <= 1e-12 || trajectory.total_time <= 1e-12)
+                                    ? path_profile.total_time()
+                                    : std::clamp(t / trajectory.total_time, 0.0, 1.0) * path_profile.total_time();
+    const auto path_sample = path_profile.sample(profile_time);
     const auto interpolated =
         interpolate_joint_path(normalized_waypoints, cumulative_lengths, path_sample.position);
     if (interpolated.position.empty()) {
@@ -812,7 +806,7 @@ UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &request,
     double sample_dt,
     RetimerPolicy policy) {
-  auto result = wrap_trajectory({}, RetimerSourceFamily::s_trajectory, 1.0, false, RetimerNote::nominal, policy);
+  auto result = wrap_trajectory(JointRetimerResult{}, RetimerSourceFamily::s_trajectory, 1.0, false, RetimerNote::nominal, policy);
   auto &trajectory = result.samples;
 
   std::vector<double> start(request.start_joint_pos.begin(), request.start_joint_pos.end());
@@ -895,7 +889,7 @@ UnifiedTrajectoryResult retimeReplayWithUnifiedConfig(const ReplayPathAsset &ass
                                                       double sample_dt,
                                                       RetimerPolicy policy) {
   auto result = wrap_trajectory(
-      {}, RetimerSourceFamily::replay, std::max(rate, 0.05), false, RetimerNote::replay_retimed, policy);
+      JointRetimerResult{}, RetimerSourceFamily::replay, std::max(rate, 0.05), false, RetimerNote::replay_retimed, policy);
   auto &trajectory = result.samples;
   if (asset.samples.empty()) {
     trajectory.error_message = "Path is empty";

@@ -37,8 +37,8 @@ These are query-domain reads, even if the mutations remain in the IO / program f
 
 ## 2026-04 strict runtime authority landing
 - 原生 ROS facade `rokae::ros2::xMateRobot` 的 `projectInfo/toolsInfo/wobjsInfo/setProjectRunningOpt/pauseProject` 默认不再把 runtime 失败静默伪装成成功。
-- SDK 兼容 wrapper 默认仍保留旧缓存回退语义；若需要 strict runtime authority，需显式设置 `ROKAE_SDK_STRICT_RUNTIME_AUTHORITY=true` 且关闭 `ROKAE_SDK_LEGACY_CATALOG_FALLBACK`。
+- SDK 兼容 wrapper 与原生 ROS facade 现在都默认启用 strict runtime authority；仅当显式设置 `ROKAE_SDK_LEGACY_CATALOG_FALLBACK=true`，或用兼容别名 `ROKAE_SDK_STRICT_RUNTIME_AUTHORITY=false` 关闭 strict authority 时，才允许旧缓存兼容旁路。
 - wrapper 析构不再调用全局 `rclcpp::shutdown()`；ROS 生命周期改由进程级 `RosContextOwner` 统一持有。
 
 
-SDK-compatible wrappers (`rokae::Robot_T`, `rokae::Cobot`, `rokae::xMateRobot`) now default to the legacy catalog fallback policy across both their historical constructors and the `RosClientOptions` injection path so that historical SDK call sites keep their prior behavior unless they explicitly opt into strict runtime authority. The native ROS facade (`rokae::ros2::xMateRobot`) still defaults to strict runtime authority.
+SDK-compatible wrappers (`rokae::Robot_T`, `rokae::Cobot`, `rokae::xMateRobot`) and the native ROS facade (`rokae::ros2::xMateRobot`) now both default to strict runtime authority. Legacy catalog fallback remains available only through an explicit policy override, `ROKAE_SDK_LEGACY_CATALOG_FALLBACK=true`, or the compatibility alias `ROKAE_SDK_STRICT_RUNTIME_AUTHORITY=false`.

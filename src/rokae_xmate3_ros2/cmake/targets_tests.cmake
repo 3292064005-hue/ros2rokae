@@ -106,6 +106,8 @@ if(BUILD_TESTING)
     rokae_add_rosidl_dependency(test_runtime_publish_bridge)
   endif()
 
+  set_tests_properties(test_runtime_control_bridge PROPERTIES LABELS "quick_gate;semantic_gate")
+
   if(TARGET test_runtime_control_bridge)
     target_include_directories(test_runtime_control_bridge
       PRIVATE
@@ -152,8 +154,23 @@ if(BUILD_TESTING)
     test/unit/test_rt_hardening.cpp
   )
 
+  ament_add_gtest(test_compat_state_data
+    test/unit/test_compat_state_data.cpp
+  )
+
+  ament_add_gtest(test_follow_position
+    test/unit/test_follow_position.cpp
+  )
+
   ament_add_gtest(test_contract_surface
     test/unit/test_contract_surface.cpp
+  )
+  ament_add_gtest(test_rt_pose_comparison
+    test/unit/test_rt_pose_comparison.cpp
+  )
+
+  ament_add_gtest(test_rt_movec_geometry
+    test/unit/test_rt_movec_geometry.cpp
   )
 
   ament_add_gtest(test_implementation_audit
@@ -162,6 +179,12 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_service_facade
     test/unit/test_service_facade.cpp
+  )
+  ament_add_gtest(test_move_queue_semantics
+    test/unit/test_move_queue_semantics.cpp
+  )
+  ament_add_gtest(test_register_semantics
+    test/unit/test_register_semantics.cpp
   )
   ament_add_gtest(test_ros_context_owner
     test/unit/test_ros_context_owner.cpp
@@ -172,7 +195,47 @@ if(BUILD_TESTING)
   ament_add_gtest(test_service_registry_descriptors
     test/unit/test_service_registry_descriptors.cpp
   )
+
+  foreach(target_name IN ITEMS test_move_queue_semantics test_register_semantics)
+    if(TARGET ${target_name})
+      target_include_directories(${target_name}
+        PRIVATE
+          include
+          ${CMAKE_CURRENT_BINARY_DIR}
+          ${CMAKE_CURRENT_SOURCE_DIR}/src
+          ${EIGEN3_INCLUDE_DIRS}
+      )
+      target_link_libraries(${target_name}
+        ${PROJECT_NAME}_runtime_core
+      )
+      target_compile_features(${target_name} PUBLIC cxx_std_17)
+      rokae_add_rosidl_dependency(${target_name})
+    endif()
+  endforeach()
+
+  set_tests_properties(test_move_queue_semantics PROPERTIES LABELS "quick_gate;semantic_gate")
+  set_tests_properties(test_register_semantics PROPERTIES LABELS "quick_gate")
+
   foreach(target_name IN ITEMS test_ros_context_owner test_sdk_catalog_policy test_service_registry_descriptors)
+    if(TARGET ${target_name})
+      target_include_directories(${target_name}
+        PRIVATE
+          include
+          ${CMAKE_CURRENT_BINARY_DIR}
+          ${CMAKE_CURRENT_SOURCE_DIR}/src
+          ${EIGEN3_INCLUDE_DIRS}
+      )
+      target_compile_features(${target_name} PUBLIC cxx_std_17)
+      if("${target_name}" STREQUAL "test_service_registry_descriptors")
+        target_link_libraries(${target_name}
+          ${PROJECT_NAME}_runtime_core
+        )
+      endif()
+    endif()
+  endforeach()
+
+
+  foreach(target_name IN ITEMS test_rt_pose_comparison test_rt_movec_geometry)
     if(TARGET ${target_name})
       target_include_directories(${target_name}
         PRIVATE
@@ -237,7 +300,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
     rokae_add_rosidl_dependency(test_request_coordinator)
   endif()
 
-  set_tests_properties(test_runtime_diagnostics PROPERTIES LABELS "quick_gate")
+  set_tests_properties(test_runtime_diagnostics PROPERTIES LABELS "quick_gate;semantic_gate")
 
   if(TARGET test_runtime_diagnostics)
     target_include_directories(test_runtime_diagnostics
@@ -253,6 +316,30 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
     target_compile_features(test_runtime_diagnostics PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_diagnostics)
   endif()
+
+  foreach(target_name IN ITEMS test_compat_state_data test_follow_position)
+    if(TARGET ${target_name})
+      target_include_directories(${target_name}
+        PRIVATE
+          include
+          ${CMAKE_CURRENT_BINARY_DIR}
+          ${CMAKE_CURRENT_SOURCE_DIR}/src
+          ${EIGEN3_INCLUDE_DIRS}
+      )
+      target_compile_features(${target_name} PUBLIC cxx_std_17)
+      if("${target_name}" STREQUAL "test_compat_state_data")
+        target_link_libraries(${target_name}
+          ${PROJECT_NAME}_runtime_core
+        )
+        rokae_add_rosidl_dependency(${target_name})
+      else()
+        target_link_libraries(${target_name}
+          xCoreSDK_static
+        )
+        rokae_add_rosidl_dependency(${target_name})
+      endif()
+    endif()
+  endforeach()
 
   if(TARGET test_contract_surface)
     target_include_directories(test_contract_surface
@@ -318,7 +405,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
     rokae_add_rosidl_dependency(test_planner_preflight)
   endif()
 
-  set_tests_properties(test_runtime_catalog_service PROPERTIES LABELS "quick_gate")
+  set_tests_properties(test_runtime_catalog_service PROPERTIES LABELS "quick_gate;semantic_gate")
 
   if(TARGET test_runtime_catalog_service)
     target_include_directories(test_runtime_catalog_service
@@ -335,7 +422,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
     rokae_add_rosidl_dependency(test_runtime_catalog_service)
   endif()
 
-  set_tests_properties(test_rt_hardening PROPERTIES LABELS "quick_gate")
+  set_tests_properties(test_rt_hardening PROPERTIES LABELS "quick_gate;semantic_gate")
 
   if(TARGET test_rt_hardening)
     target_include_directories(test_rt_hardening
@@ -400,6 +487,11 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
 
   rokae_add_unit_test(test_model_facade
     test/unit/test_model_facade.cpp)
+
+  set_tests_properties(test_kinematics_backend PROPERTIES LABELS "semantic_gate")
+  set_tests_properties(test_model_facade PROPERTIES LABELS "semantic_gate")
+  set_tests_properties(test_trajectory_planner PROPERTIES LABELS "quick_gate;semantic_gate")
+  set_tests_properties(test_unified_retimer PROPERTIES LABELS "quick_gate;semantic_gate")
 
   add_executable(gazebo_sdk_regression_helper
     test/strict/gazebo_sdk_regression_helper.cpp
@@ -614,8 +706,8 @@ SIMULATION_LAUNCH = r"@CMAKE_CURRENT_SOURCE_DIR@/launch/simulation.launch.py"
 PYTHON_BIN = r"@ROKAE_LAUNCH_TEST_PYTHON@"
 RUNNER = r"@CMAKE_CURRENT_SOURCE_DIR@/test/harness/gazebo_examples_smoke_runner.py"
 EXAMPLE_04 = r"$<TARGET_FILE:example_04_motion_basic>"
-EXAMPLE_05 = r"$<TARGET_FILE:example_05_motion_cartesian>"
-EXAMPLE_18 = r"$<TARGET_FILE:example_18_toolset_and_calibration>"
+EXAMPLE_08 = r"$<TARGET_FILE:example_08_path_record_replay>"
+EXAMPLE_18 = r"$<TARGET_FILE:example_18_toolset_only>"
 PACKAGE_SHARE = r"@CMAKE_CURRENT_SOURCE_DIR@"
 PACKAGE_LIB_DIR = r"$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
 ROSIDL_PY_PATH = r"@CMAKE_CURRENT_BINARY_DIR@/rosidl_generator_py"
@@ -633,7 +725,7 @@ def generate_test_description():
         }.items(),
     )
     runner = ExecuteProcess(
-        cmd=[PYTHON_BIN, RUNNER, EXAMPLE_04, EXAMPLE_05, EXAMPLE_18],
+        cmd=[PYTHON_BIN, RUNNER, EXAMPLE_04, EXAMPLE_08, EXAMPLE_18],
         output="screen",
     )
     shutdown_handler = RegisterEventHandler(
@@ -971,4 +1063,31 @@ if(BUILD_TESTING)
     target_compile_features(test_runtime_option_catalog PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_option_catalog)
   endif()
+endif()
+
+
+if(BUILD_TESTING AND ROKAE_BUILD_COMPAT_SDK)
+  add_test(
+    NAME compat_public_abi
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_compat_public_abi.py"
+  )
+  set_tests_properties(compat_public_abi PROPERTIES LABELS "quick_gate;abi_gate")
+
+  add_test(
+    NAME compat_install_tree_consumer
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/run_install_tree_consumer.py"
+            --build-dir "${CMAKE_CURRENT_BINARY_DIR}"
+            --consumer-dir "${CMAKE_CURRENT_SOURCE_DIR}/test/compat/install_tree"
+            --staging-prefix "${CMAKE_CURRENT_BINARY_DIR}/compat_install_tree_stage"
+  )
+  set_tests_properties(compat_install_tree_consumer PROPERTIES LABELS "abi_gate;install_tree" TIMEOUT 600)
+
+  add_test(
+    NAME compat_exported_symbols
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_exported_symbols.py"
+            --library "$<TARGET_FILE:xCoreSDK_shared>"
+  )
+  set_tests_properties(compat_exported_symbols PROPERTIES LABELS "abi_gate;symbol_gate")
 endif()

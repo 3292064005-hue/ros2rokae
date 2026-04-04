@@ -19,6 +19,19 @@ WORKSPACE_SIDECARS = (
     "colcon_defaults.yaml",
 )
 
+FORBIDDEN_DIR_PARTS = {
+    "__pycache__",
+    "build",
+    "log",
+    ".cache",
+    "CMakeFiles",
+    "Testing",
+}
+
+FORBIDDEN_FILE_SUFFIXES = (
+    ".pyc",
+)
+
 
 def _enforce_clean_env_if_requested() -> None:
     if os.environ.get("ROKAE_ENFORCE_CLEAN_ENV") != "1":
@@ -53,6 +66,10 @@ def _tracked_workspace_files(workspace_root: Path) -> list[Path]:
         if not raw:
             continue
         relative = Path(raw.decode("utf-8"))
+        if any(part in FORBIDDEN_DIR_PARTS for part in relative.parts):
+            continue
+        if relative.suffix in FORBIDDEN_FILE_SUFFIXES:
+            continue
         candidate = workspace_root / relative
         if candidate.is_file():
             files.append(relative)

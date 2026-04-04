@@ -14,7 +14,7 @@ void SessionState::disconnect() {
   power_on_ = false;
   drag_mode_ = false;
   rt_control_mode_ = -1;
-  motion_mode_ = 0;
+  motion_mode_ = kSessionMotionModeNrt;
 }
 
 bool SessionState::connected() const {

@@ -27,8 +27,22 @@ def resolve_package_lib_dir(pkg_share):
     return os.path.join(pkg_prefix, "lib")
 
 
+def resolve_canonical_artifact(pkg_share):
+    canonical = os.path.join(pkg_share, "generated", "urdf", "xMate3.urdf")
+    if os.path.isfile(canonical):
+        return canonical
+    return ""
+
+
+def resolve_canonical_model(pkg_share):
+    canonical = resolve_canonical_artifact(pkg_share)
+    if canonical:
+        return canonical
+    return os.path.join(pkg_share, "urdf", "xMate3.xacro")
+
+
 def declare_arguments(pkg_share):
-    urdf_file = os.path.join(pkg_share, "urdf", "xMate3.xacro")
+    urdf_file = resolve_canonical_model(pkg_share)
     world_file = os.path.join(pkg_share, "worlds", "empty.world")
     return [
         launch.actions.DeclareLaunchArgument("model", default_value=str(urdf_file), description="URDF/xacro 模型文件路径"),
@@ -40,6 +54,7 @@ def declare_arguments(pkg_share):
         launch.actions.DeclareLaunchArgument("enable_ros2_control", default_value="true", description="是否启用 ros2_control / joint_trajectory_controller"),
         launch.actions.DeclareLaunchArgument("enable_xcore_plugin", default_value="true", description="是否加载 xCore Gazebo plugin"),
         launch.actions.DeclareLaunchArgument("backend_mode", default_value="hybrid", description="后端装配模式: effort | jtc | hybrid"),
+        launch.actions.DeclareLaunchArgument("allow_noncanonical_model", default_value="false", description="是否允许显式使用非 canonical 模型输入（开发者兼容旁路）"),
     ]
 
 
@@ -50,14 +65,26 @@ def ros2_control_enabled_expression():
 
 
 def build_robot_description(pkg_share):
+    renderer = os.path.join(pkg_share, "tools", "render_robot_description.py")
     content = launch.substitutions.Command([
-        "xacro ",
+        sys.executable,
+        " ",
+        renderer,
+        " --model ",
         LaunchConfiguration("model"),
-        " mesh_root:=model://rokae_xmate3_ros2/meshes/",
-        " package_share:=", pkg_share,
-        " enable_ros2_control:=", LaunchConfiguration("enable_ros2_control"),
-        " enable_xcore_plugin:=", LaunchConfiguration("enable_xcore_plugin"),
-        " backend_mode:=", LaunchConfiguration("backend_mode"),
+        " --package-share ",
+        pkg_share,
+        " --mesh-root model://rokae_xmate3_ros2/meshes/",
+        " --enable-ros2-control ",
+        LaunchConfiguration("enable_ros2_control"),
+        " --enable-xcore-plugin ",
+        LaunchConfiguration("enable_xcore_plugin"),
+        " --backend-mode ",
+        LaunchConfiguration("backend_mode"),
+        " --canonical-model ",
+        resolve_canonical_artifact(pkg_share),
+        " --allow-noncanonical-model ",
+        LaunchConfiguration("allow_noncanonical_model"),
     ])
     return launch_ros.parameter_descriptions.ParameterValue(content, value_type=str)
 
@@ -88,6 +115,8 @@ def build_environment_actions(pkg_share, pkg_lib_dir):
     existing_gazebo_plugin_path = os.environ.get("GAZEBO_PLUGIN_PATH", "")
     gazebo_worlds_dir = os.path.join(pkg_share, "worlds")
     gazebo_models_dir = os.path.join(pkg_share, "models")
+    canonical_urdf = os.path.join(pkg_share, "generated", "urdf", "xMate3.urdf")
+    canonical_metadata = os.path.join(pkg_share, "generated", "urdf", "xMate3.description.json")
 
     gazebo_model_path_entries = []
     if existing_gazebo_model_path:
@@ -111,11 +140,16 @@ def build_environment_actions(pkg_share, pkg_lib_dir):
     if os.path.isdir(pkg_lib_dir):
         gazebo_plugin_path_entries.append(pkg_lib_dir)
 
-    return [
+    actions = [
         launch.actions.SetEnvironmentVariable("GAZEBO_MODEL_PATH", os.pathsep.join(gazebo_model_path_entries)),
         launch.actions.SetEnvironmentVariable("GAZEBO_RESOURCE_PATH", os.pathsep.join(gazebo_resource_path_entries)),
         launch.actions.SetEnvironmentVariable("GAZEBO_PLUGIN_PATH", os.pathsep.join(gazebo_plugin_path_entries)),
     ]
+    if os.path.isfile(canonical_urdf):
+        actions.append(launch.actions.SetEnvironmentVariable("ROKAE_XMATE3_CANONICAL_URDF", canonical_urdf))
+    if os.path.isfile(canonical_metadata):
+        actions.append(launch.actions.SetEnvironmentVariable("ROKAE_XMATE3_CANONICAL_URDF_METADATA", canonical_metadata))
+    return actions
 
 
 def build_gazebo_launch(world):
@@ -203,6 +237,8 @@ def build_spawn_exit_handler(spawn_entity_node, ros2_control_enabled, joint_stat
                 log_info("若看到 'Successfully spawned entity [xmate]'，则说明机器人已正确加载。"),
                 log_info("使用 xcore_controller_gazebo_plugin 提供 xCore SDK 仿真。"),
                 log_info(["当前 backend_mode=", LaunchConfiguration("backend_mode"), " enable_xcore_plugin=", LaunchConfiguration("enable_xcore_plugin"), " enable_ros2_control=", LaunchConfiguration("enable_ros2_control")]),
+                log_info(["模型来源=", LaunchConfiguration("model")]),
+                log_info(["allow_noncanonical_model=", LaunchConfiguration("allow_noncanonical_model")]),
                 log_info(["RT 能力级别: experimental  diagnostics backend=", LaunchConfiguration("backend_mode")]),
                 log_info("可用服务和话题:"),
                 log_info("  - /xmate3/cobot/*  (SDK服务)"),

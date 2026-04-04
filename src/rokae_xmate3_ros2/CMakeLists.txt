@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.16)
 project(rokae_xmate3_ros2)
 cmake_policy(SET CMP0076 NEW)
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN YES)
+option(ROKAE_BUILD_COMPAT_SDK "Build official-compatible xCore SDK facade" ON)
+option(ROKAE_STRICT_PUBLIC_INSTALL "Restrict the install-facing SDK surface to the public rokae/* ABI only" ON)
+option(ROKAE_EXPORT_PRIVATE_SDK_TARGETS "Export native/private SDK targets in the install tree when their ROS2/Gazebo dependencies are available" OFF)
+option(ROKAE_INSTALL_BACKEND_DEV_HEADERS "Install backend/developer headers" OFF)
+option(ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES "Install internal/backend example binaries into the package runtime path" OFF)
+option(ROKAE_PUBLIC_XMATE6_ONLY "Freeze the install-facing compatibility lane to xMate 6-axis only" ON)
+set(ROKAE_PUBLIC_UNSUPPORTED_MODULES "io;rl;calibration" CACHE STRING "Semicolon-separated public-lane modules intentionally excluded from the xMate6 compatibility contract")
 # 抑制Gazebo CMake配置的dev警告
 set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS ON)
 
@@ -53,22 +64,31 @@ endif()
 
 set(ROKAE_GENERATED_URDF_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/urdf")
 set(ROKAE_GENERATED_XMATE3_URDF "${ROKAE_GENERATED_URDF_DIR}/xMate3.urdf")
+set(ROKAE_GENERATED_XMATE3_URDF_METADATA "${ROKAE_GENERATED_URDF_DIR}/xMate3.description.json")
 add_custom_command(
-  OUTPUT "${ROKAE_GENERATED_XMATE3_URDF}"
+  OUTPUT "${ROKAE_GENERATED_XMATE3_URDF}" "${ROKAE_GENERATED_XMATE3_URDF_METADATA}"
   COMMAND ${CMAKE_COMMAND} -E make_directory "${ROKAE_GENERATED_URDF_DIR}"
   COMMAND ${XACRO_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
           -o "${ROKAE_GENERATED_XMATE3_URDF}"
-          enable_ros2_control:=false
-          enable_xcore_plugin:=false
+          enable_ros2_control:=true
+          enable_xcore_plugin:=true
           backend_mode:=hybrid
+  COMMAND "${ROKAE_SYSTEM_PYTHON}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_description_metadata.py"
+          --urdf "${ROKAE_GENERATED_XMATE3_URDF}"
+          --output "${ROKAE_GENERATED_XMATE3_URDF_METADATA}"
+          --source-xacro "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
+          --enable-ros2-control true
+          --enable-xcore-plugin true
+          --backend-mode hybrid
   DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
     "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.ros2_control.xacro"
   VERBATIM
 )
 add_custom_target(${PROJECT_NAME}_generated_urdf ALL
-  DEPENDS "${ROKAE_GENERATED_XMATE3_URDF}"
+  DEPENDS "${ROKAE_GENERATED_XMATE3_URDF}" "${ROKAE_GENERATED_XMATE3_URDF_METADATA}"
 )
 
 set(ROKAE_SOURCE_ARCHIVE "" CACHE FILEPATH
@@ -146,6 +166,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/Disconnect.srv
   srv/GetInfo.srv
   srv/GetRuntimeDiagnostics.srv
+  srv/GetRuntimeStateSnapshot.srv
   srv/GetProfileCapabilities.srv
   srv/GetPowerState.srv
   srv/SetPowerState.srv
@@ -262,7 +283,8 @@ endfunction()
 
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets_runtime.cmake)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets_sdk.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets_sdk_backend.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets_sdk_compat.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets_plugin.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets_examples.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets_packaging.cmake)

@@ -29,7 +29,7 @@ int main() {
 
   printSection("1 启动状态流");
   using namespace RtSupportedFields;
-  robot.startReceiveRobotState(std::chrono::milliseconds(200), {tcpPose_m, tau_m, jointPos_m});
+  robot.startReceiveRobotState(std::chrono::milliseconds(8), {tcpPose_m, tau_m, jointPos_m});
 
   std::atomic_bool running{true};
   std::thread reader([&]() {
@@ -38,7 +38,7 @@ int main() {
       std::array<double, 16> tcp_pose{};
       std::array<double, 6> joint_pos{};
       std::array<double, 6> tau{};
-      robot.updateRobotState(std::chrono::milliseconds(200));
+      robot.updateRobotState(std::chrono::milliseconds(8));
       os << "sample " << sample + 1 << ':' << std::endl;
       if (robot.getStateData(tcpPose_m, tcp_pose) == 0) {
         printArray("tcpPose_m", tcp_pose, 4);

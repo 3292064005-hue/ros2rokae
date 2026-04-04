@@ -21,6 +21,7 @@ class ToolingState {
   [[nodiscard]] bool setToolsetByName(const std::string &tool_name, const std::string &wobj_name);
   void setToolDynamics(const std::string &tool_name, double mass, const std::array<double, 3> &com);
   [[nodiscard]] ToolsetSnapshot toolset() const;
+  [[nodiscard]] bool isCompatibleWith(const ToolsetSnapshot &snapshot) const;
   void setBaseFrame(const std::vector<double> &base_pose);
   [[nodiscard]] std::vector<double> baseFrame() const;
   [[nodiscard]] std::vector<rokae::WorkToolInfo> toolCatalog() const;

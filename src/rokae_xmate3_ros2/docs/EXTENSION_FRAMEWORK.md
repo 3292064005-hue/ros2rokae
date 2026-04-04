@@ -153,3 +153,10 @@ Before merging any future feature, ask:
 - SDK wrapper 的 `projectInfo/toolsInfo/wobjsInfo/setProjectRunningOpt/pauseProject` 默认不再把 runtime 失败静默伪装成成功。
 - 仅当显式设置 `ROKAE_SDK_LEGACY_CATALOG_FALLBACK=true` 时，允许返回旧缓存作为兼容旁路。
 - wrapper 析构不再调用全局 `rclcpp::shutdown()`；ROS 生命周期改由进程级 `RosContextOwner` 统一持有。
+- `startReceiveRobotState/updateRobotState` 默认执行 strict RT state 语义：订阅计划降级直接拒绝，1ms in-loop 订阅仅接受 controller-native/本地派生 RT 字段，RT 失败不再静默回退到 NRT joint-state 查询。
+
+
+### 2026-04 strict RT state addendum
+
+- 1 ms in-loop RT subscriptions are controller-native/local-derived only.
+- Cartesian pose / external torque cache fields stay available only on the slower polled state-stream path because they are still built from service-backed sources; xMate3 六轴 shim no longer exposes synthetic `psi_*` / `elbow*` RT placeholders.

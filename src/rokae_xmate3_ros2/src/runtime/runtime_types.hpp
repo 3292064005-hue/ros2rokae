@@ -212,6 +212,16 @@ struct RuntimeView {
   bool active_motion = false;
   bool can_accept_request = true;
   bool terminal = false;
+  bool queue_initialized = false;
+  bool queue_has_pending_commands = false;
+  bool snapshot_fresh = true;
+  bool nrt_ready = false;
+  bool connected = false;
+  bool power_on = false;
+  bool drag_mode = false;
+  int motion_mode = 0;
+  std::uint64_t snapshot_age_ms = 0;
+  std::string snapshot_stale_reason;
 
   [[nodiscard]] bool busy() const noexcept {
     return has_request && !terminal;

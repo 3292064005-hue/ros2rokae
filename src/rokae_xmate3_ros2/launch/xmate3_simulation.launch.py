@@ -20,7 +20,8 @@ def _resolve_package_share():
 def generate_launch_description():
     pkg_share = _resolve_package_share()
     simulation_launch = os.path.join(pkg_share, "launch", "simulation.launch.py")
-    default_model = os.path.join(pkg_share, "urdf", "xMate3.xacro")
+    canonical_model = os.path.join(pkg_share, "generated", "urdf", "xMate3.urdf")
+    default_model = canonical_model if os.path.isfile(canonical_model) else os.path.join(pkg_share, "urdf", "xMate3.xacro")
     default_world = os.path.join(pkg_share, "worlds", "empty.world")
 
     return LaunchDescription([
@@ -33,6 +34,7 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_ros2_control", default_value="true"),
         DeclareLaunchArgument("enable_xcore_plugin", default_value="true"),
         DeclareLaunchArgument("backend_mode", default_value="hybrid"),
+        DeclareLaunchArgument("allow_noncanonical_model", default_value="false"),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(simulation_launch),
             launch_arguments={
@@ -45,6 +47,7 @@ def generate_launch_description():
                 "enable_ros2_control": LaunchConfiguration("enable_ros2_control"),
                 "enable_xcore_plugin": LaunchConfiguration("enable_xcore_plugin"),
                 "backend_mode": LaunchConfiguration("backend_mode"),
+                "allow_noncanonical_model": LaunchConfiguration("allow_noncanonical_model"),
             }.items(),
         ),
     ])

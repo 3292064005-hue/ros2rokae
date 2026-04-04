@@ -3,6 +3,7 @@
 namespace rokae::ros2 {
 
 rokae::JointPosition xMateRobot::calcIk(const rokae::CartesianPosition& posture, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     rokae::JointPosition joints(6);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -50,6 +51,7 @@ rokae::JointPosition xMateRobot::calcIk(const rokae::CartesianPosition& posture,
 // 正解计算
 
 rokae::CartesianPosition xMateRobot::calcFk(const rokae::JointPosition& joints, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     rokae::CartesianPosition posture;
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -93,35 +95,51 @@ rokae::CartesianPosition xMateRobot::calcFk(const rokae::JointPosition& joints, 
 // 获取工具工件组
 
 rokae::Toolset xMateRobot::toolset(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     rokae::Toolset toolset;
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return toolset;
     }
 
-    if (!impl_->wait_for_service(impl_->xmate3_robot_get_toolset_client_, ec)) {
-        return toolset;
-    }
+    if (impl_->refreshRuntimeStateSnapshot(ec)) {
+        std::lock_guard<std::mutex> lock(impl_->state_cache_mutex_);
+        const auto &snapshot = impl_->runtime_state_snapshot_;
+        toolset.tool_name = snapshot.tool_name;
+        toolset.wobj_name = snapshot.wobj_name;
+        const auto tool_count = std::min<size_t>(toolset.tool_pose.size(), snapshot.tool_pose.size());
+        const auto wobj_count = std::min<size_t>(toolset.wobj_pose.size(), snapshot.wobj_pose.size());
+        std::copy_n(snapshot.tool_pose.begin(), tool_count, toolset.tool_pose.begin());
+        std::copy_n(snapshot.wobj_pose.begin(), wobj_count, toolset.wobj_pose.begin());
+        toolset.load.mass = snapshot.tool_mass;
+        toolset.load.cog = snapshot.tool_com;
+    } else {
+        impl_->ensureToolingClients();
 
-    auto request = std::make_shared<rokae_xmate3_ros2::srv::GetToolset::Request>();
-    auto future = impl_->xmate3_robot_get_toolset_client_->async_send_request(request);
-    if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
-        ec = std::make_error_code(std::errc::io_error);
-        return toolset;
-    }
+        if (!impl_->wait_for_service(impl_->xmate3_robot_get_toolset_client_, ec)) {
+            return toolset;
+        }
 
-    auto result = future.get();
-    if (!result->success) {
-        ec = std::make_error_code(std::errc::operation_not_permitted);
-        return toolset;
-    }
+        auto request = std::make_shared<rokae_xmate3_ros2::srv::GetToolset::Request>();
+        auto future = impl_->xmate3_robot_get_toolset_client_->async_send_request(request);
+        if (impl_->wait_for_future(future) != rclcpp::FutureReturnCode::SUCCESS) {
+            ec = std::make_error_code(std::errc::io_error);
+            return toolset;
+        }
 
-    toolset.tool_name = result->tool_name;
-    toolset.wobj_name = result->wobj_name;
-    const auto tool_count = std::min<size_t>(toolset.tool_pose.size(), result->tool_pose.size());
-    const auto wobj_count = std::min<size_t>(toolset.wobj_pose.size(), result->wobj_pose.size());
-    std::copy_n(result->tool_pose.begin(), tool_count, toolset.tool_pose.begin());
-    std::copy_n(result->wobj_pose.begin(), wobj_count, toolset.wobj_pose.begin());
+        auto result = future.get();
+        if (!result->success) {
+            ec = std::make_error_code(std::errc::operation_not_permitted);
+            return toolset;
+        }
+
+        toolset.tool_name = result->tool_name;
+        toolset.wobj_name = result->wobj_name;
+        const auto tool_count = std::min<size_t>(toolset.tool_pose.size(), result->tool_pose.size());
+        const auto wobj_count = std::min<size_t>(toolset.wobj_pose.size(), result->wobj_pose.size());
+        std::copy_n(result->tool_pose.begin(), tool_count, toolset.tool_pose.begin());
+        std::copy_n(result->wobj_pose.begin(), wobj_count, toolset.wobj_pose.begin());
+    }
     toolset.end = rokae::Frame(toolset.tool_pose);
     toolset.ref = rokae::Frame(toolset.wobj_pose);
     {
@@ -135,10 +153,13 @@ rokae::Toolset xMateRobot::toolset(std::error_code& ec) {
 // 设置工具工件组
 
 void xMateRobot::setToolset(const rokae::Toolset& toolset, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
     }
+
+    impl_->ensureToolingClients();
 
     if (!impl_->wait_for_service(impl_->xmate3_robot_set_toolset_client_, ec)) {
         return;
@@ -167,14 +188,18 @@ void xMateRobot::setToolset(const rokae::Toolset& toolset, std::error_code& ec) 
         std::lock_guard<std::mutex> lock(impl_->state_mutex_);
         impl_->toolset_cache_ = toolset;
     }
+    impl_->clearRuntimeStateSnapshotCache();
     ec.clear();
 }
 
 void xMateRobot::setToolset(const std::string& toolName, const std::string& wobjName, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
     }
+
+    impl_->ensureToolingClients();
 
     if (!impl_->wait_for_service(impl_->xmate3_robot_set_toolset_by_name_client_, ec)) {
         return;
@@ -197,6 +222,15 @@ void xMateRobot::setToolset(const std::string& toolName, const std::string& wobj
         return;
     }
 
+    {
+        std::error_code refresh_ec;
+        auto refreshed = toolset(refresh_ec);
+        if (!refresh_ec) {
+            std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+            impl_->toolset_cache_ = refreshed;
+        }
+    }
+    impl_->clearRuntimeStateSnapshotCache();
     ec.clear();
     RCLCPP_INFO(impl_->node_->get_logger(), "工具工件组设置成功, 工具: %s, 工件: %s", toolName.c_str(), wobjName.c_str());
 }
@@ -204,10 +238,13 @@ void xMateRobot::setToolset(const std::string& toolName, const std::string& wobj
 // 开启碰撞检测
 
 void xMateRobot::enableCollisionDetection(const std::array<double, 6>& sensitivity, rokae::StopLevel behaviour, double fallback, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
     }
+
+    impl_->ensureSafetyClients();
 
     if (!impl_->wait_for_service(impl_->xmate3_robot_enable_collision_detection_client_, ec)) {
         return;
@@ -238,10 +275,13 @@ void xMateRobot::enableCollisionDetection(const std::array<double, 6>& sensitivi
 // 关闭碰撞检测
 
 void xMateRobot::disableCollisionDetection(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
     }
+
+    impl_->ensureSafetyClients();
 
     if (!impl_->wait_for_service(impl_->xmate3_robot_disable_collision_detection_client_, ec)) {
         return;
@@ -268,10 +308,13 @@ void xMateRobot::disableCollisionDetection(std::error_code& ec) {
 // 获取软限位
 
 bool xMateRobot::getSoftLimit(std::array<std::array<double,2>,6>& limits, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return false;
     }
+
+    impl_->ensureSafetyClients();
 
     if (!impl_->wait_for_service(impl_->xmate3_robot_get_soft_limit_client_, ec)) {
         return false;
@@ -302,6 +345,7 @@ bool xMateRobot::getSoftLimit(std::array<std::array<double,2>,6>& limits, std::e
 // 设置软限位
 
 void xMateRobot::setSoftLimit(bool enable, std::error_code& ec, const std::array<std::array<double,2>,6>& limits) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     // 1. 前置校验：机器人连接状态
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -309,18 +353,37 @@ void xMateRobot::setSoftLimit(bool enable, std::error_code& ec, const std::array
         return;
     }
 
-    // 2. 前置校验：限位值合理性（下限必须小于上限）
+    std::array<std::array<double, 2>, 6> effective_limits = limits;
+    bool use_existing_limits = enable;
     for (int i = 0; i < 6; ++i) {
-        if (limits[i][0] >= limits[i][1]) {
-            ec = std::make_error_code(std::errc::invalid_argument);
-            RCLCPP_ERROR(impl_->node_->get_logger(), 
-                "设置软限位失败：第%d关节限位值无效（下限%.3f ≥ 上限%.3f）", 
-                i+1, limits[i][0], limits[i][1]);
+        const bool axis_uses_sentinel = (limits[i][0] == DBL_MAX && limits[i][1] == DBL_MAX);
+        use_existing_limits = use_existing_limits && axis_uses_sentinel;
+    }
+    if (use_existing_limits) {
+        const bool current_enabled = getSoftLimit(effective_limits, ec);
+        (void)current_enabled;
+        if (ec) {
             return;
         }
     }
 
+    // 2. 前置校验：仅在启用软限位时要求显式提供有效区间。
+    //    关闭软限位沿用控制侧语义，不要求调用方提供有效 limits。
+    if (enable) {
+        for (int i = 0; i < 6; ++i) {
+            if (effective_limits[i][0] >= effective_limits[i][1]) {
+                ec = std::make_error_code(std::errc::invalid_argument);
+                RCLCPP_ERROR(impl_->node_->get_logger(),
+                    "设置软限位失败：第%d关节限位值无效（下限%.3f ≥ 上限%.3f）",
+                    i + 1, effective_limits[i][0], effective_limits[i][1]);
+                return;
+            }
+        }
+    }
+
     // 3. 等待服务可用
+    impl_->ensureSafetyClients();
+
     if (!impl_->wait_for_service(impl_->xmate3_robot_set_soft_limit_client_, ec)) {
         RCLCPP_ERROR(impl_->node_->get_logger(), "设置软限位失败：SetSoftLimit服务不可用");
         return;
@@ -331,8 +394,8 @@ void xMateRobot::setSoftLimit(bool enable, std::error_code& ec, const std::array
     request->enable = enable;
     for (int i = 0; i < 6; ++i) {
         // 关键修改：一维数组索引计算（i*2=下限，i*2+1=上限）
-        request->limits[i * 2] = limits[i][0];    // 第i+1关节下限
-        request->limits[i * 2 + 1] = limits[i][1];// 第i+1关节上限
+        request->limits[i * 2] = effective_limits[i][0];    // 第i+1关节下限
+        request->limits[i * 2 + 1] = effective_limits[i][1];// 第i+1关节上限
     }
 
     // 5. 发送服务请求并等待响应

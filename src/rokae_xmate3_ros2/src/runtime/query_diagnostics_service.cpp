@@ -61,6 +61,14 @@ void QueryFacade::handleGetRuntimeDiagnostics(
   res.diagnostics.profile_capability_summary = snapshot.profile_capability_summary;
   res.diagnostics.planning_capability_summary = snapshot.planning_capability_summary;
   res.diagnostics.runtime_option_summary = snapshot.runtime_option_summary;
+  res.diagnostics.last_api_surface = snapshot.last_api_surface;
+  res.diagnostics.last_result_source = snapshot.last_result_source;
+  res.diagnostics.rt_dispatch_mode = snapshot.rt_dispatch_mode;
+  res.diagnostics.rt_state_source = snapshot.rt_state_source;
+  res.diagnostics.model_exactness_summary = snapshot.model_exactness_summary;
+  res.diagnostics.model_primary_backend = snapshot.model_primary_backend;
+  res.diagnostics.model_fallback_used = snapshot.model_fallback_used;
+  res.diagnostics.catalog_provenance_summary = snapshot.catalog_provenance_summary;
   res.diagnostics.tool_catalog_size = snapshot.tool_catalog_size;
   res.diagnostics.wobj_catalog_size = snapshot.wobj_catalog_size;
   res.diagnostics.project_catalog_size = snapshot.project_catalog_size;

@@ -4,6 +4,10 @@ namespace rokae_xmate3_ros2::runtime {
 
 bool MotionRuntime::submit(const MotionRequest &request, std::string &message) {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (!queue_initialized_) {
+    message = "moveReset() must initialize the NRT queue before submit";
+    return false;
+  }
   if (request.request_id.empty()) {
     message = "request_id is empty";
     return false;
@@ -69,10 +73,12 @@ void MotionRuntime::stop(const std::string &message) {
   active_trajectory_goal_.reset();
   using_backend_trajectory_ = false;
   executor_.reset();
+  last_view_update_time_ = std::chrono::steady_clock::now();
 }
 
 void MotionRuntime::reset() {
   std::lock_guard<std::mutex> lock(mutex_);
+  queue_initialized_ = true;
   if (using_backend_trajectory_ && backend_ != nullptr) {
     backend_->cancelTrajectoryExecution("reset");
   }
@@ -87,6 +93,29 @@ void MotionRuntime::reset() {
   active_trajectory_plan_.reset();
   active_trajectory_goal_.reset();
   using_backend_trajectory_ = false;
+  last_view_update_time_ = std::chrono::steady_clock::now();
+  status_cv_.notify_all();
+}
+
+
+void MotionRuntime::clearForModeChange(const std::string &message) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  queue_initialized_ = false;
+  if (using_backend_trajectory_ && backend_ != nullptr) {
+    backend_->cancelTrajectoryExecution(message.empty() ? std::string{"motion mode changed"} : message);
+  }
+  pending_request_.reset();
+  queued_plan_.reset();
+  active_request_id_.clear();
+  RuntimeEvent reset_event;
+  reset_event.type = RuntimeEventType::reset;
+  state_machine_.apply(active_status_, runtime_phase_, reset_event);
+  (void)owner_arbiter_.clear(message.empty() ? std::string{"motion mode changed"} : message);
+  executor_.reset();
+  active_trajectory_plan_.reset();
+  active_trajectory_goal_.reset();
+  using_backend_trajectory_ = false;
+  last_view_update_time_ = std::chrono::steady_clock::now();
   status_cv_.notify_all();
 }
 

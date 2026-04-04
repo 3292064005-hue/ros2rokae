@@ -10,7 +10,7 @@ RuntimeContext::RuntimeContext()
       program_state_(std::make_shared<ProgramState>()),
       diagnostics_state_(std::make_shared<RuntimeDiagnosticsState>()),
       controller_state_(session_state_, motion_options_state_, tooling_state_, data_store_state_, program_state_),
-      request_coordinator_(*motion_options_state_, *tooling_state_, motion_runtime_) {}
+      request_coordinator_(*motion_options_state_, *tooling_state_, *session_state_, motion_runtime_) {}
 
 void RuntimeContext::attachBackend(BackendInterface *backend) {
   backend_ = backend;

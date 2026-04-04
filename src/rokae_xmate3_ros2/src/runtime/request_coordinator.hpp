@@ -9,6 +9,7 @@
 
 #include "runtime/runtime_state.hpp"
 #include "runtime/motion_runtime.hpp"
+#include "runtime/session_state.hpp"
 #include "rokae_xmate3_ros2/action/move_append.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
@@ -24,6 +25,7 @@ class MotionRequestCoordinator {
  public:
   MotionRequestCoordinator(MotionOptionsState &motion_options_state,
                            ToolingState &tooling_state,
+                           SessionState &session_state,
                            MotionRuntime &motion_runtime);
 
   [[nodiscard]] RuntimeView currentView() const;
@@ -56,6 +58,7 @@ class MotionRequestCoordinator {
 
   MotionOptionsState &motion_options_state_;
   ToolingState &tooling_state_;
+  SessionState &session_state_;
   MotionRuntime &motion_runtime_;
 };
 

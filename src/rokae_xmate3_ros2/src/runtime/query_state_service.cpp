@@ -1,6 +1,7 @@
 #include "runtime/service_facade.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cmath>
 #include <numeric>
 #include <optional>
@@ -12,6 +13,7 @@
 #include "runtime/planning_utils.hpp"
 #include "runtime/pose_utils.hpp"
 #include "runtime/service_facade_utils.hpp"
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
 #include "runtime/unified_retimer.hpp"
 #include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
 
@@ -28,13 +30,70 @@ void QueryFacade::handleGetPowerState(const rokae_xmate3_ros2::srv::GetPowerStat
 void QueryFacade::handleGetInfo(const rokae_xmate3_ros2::srv::GetInfo::Request &req,
                                 rokae_xmate3_ros2::srv::GetInfo::Response &res) const {
   (void)req;
-  res.model = "xMate3";
+  res.model = rokae_xmate3_ros2::spec::xmate3::robotModelName();
   res.robot_type = "3";
-  res.serial_number = "SIMULATION";
-  res.firmware_version = "2.1.0";
-  res.sdk_version = "2.1.0";
-  res.joint_num = 6;
+  res.serial_number = rokae_xmate3_ros2::spec::xmate3::runtimeSerialNumber();
+  res.firmware_version = rokae_xmate3_ros2::spec::xmate3::controlSystemVersion();
+  res.sdk_version = rokae_xmate3_ros2::spec::xmate3::controlSystemVersion();
+  res.joint_num = static_cast<int32_t>(rokae_xmate3_ros2::spec::xmate3::kDoF);
   res.success = true;
+}
+
+void QueryFacade::handleGetRuntimeStateSnapshot(
+    const rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot::Request &req,
+    rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot::Response &res) const {
+  (void)req;
+  try {
+    std::array<double, 6> pos{};
+    std::array<double, 6> vel{};
+    std::array<double, 6> tau{};
+    joint_state_fetcher_(pos, vel, tau);
+
+    const auto toolset = tooling_state_.toolset();
+    const auto diagnostics = diagnostics_state_.snapshot();
+
+    res.connected = session_state_.connected();
+    res.power_on = session_state_.powerOn();
+    res.drag_mode = session_state_.dragMode();
+    res.simulation_mode = session_state_.simulationMode();
+    res.collision_detection_enabled = session_state_.collisionDetectionEnabled();
+    res.motion_mode = session_state_.motionMode();
+    res.operate_mode = session_state_.operateMode().mode;
+    res.rt_mode = session_state_.rtControlMode();
+    res.joint_position = pos;
+    res.joint_velocity = vel;
+    res.joint_torque = tau;
+
+    const auto base_pose = tooling_state_.baseFrame();
+    for (std::size_t i = 0; i < res.base_frame.size() && i < base_pose.size(); ++i) {
+      res.base_frame[i] = base_pose[i];
+    }
+
+    res.tool_name = toolset.tool_name;
+    res.wobj_name = toolset.wobj_name;
+    res.tool_pose = toolset.tool_pose;
+    res.wobj_pose = toolset.wobj_pose;
+    res.tool_mass = toolset.tool_mass;
+    res.tool_com = toolset.tool_com;
+    res.backend_mode = diagnostics.backend_mode;
+    res.active_profile = diagnostics.active_profile;
+    res.runtime_phase = diagnostics.runtime_phase;
+    res.control_owner = diagnostics.control_owner;
+    res.rt_subscription_plan = diagnostics.rt_subscription_plan;
+    res.profile_capability_summary = diagnostics.profile_capability_summary;
+    res.runtime_option_summary = diagnostics.runtime_option_summary;
+    res.planning_capability_summary = diagnostics.planning_capability_summary;
+    res.model_exactness_summary = diagnostics.model_exactness_summary;
+    res.catalog_provenance_summary = diagnostics.catalog_provenance_summary;
+    res.success = true;
+    res.message = "runtime-owned read snapshot";
+  } catch (const std::exception &ex) {
+    res.success = false;
+    res.message = std::string{"runtime snapshot failed: "} + ex.what();
+  } catch (...) {
+    res.success = false;
+    res.message = "runtime snapshot failed: unknown error";
+  }
 }
 
 void QueryFacade::handleGetOperateMode(const rokae_xmate3_ros2::srv::GetOperateMode::Request &req,
@@ -47,8 +106,14 @@ void QueryFacade::handleGetOperateMode(const rokae_xmate3_ros2::srv::GetOperateM
 void QueryFacade::handleQueryControllerLog(
     const rokae_xmate3_ros2::srv::QueryControllerLog::Request &req,
     rokae_xmate3_ros2::srv::QueryControllerLog::Response &res) const {
-  res.logs = data_store_state_.queryLogs(req.count);
+  const auto effective_count = std::min<std::uint32_t>(req.count, 10U);
+  res.logs = data_store_state_.queryLogs(
+      effective_count,
+      req.level == 0 ? std::nullopt : std::optional<std::uint8_t>(req.level));
   res.success = true;
+  if (req.count > effective_count) {
+    res.message = "query_controller_log count clamped to 10";
+  }
 }
 
 void QueryFacade::handleGetJointPos(const rokae_xmate3_ros2::srv::GetJointPos::Request &req,
@@ -154,20 +219,6 @@ void QueryFacade::handleGetToolset(const rokae_xmate3_ros2::srv::GetToolset::Req
   res.tool_pose = toolset.tool_pose;
   res.wobj_pose = toolset.wobj_pose;
   res.success = true;
-}
-
-void QueryFacade::handleSetToolset(const rokae_xmate3_ros2::srv::SetToolset::Request &req,
-                                   rokae_xmate3_ros2::srv::SetToolset::Response &res) const {
-  tooling_state_.setToolset(req.tool_name, req.wobj_name, req.tool_pose, req.wobj_pose);
-  res.success = true;
-}
-
-void QueryFacade::handleSetToolsetByName(const rokae_xmate3_ros2::srv::SetToolsetByName::Request &req,
-                                         rokae_xmate3_ros2::srv::SetToolsetByName::Response &res) const {
-  res.success = tooling_state_.setToolsetByName(req.tool_name, req.wobj_name);
-  if (!res.success) {
-    res.message = "unknown tool_name or wobj_name";
-  }
 }
 
 void QueryFacade::handleGetSoftLimit(const rokae_xmate3_ros2::srv::GetSoftLimit::Request &req,

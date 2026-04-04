@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <cfloat>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -55,6 +56,10 @@ public:
     ~xMateRobot();
 
     static std::string sdkVersion();
+    bool supportsIo() const noexcept;
+    bool supportsRl() const noexcept;
+    bool supportsCalibration() const noexcept;
+    void rememberCompatError(const std::error_code& ec) noexcept;
     void connectToRobot(std::error_code& ec);
     void disconnectFromRobot(std::error_code& ec);
     rokae::Info robotInfo(std::error_code& ec);
@@ -87,7 +92,14 @@ public:
     void enableCollisionDetection(const std::array<double, 6>& sensitivity, rokae::StopLevel behaviour, double fallback, std::error_code& ec);
     void disableCollisionDetection(std::error_code& ec);
     bool getSoftLimit(std::array<std::array<double,2>,6>& limits, std::error_code& ec);
-    void setSoftLimit(bool enable, std::error_code& ec, const std::array<std::array<double,2>,6>& limits = {});
+    void setSoftLimit(bool enable,
+                      std::error_code& ec,
+                      const std::array<std::array<double,2>,6>& limits = {{{DBL_MAX, DBL_MAX},
+                                                                           {DBL_MAX, DBL_MAX},
+                                                                           {DBL_MAX, DBL_MAX},
+                                                                           {DBL_MAX, DBL_MAX},
+                                                                           {DBL_MAX, DBL_MAX},
+                                                                           {DBL_MAX, DBL_MAX}}});
 
     void setMotionControlMode(rokae::MotionControlMode mode, std::error_code& ec);
     void moveReset(std::error_code& ec);
@@ -184,12 +196,17 @@ public:
     void executeCommand(const std::vector<rokae::MoveAbsJCommand>& cmds, std::error_code& ec);
     void executeCommand(const std::vector<rokae::MoveJCommand>& cmds, std::error_code& ec);
     void executeCommand(const std::vector<rokae::MoveLCommand>& cmds, std::error_code& ec);
+    void executeCommand(const std::vector<rokae::MoveCCommand>& cmds, std::error_code& ec);
     void setMaxCacheSize(int number, std::error_code& ec);
     std::error_code lastErrorCode() noexcept;
     void startReceiveRobotState(std::chrono::steady_clock::duration interval, const std::vector<std::string>& fields);
     void stopReceiveRobotState() noexcept;
     unsigned updateRobotState(std::chrono::steady_clock::duration timeout);
     int getStateDataArray6(const std::string& fieldName, std::array<double, 6>& data);
+    int getStateDataArray3(const std::string& fieldName, std::array<double, 3>& data);
+    int getStateDataMatrix16(const std::string& fieldName, std::array<double, 16>& data);
+    int getStateDataScalarDouble(const std::string& fieldName, double& data);
+    int getStateDataBool(const std::string& fieldName, bool& data);
     std::shared_ptr<void> model();
     std::weak_ptr<void> getRtMotionController();
     rokae::FrameCalibrationResult calibrateFrame(rokae::FrameType type,
@@ -198,7 +215,7 @@ public:
                                                   std::error_code& ec,
                                                   const std::array<double, 3>& base_aux = {});
     bool getSoftLimit(std::array<double[2], 6>& limits, std::error_code& ec);
-    void setSoftLimit(bool enable, std::error_code& ec, const std::array<double[2], 6>& limits = {{}});
+    void setSoftLimit(bool enable, std::error_code& ec, const std::array<double[2], 6>& limits = {{DBL_MAX, DBL_MAX}});
 
 private:
     class Impl;

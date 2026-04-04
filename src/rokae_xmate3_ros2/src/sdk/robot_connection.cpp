@@ -1,11 +1,76 @@
 #include "robot_internal.hpp"
 
 namespace rokae::ros2 {
+namespace {
+
+/**
+ * @brief Convert runtime-snapshot power state into the public SDK enum.
+ * @param impl Backend implementation.
+ * @param ec Output error code updated by the snapshot refresh.
+ * @param state Output mapped power state on success.
+ * @return true when a fresh aggregated runtime snapshot was available.
+ * @throws None.
+ * @note Boundary behavior: snapshot refresh failures do not overwrite the caller's fallback path.
+ */
+bool try_snapshot_power_state(xMateRobot::Impl &impl, std::error_code &ec, rokae::PowerState &state) {
+    if (!impl.refreshRuntimeStateSnapshot(ec)) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(impl.state_cache_mutex_);
+    state = impl.runtime_state_snapshot_.power_on ? rokae::PowerState::on : rokae::PowerState::off;
+    ec.clear();
+    return true;
+}
+
+/**
+ * @brief Convert runtime-snapshot operate mode into the public SDK enum.
+ * @param impl Backend implementation.
+ * @param ec Output error code updated by the snapshot refresh.
+ * @param mode Output mapped operate mode on success.
+ * @return true when a fresh aggregated runtime snapshot was available.
+ * @throws None.
+ * @note Snapshot failures are intentionally non-terminal so the caller may fall back to the
+ *       dedicated legacy compatibility service.
+ */
+bool try_snapshot_operate_mode(xMateRobot::Impl &impl, std::error_code &ec, rokae::OperateMode &mode) {
+    if (!impl.refreshRuntimeStateSnapshot(ec)) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(impl.state_cache_mutex_);
+    mode = static_cast<rokae::OperateMode>(impl.runtime_state_snapshot_.operate_mode.mode);
+    ec.clear();
+    return true;
+}
+
+}  // namespace
+
+/**
+ * @brief Connect the installed SDK facade to the runtime-backed controller session.
+ * @param ec Output error code. Cleared on success, including idempotent re-entry.
+ * @throws None.
+ * @note Boundary behavior: repeated connect requests are treated as successful idempotent no-ops
+ *       so external callers can keep the same control flow they use against the official SDK.
+ */
+bool xMateRobot::supportsIo() const noexcept { return impl_ != nullptr && impl_->supportsIoPublicLane(); }
+
+bool xMateRobot::supportsRl() const noexcept { return impl_ != nullptr && impl_->supportsRlPublicLane(); }
+
+bool xMateRobot::supportsCalibration() const noexcept { return impl_ != nullptr && impl_->supportsCalibrationPublicLane(); }
+
+
+void xMateRobot::rememberCompatError(const std::error_code& ec) noexcept {
+    if (impl_ != nullptr) {
+        impl_->remember_last_error(ec);
+    }
+}
 
 void xMateRobot::connectToRobot(std::error_code& ec) {
+
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (impl_->connected_) {
-        ec = std::make_error_code(std::errc::already_connected);
-        RCLCPP_WARN(impl_->node_->get_logger(), "机器人已连接，无需重复连接");
+        impl_->clearRuntimeStateSnapshotCache();
+        ec.clear();
+        RCLCPP_INFO(impl_->node_->get_logger(), "机器人已连接，重复 connectToRobot 调用按幂等成功处理");
         return;
     }
 
@@ -32,16 +97,28 @@ void xMateRobot::connectToRobot(std::error_code& ec) {
     }
 
     impl_->connected_ = true;
+    impl_->clearRuntimeStateSnapshotCache();
     ec.clear();
     RCLCPP_INFO(impl_->node_->get_logger(), "机器人连接成功, 远程IP: %s", impl_->remote_ip_.c_str());
 }
 
 // 断开机器人连接
 
+/**
+ * @brief Disconnect the runtime-backed controller session.
+ * @param ec Output error code. Cleared on success, including idempotent re-entry.
+ * @throws None.
+ * @note Boundary behavior: repeated disconnect requests clear local caches and return success so
+ *       upper layers can always issue disconnect during teardown without branching.
+ */
 void xMateRobot::disconnectFromRobot(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
-        ec = std::make_error_code(std::errc::not_connected);
-        RCLCPP_WARN(impl_->node_->get_logger(), "机器人未连接，无需断开");
+        impl_->clearRuntimeStateSnapshotCache();
+        impl_->clearCache();
+        impl_->resetNrtQueueState();
+        ec.clear();
+        RCLCPP_INFO(impl_->node_->get_logger(), "机器人未连接，重复 disconnectFromRobot 调用按幂等成功处理");
         return;
     }
 
@@ -65,6 +142,9 @@ void xMateRobot::disconnectFromRobot(std::error_code& ec) {
     }
 
     impl_->connected_ = false;
+    impl_->clearRuntimeStateSnapshotCache();
+    impl_->clearCache();
+    impl_->resetNrtQueueState();
     ec.clear();
     RCLCPP_INFO(impl_->node_->get_logger(), "机器人断开连接成功");
 }
@@ -72,6 +152,7 @@ void xMateRobot::disconnectFromRobot(std::error_code& ec) {
 // 获取机器人信息
 
 rokae::Info xMateRobot::robotInfo(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     rokae::Info info;
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -109,9 +190,14 @@ rokae::Info xMateRobot::robotInfo(std::error_code& ec) {
 // 获取上电状态
 
 rokae::PowerState xMateRobot::powerState(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return rokae::PowerState::unknown;
+    }
+    rokae::PowerState snapshot_state = rokae::PowerState::unknown;
+    if (try_snapshot_power_state(*impl_, ec, snapshot_state)) {
+        return snapshot_state;
     }
     if (!impl_->wait_for_service(impl_->xmate3_robot_get_power_state_client_, ec)) {
         return rokae::PowerState::unknown;
@@ -145,10 +231,30 @@ rokae::PowerState xMateRobot::powerState(std::error_code& ec) {
 
 // 设置上电状态
 
+/**
+ * @brief Change controller power state through the strict runtime-owned contract.
+ * @param on Target power-on flag.
+ * @param ec Output error code.
+ * @throws None.
+ * @note Boundary behavior: when the requested state already matches the aggregated runtime snapshot,
+ *       the call succeeds without issuing a redundant transport request.
+ */
 void xMateRobot::setPowerState(bool on, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
+    }
+
+    rokae::PowerState current_state = rokae::PowerState::unknown;
+    if (try_snapshot_power_state(*impl_, ec, current_state)) {
+        const bool already_matches = (on && current_state == rokae::PowerState::on) ||
+                                     (!on && current_state == rokae::PowerState::off);
+        if (already_matches) {
+            ec.clear();
+            RCLCPP_INFO(impl_->node_->get_logger(), "电源状态已是目标值，setPowerState 按幂等成功处理");
+            return;
+        }
     }
 
     if (!impl_->wait_for_service(impl_->xmate3_robot_set_power_state_client_, ec)) {
@@ -171,6 +277,7 @@ void xMateRobot::setPowerState(bool on, std::error_code& ec) {
         return;
     }
 
+    impl_->clearRuntimeStateSnapshotCache();
     ec.clear();
     RCLCPP_INFO(impl_->node_->get_logger(), "机器人电源状态设置为: %s", on ? "上电" : "下电");
 }
@@ -178,9 +285,14 @@ void xMateRobot::setPowerState(bool on, std::error_code& ec) {
 // 获取操作模式
 
 rokae::OperateMode xMateRobot::operateMode(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return rokae::OperateMode::unknown;
+    }
+    rokae::OperateMode snapshot_mode = rokae::OperateMode::unknown;
+    if (try_snapshot_operate_mode(*impl_, ec, snapshot_mode)) {
+        return snapshot_mode;
     }
     if (!impl_->wait_for_service(impl_->xmate3_robot_get_operate_mode_client_, ec)) {
         return rokae::OperateMode::unknown;
@@ -204,9 +316,25 @@ rokae::OperateMode xMateRobot::operateMode(std::error_code& ec) {
 
 // 设置操作模式
 
+/**
+ * @brief Change operate mode through the strict runtime-owned contract.
+ * @param mode Target operate mode.
+ * @param ec Output error code.
+ * @throws None.
+ * @note Boundary behavior: repeated requests for the current mode succeed without issuing a redundant
+ *       service call, preserving deterministic SDK-side state semantics.
+ */
 void xMateRobot::setOperateMode(rokae::OperateMode mode, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+
+    rokae::OperateMode current_mode = rokae::OperateMode::unknown;
+    if (try_snapshot_operate_mode(*impl_, ec, current_mode) && current_mode == mode) {
+        ec.clear();
+        RCLCPP_INFO(impl_->node_->get_logger(), "操作模式已是目标值，setOperateMode 按幂等成功处理");
         return;
     }
 
@@ -230,6 +358,7 @@ void xMateRobot::setOperateMode(rokae::OperateMode mode, std::error_code& ec) {
         return;
     }
 
+    impl_->clearRuntimeStateSnapshotCache();
     ec.clear();
     RCLCPP_INFO(impl_->node_->get_logger(), "机器人操作模式设置为: %s", 
         mode == rokae::OperateMode::automatic ? "自动" : "手动");
@@ -238,6 +367,7 @@ void xMateRobot::setOperateMode(rokae::OperateMode mode, std::error_code& ec) {
 // 获取运行状态
 
 rokae::OperationState xMateRobot::operationState(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     impl_->pump_callbacks();
     if (impl_->checkMoveAppendFailure(ec)) {
         return rokae::OperationState::unknown;
@@ -271,6 +401,7 @@ rokae::OperationState xMateRobot::operationState(std::error_code& ec) {
 // 查询控制器日志
 
 std::vector<rokae::LogInfo> xMateRobot::queryControllerLog(unsigned int count, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     std::vector<rokae::LogInfo> logs;
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -308,6 +439,7 @@ std::vector<rokae::LogInfo> xMateRobot::queryControllerLog(unsigned int count, s
 // 清除伺服报警
 
 void xMateRobot::clearServoAlarm(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;

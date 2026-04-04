@@ -1,140 +1,75 @@
 # 示例程序说明
 
-> 本目录包含按 xCore SDK C++ 使用手册与官方 xMate3 风格整理的示例程序
+> 本目录包含按 xCore SDK C++ 使用手册与当前 xMate6 compatibility lane 整理的示例程序。
 
-## 目录结构
+## 示例分层
 
-```text
-examples/
-├── cpp/
-│   ├── example_common.hpp
-│   ├── 01_basic_connect.cpp
-│   ├── 02_joint_cartesian_read.cpp
-│   ├── 03_kinematics.cpp
-│   ├── 04_motion_basic.cpp
-│   ├── 05_motion_cartesian.cpp
-│   ├── 06_io_control.cpp
-│   ├── 07_safety_collision.cpp
-│   ├── 08_path_record_replay.cpp
-│   ├── 09_advanced_sdk_compat.cpp
-│   ├── 10_sdk_workflow_xmate3.cpp
-│   ├── 11_move_advanced_xmate3.cpp
-│   ├── 12_state_stream_threaded.cpp
-│   ├── 13_rl_project_workflow.cpp
-│   ├── 14_model_extended.cpp
-│   ├── 15_move_queue_and_events.cpp
-│   ├── 16_registers_and_runtime_options.cpp
-│   ├── 17_state_stream_cache.cpp
-│   ├── 18_toolset_and_calibration.cpp
-│   ├── 19_diagnostics_and_wrench.cpp
-│   ├── 20_rt_joint_position.cpp
-│   ├── 21_rt_move_commands.cpp
-│   ├── 22_rt_joint_impedance.cpp
-│   ├── 23_rt_cartesian_impedance.cpp
-│   ├── 24_rt_follow_position.cpp
-│   ├── 25_rt_s_line.cpp
-│   ├── 26_rt_torque_control.cpp
-│   └── 99_complete_demo.cpp
-└── README.md
-```
+### Public compat examples
+这些示例属于安装态兼容入口，目标是让外部工程参考 `rokae/*.h + xCoreSDK::xCoreSDK_static` 的官方风格调用路径；`xCoreSDK::xCoreSDK_shared` 继续保留为动态兼容入口。
 
-## 示例索引
+注意：当前安装态 compatibility lane 仍然依赖与本包一致的 ROS2/Gazebo 目标环境；示例分层强调的是 **public C++ ABI 头文件面** 与 **internal backend 实现面** 的隔离。
 
-能力分级说明：
-- `已对齐`：示例调用路径和默认仿真语义已经收口
-- `近似实现`：示例可运行，但依赖仿真近似模型或近似时间律
-- `实验性`：主要用于验证链路与接口形状，不承诺真机级语义
-- `不支持`：当前示例或接口明确未提供
-
-全量 examples harness 分组说明：
-- `严格通过组`：`01-08`、`10-19`、`99`。这些示例在 headless Gazebo 下必须完成主流程并退出 `0`。
-- `实验性 RT 组`：`20-26`，以及 `09` 里的 RT 子流程。若当前仿真 backend 不支持某个 RT 子能力，会打印 `simulation-only` / `skipped` 并退出 `0`。
-- `模型近似组`：`03`、`09`、`14`、`19`、`24`、`26`。这些示例默认接受 KDL/URDF-backed 运动学 + approximate dynamics。
-
-### 第 4.3 节
-- `01_basic_connect.cpp`: 连接机器人、获取信息、电源/模式切换
-- `02_joint_cartesian_read.cpp`: 读取关节位置、速度、力矩、笛卡尔位姿
-- `03_kinematics.cpp`: 正逆运动学、雅可比、模型计算
-  说明：`xMateModel` 当前是 KDL/URDF-backed 运动学 + approximate dynamics（近似实现）
-- `15_move_queue_and_events.cpp`: 运动队列、事件回调、控制器日志
-- `17_state_stream_cache.cpp`: 状态缓存、字段轮询、异步采样
-
-### 第 4.4 节
-- `04_motion_basic.cpp`: `MoveAbsJ`
-- `05_motion_cartesian.cpp`: `MoveJ` / `MoveL` / `MoveC`
-  说明：示例会先调用 `/xmate3/internal/validate_motion` 搜索 smoke-safe 目标，再执行实际笛卡尔动作，默认 headless Gazebo 下应稳定完成 `MoveJ / MoveL / MoveC`
-- `11_move_advanced_xmate3.cpp`: `confData`、默认轴配置、偏移、在线调速、`MoveSP`
-
-### 第 4.5 节
-- `20_rt_joint_position.cpp`: RT 关节位置
-- `21_rt_move_commands.cpp`: RT `MoveJ` / `MoveL` / `MoveC`
-- `22_rt_joint_impedance.cpp`: RT 关节阻抗
-- `23_rt_cartesian_impedance.cpp`: RT 笛卡尔阻抗
-- `24_rt_follow_position.cpp`: RT 跟随位置
-- `25_rt_s_line.cpp`: RT S 线轨迹
-- `26_rt_torque_control.cpp`: RT 力矩控制 smoke 示例
-  说明：4.5 节所有示例均属于实验性仿真 RT 语义，不代表真机控制柜 1ms 契约
-
-### 第 4.6 节
-- `06_io_control.cpp`: DI/DO/AI/AO 读写、仿真模式
-- `16_registers_and_runtime_options.cpp`: typed 寄存器、xPanel、电压与运行时选项
-
-### 第 4.7 节
-- `13_rl_project_workflow.cpp`: RL 工程查询、加载、运行控制
-
-### 第 4.8 节
-- `07_safety_collision.cpp`: 碰撞检测、软限位、拖动示教
-- `08_path_record_replay.cpp`: 路径录制、保存、回放
-  说明：回放速率通过时间轴重参数化近似原始速率，不是控制柜级保证
-- `09_advanced_sdk_compat.cpp`: 寄存器、RT、RL、动力学、奇异规避等高级能力
-- `18_toolset_and_calibration.cpp`: 工具、工件与坐标系标定
-- `19_diagnostics_and_wrench.cpp`: 末端力矩、奇异规避、诊断接口
-
-### 官方风格补充
+- `01_basic_connect.cpp`
+- `02_joint_cartesian_read.cpp`
+- `03_kinematics.cpp`
+- `04_motion_basic.cpp`
+- `07_safety_collision.cpp`
+- `09_advanced_sdk_compat.cpp`
 - `10_sdk_workflow_xmate3.cpp`
+- `11_move_advanced_xmate3.cpp`
 - `12_state_stream_threaded.cpp`
 - `14_model_extended.cpp`
-  说明：展示 KDL-backed Jacobian / cartesian velocity / approximate acceleration 映射（近似实现）
+- `15_move_queue_and_events.cpp`
+- `17_state_stream_cache.cpp（状态发送周期已收紧到手册允许的 8 ms）`
+- `18_toolset_only.cpp`（toolset-only 示例）
+- `19_diagnostics_and_wrench.cpp`
+- `20_rt_joint_position.cpp`
+- `21_rt_move_commands.cpp`
+- `22_rt_joint_impedance.cpp`
+- `23_rt_cartesian_impedance.cpp`
+- `24_rt_follow_position.cpp`
+- `25_rt_s_line.cpp`
+- `26_rt_torque_control.cpp`
 - `99_complete_demo.cpp`
+
+### Internal/backend examples
+这些示例保留给源码树内的 ROS2/backend 验证，不属于安装态 public compat contract：
+
+- `05_motion_cartesian.cpp`：依赖 `/xmate3/internal/validate_motion` 与 `rclcpp`。
+- `06_io_control.cpp`：IO/control facade 验证，不属于 public xMate6 contract。
+- `08_path_record_replay.cpp`：路径录制/回放链路（internal/backend only）。
+- `13_rl_project_workflow.cpp`：RL 工程链路，不在本轮范围。
+- `16_registers_and_runtime_options.cpp`：typed 寄存器、xPanel 与运行时选项验证。
+
+## 能力边界
+
+- 本轮只收口 **xMate 六轴 compatibility lane**。
+- 拖动示例现在应先切到 **manual** 并确保机器人处于**下电**状态，再调用 `enableDrag()`；这与官方示例前置保持一致。
+- 路径回放示例不再隐式覆盖当前 toolset，上下文不匹配会直接失败。
+- `setAvoidSingularity()/getAvoidSingularity()` 在当前 xMate6 compatibility lane 上显式返回 unsupported；官方手册将该能力限定在 xMateCR/xMateSR 机型。
+- IO/寄存器示例仅用于 backend/internal 验证；安装态 public xMate6 lane 对这些入口统一返回 deterministic `not_implemented`。
+- **不做 RL 语义硬化**，因此 RL 示例被降级为 internal/backend example。
+- **不做标定链**，因此 `18_toolset_only.cpp` 只保留 toolset 管理，不再演示 `calibrateFrame()`。
+- RT 相关示例保留 API 形状，但在 Gazebo 中仍属于 simulation-only / approximate 语义。
+- 实时状态接收示例只使用 SDK 手册允许的周期：`1/2/4/8ms/1s`。
 
 ## 使用方法
 
-### 编译
+### Public compat examples（推荐）
 ```bash
 cd ~/ros2_ws0
-src/rokae_xmate3_ros2/tools/clean_build_env.sh \
-  colcon build --packages-select rokae_xmate3_ros2
+src/rokae_xmate3_ros2/tools/clean_build_env.sh   colcon build --packages-select rokae_xmate3_ros2
 source install/setup.bash
-```
-
-### 运行
-```bash
 ros2 launch rokae_xmate3_ros2 simulation.launch.py
 ros2 run rokae_xmate3_ros2 example_01_basic_connect
 ```
 
-兼容启动名 `xmate3_simulation.launch.py` 和 `xmate3_gazebo.launch.py` 仍可用。
+### Internal/backend examples
+这些示例需要源码树内 backend/internal contracts 存在，适合开发者验证，不建议作为安装态用户入口：
 
-### 全量 examples harness
 ```bash
-cd ~/ros2_ws0
-src/rokae_xmate3_ros2/tools/clean_build_env.sh \
-  colcon build --packages-select rokae_xmate3_ros2
-cd build/rokae_xmate3_ros2
-cmake -DROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
-cmake --build . -j4
-../../src/rokae_xmate3_ros2/tools/clean_build_env.sh \
-  ctest -R gazebo_examples_full --output-on-failure
-```
-
-默认 `ctest` 不会包含这条全量 harness。
-
-backend mode smoke（非默认，覆盖 `effort / jtc / hybrid`）：
-```bash
-cd ~/ros2_ws0/build/rokae_xmate3_ros2
-cmake -DROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS=ON /home/chen/ros2_ws0/src/rokae_xmate3_ros2
-cmake --build . -j4
-ctest -L gazebo_integration_modes --output-on-failure
+ros2 run rokae_xmate3_ros2 example_05_motion_cartesian
+ros2 run rokae_xmate3_ros2 example_13_rl_project_workflow
 ```
 
 ## 学习路径建议
@@ -143,19 +78,18 @@ ctest -L gazebo_integration_modes --output-on-failure
 1. `99_complete_demo.cpp`
 2. `01_basic_connect.cpp`
 3. `04_motion_basic.cpp`
-4. `05_motion_cartesian.cpp`
+4. `15_move_queue_and_events.cpp`
 
 ### 进阶
 1. `03_kinematics.cpp`
 2. `11_move_advanced_xmate3.cpp`
 3. `15_move_queue_and_events.cpp`
-4. `16_registers_and_runtime_options.cpp`
-5. `17_state_stream_cache.cpp`
-6. `18_toolset_and_calibration.cpp`
+4. install-facing public xMate6 lane excludes IO / register / RL / calibration workflows; those examples remain backend/internal only.
+5. `17_state_stream_cache.cpp（状态发送周期已收紧到手册允许的 8 ms）`
+6. `18_toolset_only.cpp`
 7. `19_diagnostics_and_wrench.cpp`
-8. `13_rl_project_workflow.cpp`
 
-### RT 能力
+### RT
 1. `20_rt_joint_position.cpp`
 2. `21_rt_move_commands.cpp`
 3. `22_rt_joint_impedance.cpp`
@@ -164,40 +98,9 @@ ctest -L gazebo_integration_modes --output-on-failure
 6. `25_rt_s_line.cpp`
 7. `26_rt_torque_control.cpp`
 
-> 说明：20-26 在 Gazebo 中保留 RT API 的调用形状，但语义是 simulation-only / approximate，属于实验性能力。
-> 说明：`25_rt_s_line.cpp` 使用 shared quintic retimer；笛卡尔 `GenerateSTrajectory` 当前是基于路径弧长与 seeded IK 的近似实现。
-> 说明：`08_path_record_replay.cpp` 的 `replayPath(name, rate)` 采用时间轴重参数化近似原始速率。
 
-## 注意事项
-1. 所有示例都需要先启动仿真。
-2. 示例包含完整的 `std::error_code` 处理。
-3. 本包聚焦 xMate3 六轴 Gazebo 仿真，不等价覆盖真机与其他机型能力。
-4. `26_rt_torque_control.cpp` 在 Gazebo 中主要用于验证接口与控制链路。
-5. `xMateModel` / `03_kinematics.cpp` / `14_model_extended.cpp` 的动力学结果属于可解释的仿真近似，不等价于完整刚体动力学求解。
-6. `simulation.launch.py` 默认使用 `backend_mode:=hybrid`；若只验证 JTC，可显式传 `backend_mode:=jtc enable_xcore_plugin:=false`。
+- `ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES=ON` 可显式安装 internal/backend example 二进制；默认 **OFF**，避免把源码树内部验证入口混入 public 安装面。
 
-## 回归分层
-1. 默认 `ctest`：13 个 unit tests + `gazebo_sdk_regression` + `gazebo_examples_smoke` + `gazebo_alias_smoke`
-2. `gazebo_examples_full`：非默认，全量 `27/27` examples 可运行性回归
-3. `gazebo_integration_modes`：非默认，覆盖 `effort-only / jtc-only / hybrid`
-4. `gazebo_teardown_quality`：非默认，覆盖 `prepare_shutdown` 契约、phase 推进、`safe_to_delete` 与优雅停机路径
-5. `gazebo_teardown_quality_repeat`：非默认，连续跑 10 次 teardown 路径，专门收 shutdown 竞态
-6. 默认发布验收：`clean_build_env.sh + colcon build + ctest --output-on-failure`，当前应为 `16/16`
+## Out-of-scope modules on the public xMate6 lane
 
-源码归档发布建议只走经过 `package_verified_source_archive` 校验的候选 zip，不要直接上传未验证的源码包。
-候选包默认只包含 package root 内容，并从工作区根附带 `.gitignore` 与 `colcon_defaults.yaml` 两个 sidecar。
-建议通过 `../tools/clean_build_env.sh` 统一运行 build / test / package 命令，避免 Conda 环境把影子 Python 或系统库路径带进发布流程。
-7. strict Gazebo 集：非默认，覆盖长路径、长时间、blend/lookahead、replay fidelity 与 ownership stability
-
-发布源码归档前，建议执行：
-
-```bash
-cd ~/ros2_ws0/build/rokae_xmate3_ros2
-cmake -DROKAE_SOURCE_ARCHIVE=/path/to/src.zip /home/chen/ros2_ws0/src/rokae_xmate3_ros2
-cmake --build . --target verify_source_archive
-```
-
-## 更多资源
-- [快速入门指南](../docs/QUICKSTART.md)
-- [主 README](../README.md)
-- [示例源码目录](./cpp)
+The install-facing xMate6 compatibility contract intentionally excludes IO, typed registers, RL workflows, and calibration. Their symbol names remain available for source compatibility, but the public SDK lane returns deterministic `not_implemented` errors instead of advertising them as public guarantees.

@@ -1,4 +1,5 @@
 #include "runtime/rt_prearm_checks.hpp"
+#include "runtime/session_state.hpp"
 
 #include <algorithm>
 #include <sstream>
@@ -90,7 +91,7 @@ std::string RtPrearmCheckReport::summary() const {
 
 RtPrearmCheckReport evaluateRtPrearm(const RtPrearmCheckInput &input) {
   RtPrearmCheckReport report;
-  if (input.motion_mode != static_cast<int>(rokae::MotionControlMode::RtCommand)) {
+  if (input.motion_mode != kSessionMotionModeRt) {
     report.status = "motion_mode_not_rt";
     report.notes.push_back("rt.prearm.motion_mode!=RtCommand");
     return report;

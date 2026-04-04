@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 
 #include "runtime/runtime_state.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_semantic_topics.hpp"
 
 namespace rt = rokae_xmate3_ros2::runtime;
 
@@ -81,6 +83,11 @@ TEST(RuntimeStateTest, ProgramAndDataStoresRetainPathRegisterAndIoData) {
   log.content = "runtime log";
   log.level = 1;
   data.appendLog(log);
+  auto warn_log = log;
+  warn_log.timestamp = "200";
+  warn_log.content = "warn log";
+  warn_log.level = 2;
+  data.appendLog(warn_log);
 
   EXPECT_EQ(data.registerValue("r/int0"), "42");
   EXPECT_EQ(data.registerValue("runtime_mode"), "servo");
@@ -91,6 +98,23 @@ TEST(RuntimeStateTest, ProgramAndDataStoresRetainPathRegisterAndIoData) {
   EXPECT_DOUBLE_EQ(data.getAO(0, 4), 5.0);
 
   const auto logs = data.queryLogs(8);
-  ASSERT_EQ(logs.size(), 1u);
-  EXPECT_EQ(logs.front().content, "runtime log");
+  ASSERT_EQ(logs.size(), 2u);
+  EXPECT_EQ(logs.front().content, "warn log");
+  EXPECT_EQ(logs.back().content, "runtime log");
+  const auto filtered_logs = data.queryLogs(8, static_cast<std::uint8_t>(1));
+  ASSERT_EQ(filtered_logs.size(), 1u);
+  EXPECT_EQ(filtered_logs.front().content, "runtime log");
+}
+
+
+TEST(DataStoreStateTest, RtSemanticSnapshotTracksHotPathMetadata) {
+  rokae_xmate3_ros2::runtime::DataStoreState state;
+  state.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlSurface, "web_bridge");
+  state.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlDispatchMode, "joint_position");
+  state.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kCatalogProvenance, "runtime_cache");
+
+  const auto snapshot = state.rtSemanticSnapshot();
+  EXPECT_EQ(snapshot.control_surface, "web_bridge");
+  EXPECT_EQ(snapshot.dispatch_mode, "joint_position");
+  EXPECT_EQ(snapshot.catalog_provenance, "runtime_cache");
 }

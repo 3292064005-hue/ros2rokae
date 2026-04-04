@@ -86,6 +86,11 @@ class RuntimeBootstrap {
 
  private:
   void initPublishers();
+  void attachExecutorNode();
+  void initRuntimeBindings(const rokae_xmate3_ros2::runtime::RuntimeControlBridgeConfig &control_bridge_config);
+  void initPrepareShutdownService();
+  void startExecutorThread();
+  void releaseExecutorNode();
 
   BackendMode backend_mode_ = BackendMode::hybrid;
   std::vector<physics::JointPtr> *joints_ = nullptr;
@@ -98,6 +103,7 @@ class RuntimeBootstrap {
   std::shared_ptr<rokae_xmate3_ros2::runtime::RosContextOwner::Lease> ros_context_lease_;
   RosIntegrationOptions ros_integration_;
   bool attached_external_executor_ = false;
+  bool executor_node_added_by_bootstrap_ = false;
   std::thread executor_thread_;
   std::unique_ptr<xMate3Kinematics> kinematics_;
 

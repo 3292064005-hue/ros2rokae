@@ -24,6 +24,7 @@ void xMateRobot::Impl::cacheCommand(const rokae_xmate3_ros2::action::MoveAppend:
     for (const auto& cmd : goal.sp_cmds) {
         cached_goal_.sp_cmds.push_back(cmd);
     }
+    markNrtCachedCommandsPresent();
 }
 
 void xMateRobot::Impl::clearCache() {
@@ -31,11 +32,14 @@ void xMateRobot::Impl::clearCache() {
         std::lock_guard<std::mutex> lock(cache_mutex_);
         cached_goal_ = rokae_xmate3_ros2::action::MoveAppend::Goal();
         active_goal_handles_.clear();
+        resetNrtQueueState();
     }
+    clearRuntimeStateSnapshotCache();
     resetMoveAppendState();
 }
 
 bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
+    auto _last_error_scope = track_last_error(this, ec);
     rokae_xmate3_ros2::action::MoveAppend::Goal goal_to_send;
     size_t total_cmds = 0;
     {
@@ -45,12 +49,11 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
                      cached_goal_.l_cmds.size() + cached_goal_.c_cmds.size() +
                      cached_goal_.cf_cmds.size() + cached_goal_.sp_cmds.size();
         if (total_cmds == 0) {
-            ec.clear();
-            return true;
+            ec = rokae::make_error_code(rokae::SdkError::trajectory_empty);
+            return false;
         }
-        // 取出缓存的goal并清空
-        goal_to_send = std::move(cached_goal_);
-        cached_goal_ = rokae_xmate3_ros2::action::MoveAppend::Goal();
+        // 在 action goal 被接受前保留本地缓存，以便发送失败时仍可重试。
+        goal_to_send = cached_goal_;
     }
     if (!move_append_action_client_) {
         ec = std::make_error_code(std::errc::not_supported);
@@ -91,6 +94,14 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
         ec = std::make_error_code(std::errc::operation_not_permitted);
         RCLCPP_ERROR(node_->get_logger(), "Goal was rejected by action server");
         return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        cached_goal_ = rokae_xmate3_ros2::action::MoveAppend::Goal();
+        nrt_queue_has_cached_commands_ = false;
+        markNrtRemoteRequestKnown();
+        current_cached_command_family_.clear();
     }
 
     // 保存goal handle的引用，确保action不被取消
@@ -248,6 +259,7 @@ static rokae_xmate3_ros2::msg::MoveSPCommand toMsg(const rokae::MoveSPCommand &c
 }
 
 void xMateRobot::moveAbsJ(const rokae::MoveAbsJCommand& cmd, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     rokae_xmate3_ros2::action::MoveAppend::Goal goal;
     goal.absj_cmds.push_back(toMsg(cmd));
     impl_->cacheCommand(goal);
@@ -255,6 +267,7 @@ void xMateRobot::moveAbsJ(const rokae::MoveAbsJCommand& cmd, std::error_code& ec
     RCLCPP_INFO(impl_->node_->get_logger(), "MoveAbsJ指令已缓存");
 }
 void xMateRobot::moveJ(const rokae::MoveJCommand& cmd, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     rokae_xmate3_ros2::action::MoveAppend::Goal goal;
     goal.j_cmds.push_back(toMsg(cmd));
     impl_->cacheCommand(goal);
@@ -262,6 +275,7 @@ void xMateRobot::moveJ(const rokae::MoveJCommand& cmd, std::error_code& ec) {
     RCLCPP_INFO(impl_->node_->get_logger(), "MoveJ指令已缓存");
 }
 void xMateRobot::moveL(const rokae::MoveLCommand& cmd, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     rokae_xmate3_ros2::action::MoveAppend::Goal goal;
     goal.l_cmds.push_back(toMsg(cmd));
     impl_->cacheCommand(goal);
@@ -269,6 +283,7 @@ void xMateRobot::moveL(const rokae::MoveLCommand& cmd, std::error_code& ec) {
     RCLCPP_INFO(impl_->node_->get_logger(), "MoveL指令已缓存");
 }
 void xMateRobot::moveC(const rokae::MoveCCommand& cmd, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     rokae_xmate3_ros2::action::MoveAppend::Goal goal;
     goal.c_cmds.push_back(toMsg(cmd));
     impl_->cacheCommand(goal);
@@ -276,6 +291,7 @@ void xMateRobot::moveC(const rokae::MoveCCommand& cmd, std::error_code& ec) {
     RCLCPP_INFO(impl_->node_->get_logger(), "MoveC指令已缓存");
 }
 void xMateRobot::moveCF(const rokae::MoveCFCommand& cmd, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     rokae_xmate3_ros2::action::MoveAppend::Goal goal;
     goal.cf_cmds.push_back(toMsg(cmd));
     impl_->cacheCommand(goal);
@@ -283,6 +299,7 @@ void xMateRobot::moveCF(const rokae::MoveCFCommand& cmd, std::error_code& ec) {
     RCLCPP_INFO(impl_->node_->get_logger(), "MoveCF指令已缓存");
 }
 void xMateRobot::moveSP(const rokae::MoveSPCommand& cmd, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     rokae_xmate3_ros2::action::MoveAppend::Goal goal;
     goal.sp_cmds.push_back(toMsg(cmd));
     impl_->cacheCommand(goal);

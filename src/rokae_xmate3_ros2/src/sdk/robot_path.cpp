@@ -1,9 +1,40 @@
 #include "robot_internal.hpp"
 
 namespace rokae::ros2 {
+namespace {
+
+bool validate_drag_request(rokae::DragParameter::Space space,
+                           rokae::DragParameter::Type type,
+                           std::error_code &ec) {
+    switch (space) {
+        case rokae::DragParameter::Space::jointSpace:
+        case rokae::DragParameter::Space::cartesianSpace:
+            break;
+        default:
+            ec = rokae::make_error_code(rokae::SdkError::invalid_argument);
+            return false;
+    }
+    switch (type) {
+        case rokae::DragParameter::Type::translationOnly:
+        case rokae::DragParameter::Type::rotationOnly:
+        case rokae::DragParameter::Type::freely:
+            break;
+        default:
+            ec = rokae::make_error_code(rokae::SdkError::invalid_argument);
+            return false;
+    }
+    return true;
+}
+
+} // namespace
 
 // ==================== 拖动与路径录制接口实现 ====================
 void xMateRobot::enableDrag(rokae::DragParameter::Space space, rokae::DragParameter::Type type, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensurePathClients();
+    if (!validate_drag_request(space, type, ec)) {
+        return;
+    }
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
@@ -35,6 +66,8 @@ void xMateRobot::enableDrag(rokae::DragParameter::Space space, rokae::DragParame
 }
 
 void xMateRobot::disableDrag(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensurePathClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
@@ -63,8 +96,14 @@ void xMateRobot::disableDrag(std::error_code& ec) {
 }
 
 void xMateRobot::startRecordPath(std::chrono::seconds duration, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensurePathClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    if (duration <= std::chrono::seconds::zero()) {
+        ec = rokae::make_error_code(rokae::SdkError::invalid_argument);
         return;
     }
 
@@ -93,6 +132,8 @@ void xMateRobot::startRecordPath(std::chrono::seconds duration, std::error_code&
 }
 
 void xMateRobot::stopRecordPath(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensurePathClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
@@ -121,6 +162,8 @@ void xMateRobot::stopRecordPath(std::error_code& ec) {
 }
 
 void xMateRobot::cancelRecordPath(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensurePathClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
@@ -149,8 +192,14 @@ void xMateRobot::cancelRecordPath(std::error_code& ec) {
 }
 
 void xMateRobot::saveRecordPath(const std::string& name, std::error_code& ec, const std::string& saveAs) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensurePathClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    if (name.empty()) {
+        ec = rokae::make_error_code(rokae::SdkError::invalid_argument);
         return;
     }
 
@@ -176,12 +225,19 @@ void xMateRobot::saveRecordPath(const std::string& name, std::error_code& ec, co
     }
 
     ec.clear();
-    RCLCPP_INFO(impl_->node_->get_logger(), "路径保存成功, 名称: %s", name.c_str());
+    const auto saved_name = saveAs.empty() ? name : saveAs;
+    RCLCPP_INFO(impl_->node_->get_logger(), "路径保存成功, 名称: %s", saved_name.c_str());
 }
 
 void xMateRobot::replayPath(const std::string& name, double rate, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensurePathClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    if (name.empty() || rate <= 0.0 || rate >= 3.0) {
+        ec = rokae::make_error_code(rokae::SdkError::invalid_argument);
         return;
     }
 
@@ -211,8 +267,14 @@ void xMateRobot::replayPath(const std::string& name, double rate, std::error_cod
 }
 
 void xMateRobot::removePath(const std::string& name, std::error_code& ec, bool removeAll) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensurePathClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
+        return;
+    }
+    if (!removeAll && name.empty()) {
+        ec = rokae::make_error_code(rokae::SdkError::invalid_argument);
         return;
     }
 
@@ -242,6 +304,8 @@ void xMateRobot::removePath(const std::string& name, std::error_code& ec, bool r
 }
 
 std::vector<std::string> xMateRobot::queryPathLists(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensurePathClients();
     std::vector<std::string> path_list;
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);

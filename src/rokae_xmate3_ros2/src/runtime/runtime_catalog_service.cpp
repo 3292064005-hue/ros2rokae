@@ -1,5 +1,7 @@
 #include "runtime/runtime_catalog_service.hpp"
 
+#include "rokae_xmate3_ros2/runtime/rt_semantic_topics.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
@@ -195,9 +197,21 @@ std::vector<RuntimeRegisterCatalogEntry> buildRuntimeRegisterCatalog(const DataS
 
 
 std::vector<RuntimeOptionCatalogEntry> buildRuntimeOptionCatalog(const MotionOptionsState &motion_options_state,
-                                                                 const SessionState &session_state) {
+                                                                 const SessionState &session_state,
+                                                                 const DataStoreState &data_store_state) {
+  return buildRuntimeOptionCatalog(
+      motion_options_state,
+      session_state,
+      data_store_state.rtControlSnapshot(),
+      data_store_state.rtSemanticSnapshot());
+}
+
+std::vector<RuntimeOptionCatalogEntry> buildRuntimeOptionCatalog(const MotionOptionsState &motion_options_state,
+                                                                 const SessionState &session_state,
+                                                                 const DataStoreState::RtControlSnapshot &rt_snapshot,
+                                                                 const DataStoreState::RtSemanticSnapshot &semantic_snapshot) {
   std::vector<RuntimeOptionCatalogEntry> entries;
-  entries.reserve(9);
+  entries.reserve(18);
 
   RuntimeOptionCatalogEntry speed;
   speed.name = "default_speed";
@@ -249,7 +263,104 @@ std::vector<RuntimeOptionCatalogEntry> buildRuntimeOptionCatalog(const MotionOpt
   rt_mode.source = "session_state";
   entries.push_back(rt_mode);
 
+  const auto push_snapshot = [&](const std::string &name,
+                                 const std::string &value,
+                                 bool configured,
+                                 const std::string &source = "rt_snapshot") {
+    if (!configured) {
+      return;
+    }
+    RuntimeOptionCatalogEntry option;
+    option.name = name;
+    option.value = value;
+    option.mutability = "runtime";
+    option.source = source;
+    entries.push_back(std::move(option));
+  };
+
+  push_snapshot("rt_network_tolerance",
+                double_text(std::clamp((rt_snapshot.rt_command_timeout_sec - 0.05) / (2.0 - 0.05) * 100.0, 0.0, 100.0)),
+                rt_snapshot.rt_network_tolerance_configured);
+  push_snapshot("use_rci_client", bool_text(rt_snapshot.use_rci_client), rt_snapshot.use_rci_client_configured, "rt_snapshot");
+
+  if (rt_snapshot.joint_impedance_configured) {
+    RuntimeOptionCatalogEntry option;
+    option.name = "joint_impedance";
+    option.value = double_text(rt_snapshot.joint_impedance[0]) + "," + double_text(rt_snapshot.joint_impedance[1]) + "," +
+                   double_text(rt_snapshot.joint_impedance[2]) + "," + double_text(rt_snapshot.joint_impedance[3]) + "," +
+                   double_text(rt_snapshot.joint_impedance[4]) + "," + double_text(rt_snapshot.joint_impedance[5]);
+    option.mutability = "runtime";
+    option.source = "rt_snapshot";
+    entries.push_back(std::move(option));
+  }
+  if (rt_snapshot.cartesian_impedance_configured) {
+    RuntimeOptionCatalogEntry option;
+    option.name = "cartesian_impedance";
+    option.value = double_text(rt_snapshot.cartesian_impedance[0]) + "," + double_text(rt_snapshot.cartesian_impedance[1]) + "," +
+                   double_text(rt_snapshot.cartesian_impedance[2]) + "," + double_text(rt_snapshot.cartesian_impedance[3]) + "," +
+                   double_text(rt_snapshot.cartesian_impedance[4]) + "," + double_text(rt_snapshot.cartesian_impedance[5]);
+    option.mutability = "runtime";
+    option.source = "rt_snapshot";
+    entries.push_back(std::move(option));
+  }
+  if (rt_snapshot.filter_frequency_configured) {
+    RuntimeOptionCatalogEntry option;
+    option.name = "filter_frequency";
+    option.value = double_text(rt_snapshot.filter_frequency[0]) + "," + double_text(rt_snapshot.filter_frequency[1]) + "," +
+                   double_text(rt_snapshot.filter_frequency[2]) + "," + double_text(rt_snapshot.filter_frequency[3]) + "," +
+                   double_text(rt_snapshot.filter_frequency[4]) + "," + double_text(rt_snapshot.filter_frequency[5]);
+    option.mutability = "runtime";
+    option.source = "rt_snapshot";
+    entries.push_back(std::move(option));
+  }
+  if (rt_snapshot.filter_limit_configured) {
+    RuntimeOptionCatalogEntry option;
+    option.name = "filter_limit";
+    option.value = std::string{"enabled="} + bool_text(rt_snapshot.filter_limit_enabled) +
+                   ",cutoff=" + double_text(rt_snapshot.filter_limit_cutoff_frequency);
+    option.mutability = "runtime";
+    option.source = "rt_snapshot";
+    entries.push_back(std::move(option));
+  }
+  if (rt_snapshot.cartesian_desired_wrench_configured) {
+    RuntimeOptionCatalogEntry option;
+    option.name = "cartesian_desired_wrench";
+    option.value = double_text(rt_snapshot.cartesian_desired_wrench[0]) + "," + double_text(rt_snapshot.cartesian_desired_wrench[1]) + "," +
+                   double_text(rt_snapshot.cartesian_desired_wrench[2]) + "," + double_text(rt_snapshot.cartesian_desired_wrench[3]) + "," +
+                   double_text(rt_snapshot.cartesian_desired_wrench[4]) + "," + double_text(rt_snapshot.cartesian_desired_wrench[5]);
+    option.mutability = "runtime";
+    option.source = "rt_snapshot";
+    entries.push_back(std::move(option));
+  }
+  if (rt_snapshot.collision_thresholds_configured) {
+    RuntimeOptionCatalogEntry option;
+    option.name = "collision_behaviour_thresholds";
+    option.value = double_text(rt_snapshot.collision_thresholds[0]) + "," + double_text(rt_snapshot.collision_thresholds[1]) + "," +
+                   double_text(rt_snapshot.collision_thresholds[2]) + "," + double_text(rt_snapshot.collision_thresholds[3]) + "," +
+                   double_text(rt_snapshot.collision_thresholds[4]) + "," + double_text(rt_snapshot.collision_thresholds[5]);
+    option.mutability = "runtime";
+    option.source = "rt_snapshot";
+    entries.push_back(std::move(option));
+  }
+  push_snapshot("torque_cutoff_frequency",
+                double_text(rt_snapshot.torque_cutoff_frequency),
+                rt_snapshot.torque_cutoff_frequency_configured);
+  push_snapshot("force_control_frame",
+                std::string{"type="} + std::to_string(static_cast<int>(rt_snapshot.force_control_frame.type)),
+                rt_snapshot.force_control_frame.configured,
+                "rt_snapshot");
+  push_snapshot("rt_dispatch_mode", semantic_snapshot.dispatch_mode, !semantic_snapshot.dispatch_mode.empty(), "rt_semantic");
+
   return entries;
+}
+
+std::string summarizeCatalogProvenance(const DataStoreState &data_store_state) {
+  return summarizeCatalogProvenance(data_store_state.rtSemanticSnapshot());
+}
+
+std::string summarizeCatalogProvenance(const DataStoreState::RtSemanticSnapshot &semantic_snapshot) {
+  return semantic_snapshot.catalog_provenance.empty() ? std::string{"runtime_authoritative"}
+                                                      : semantic_snapshot.catalog_provenance;
 }
 
 std::string summarizeRuntimeOptionCatalog(const std::vector<RuntimeOptionCatalogEntry> &entries) {

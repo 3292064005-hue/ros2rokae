@@ -7,13 +7,33 @@ namespace rokae_xmate3_ros2::runtime {
 
 MotionRequestCoordinator::MotionRequestCoordinator(MotionOptionsState &motion_options_state,
                                                    ToolingState &tooling_state,
+                                                   SessionState &session_state,
                                                    MotionRuntime &motion_runtime)
     : motion_options_state_(motion_options_state),
       tooling_state_(tooling_state),
+      session_state_(session_state),
       motion_runtime_(motion_runtime) {}
 
 RuntimeView MotionRequestCoordinator::currentView() const {
-  return motion_runtime_.view();
+  auto view = motion_runtime_.view();
+  view.connected = session_state_.connected();
+  view.power_on = session_state_.powerOn();
+  view.drag_mode = session_state_.dragMode();
+  view.motion_mode = session_state_.motionMode();
+  if (!view.connected) {
+    view.can_accept_request = false;
+    view.snapshot_stale_reason = "session_disconnected";
+  } else if (!view.power_on) {
+    view.can_accept_request = false;
+    view.snapshot_stale_reason = "power_off";
+  } else if (view.drag_mode) {
+    view.can_accept_request = false;
+    view.snapshot_stale_reason = "drag_mode_active";
+  } else if (view.motion_mode != kSessionMotionModeNrt) {
+    view.can_accept_request = false;
+    view.snapshot_stale_reason = "motion_mode_not_nrt";
+  }
+  return view;
 }
 
 bool MotionRequestCoordinator::canAcceptRequest() const {
@@ -42,6 +62,13 @@ SubmissionResult MotionRequestCoordinator::submitMoveAppend(
   SubmissionResult result;
   result.request_id = request_id;
 
+  const auto gate = currentView();
+  if (!gate.can_accept_request) {
+    result.message = gate.snapshot_stale_reason.empty() ? std::string{"runtime request gate rejected"} : gate.snapshot_stale_reason;
+    return result;
+  }
+
+
   MotionRequest request;
   std::string request_error;
   const auto context = buildContext(request_id, joint_position, trajectory_dt);
@@ -69,6 +96,12 @@ SubmissionResult MotionRequestCoordinator::submitReplayPath(
     const std::string &request_id) {
   SubmissionResult result;
   result.request_id = request_id;
+
+  const auto gate = currentView();
+  if (!gate.can_accept_request) {
+    result.message = gate.snapshot_stale_reason.empty() ? std::string{"runtime request gate rejected"} : gate.snapshot_stale_reason;
+    return result;
+  }
 
   MotionRequest request;
   std::string request_error;

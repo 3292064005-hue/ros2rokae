@@ -6,6 +6,7 @@ bool xMateRobot::getProfileCapabilities(std::string& active_profile,
                                         std::vector<rokae::RuntimeProfileCapability>& profiles,
                                         std::vector<rokae::RuntimeOptionDescriptor>& options,
                                         std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     profiles.clear();
     options.clear();
     active_profile.clear();

@@ -25,3 +25,22 @@ This keeps Gazebo / URDF consistency on the main path while still preserving the
 - joint retimer envelopes
 - runtime validators and plugin fallback limits
 - SDK facade model operations
+
+## Exactness grades
+
+The diagnostics surface now publishes a compact model exactness summary. Current intent is:
+
+- kinematics: simulation-grade
+- jacobian: simulation-grade
+- dynamics / wrench mapping: approximate
+
+This keeps API surface continuity without overstating controller-model parity.
+
+## Canonical description artifact
+
+- Build-time canonical artifact: `<build>/generated/urdf/xMate3.urdf`
+- Build-time provenance metadata: `<build>/generated/urdf/xMate3.description.json`
+- Installed default artifact: `share/rokae_xmate3_ros2/generated/urdf/xMate3.urdf`
+- Installed provenance metadata: `share/rokae_xmate3_ros2/generated/urdf/xMate3.description.json`
+
+`tools/generate_description_metadata.py` records the source xacro path, expansion arguments, file size, and SHA-256 digest so launch-time robot_description expansion and model-loading paths can be audited against the same canonical description contract. Explicit xacro/model overrides are now treated as developer-mode only and require `allow_noncanonical_model:=true`.

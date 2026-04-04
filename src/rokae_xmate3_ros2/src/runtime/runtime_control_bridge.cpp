@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <sstream>
 #include <utility>
 
@@ -11,10 +12,12 @@
 #include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
 #include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
 #include "rokae_xmate3_ros2/types.hpp"
+#include "runtime/rt_field_registry.hpp"
 #include "runtime/rt_prearm_checks.hpp"
 #include "runtime/runtime_catalog_service.hpp"
 #include "runtime/runtime_profile_service.hpp"
 #include "runtime/planning_capability_service.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_semantic_topics.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 namespace {
@@ -23,6 +26,138 @@ constexpr double kServoTickSec = rokae_xmate3_ros2::spec::xmate3::kServoTickSec;
 constexpr int kMaxServoSubstepsPerUpdate = 8;
 constexpr std::array<double, 6> kCollisionRetreatEffort = {18.0, 18.0, 16.0, 8.0, 5.0, 3.0};
 constexpr double kDefaultCollisionRetreatDistance = 0.04;
+constexpr double kPi = 3.14159265358979323846;
+
+constexpr std::array<double, 16> kIdentityMatrix16 = {1.0, 0.0, 0.0, 0.0,
+                                                       0.0, 1.0, 0.0, 0.0,
+                                                       0.0, 0.0, 1.0, 0.0,
+                                                       0.0, 0.0, 0.0, 1.0};
+
+rokae_xmate3_ros2::gazebo_model::LoadContext toLoadContext(
+    const DataStoreState::RtLoadSnapshot &snapshot) {
+  return {snapshot.mass, snapshot.cog};
+}
+
+template <typename T>
+T configured_or(const bool configured, const T &value, const T &fallback) {
+  return configured ? value : fallback;
+}
+
+double effective_filter_frequency(const DataStoreState::RtControlSnapshot &snapshot,
+                                  double configured_frequency) {
+  if (!snapshot.filter_limit_configured) {
+    return configured_frequency;
+  }
+  if (!snapshot.filter_limit_enabled) {
+    return std::numeric_limits<double>::infinity();
+  }
+  return std::min(configured_frequency, std::max(snapshot.filter_limit_cutoff_frequency, 1.0));
+}
+
+Eigen::Matrix3d read_rotation3x3(const std::array<double, 16> &values) {
+  Eigen::Matrix3d rot = Eigen::Matrix3d::Identity();
+  for (int row = 0; row < 3; ++row) {
+    for (int col = 0; col < 3; ++col) {
+      rot(row, col) = values[static_cast<std::size_t>(row * 4 + col)];
+    }
+  }
+  return rot;
+}
+
+std::array<double, 6> transform_wrench_to_base(const DataStoreState::RtForceControlFrameSnapshot &config,
+                                               const std::array<double, 16> &end_effector_frame,
+                                               const std::array<double, 16> &flange_pose,
+                                               const std::array<double, 6> &desired_wrench) {
+  Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity();
+  switch (config.type) {
+    case rokae::FrameType::tool:
+      rotation = read_rotation3x3(flange_pose) * read_rotation3x3(end_effector_frame) * read_rotation3x3(config.frame);
+      break;
+    case rokae::FrameType::path:
+      rotation = read_rotation3x3(flange_pose) * read_rotation3x3(config.frame);
+      break;
+    case rokae::FrameType::world:
+    case rokae::FrameType::base:
+    default:
+      rotation = config.configured ? read_rotation3x3(config.frame) : Eigen::Matrix3d::Identity();
+      break;
+  }
+  Eigen::Matrix<double, 6, 1> wrench_in{};
+  for (std::size_t i = 0; i < 6; ++i) {
+    wrench_in(static_cast<int>(i)) = desired_wrench[i];
+  }
+  Eigen::Matrix<double, 6, 6> adjoint = Eigen::Matrix<double, 6, 6>::Zero();
+  adjoint.block<3, 3>(0, 0) = rotation;
+  adjoint.block<3, 3>(3, 3) = rotation;
+  const auto wrench_out = adjoint * wrench_in;
+  std::array<double, 6> transformed{};
+  for (std::size_t i = 0; i < 6; ++i) {
+    transformed[i] = wrench_out(static_cast<int>(i));
+  }
+  return transformed;
+}
+
+Eigen::Matrix4d array16_to_matrix(const std::array<double, 16> &values) {
+  Eigen::Matrix4d matrix = Eigen::Matrix4d::Identity();
+  for (int row = 0; row < 4; ++row) {
+    for (int col = 0; col < 4; ++col) {
+      matrix(row, col) = values[static_cast<std::size_t>(row * 4 + col)];
+    }
+  }
+  return matrix;
+}
+
+std::vector<double> apply_end_effector_frame_to_tcp_target(const std::vector<double> &tcp_pose,
+                                                           const std::array<double, 16> &end_effector_frame) {
+  if (tcp_pose.size() != 6) {
+    return tcp_pose;
+  }
+  const auto tcp_isometry = rokae_xmate3_ros2::runtime::pose_utils::poseToIsometry(tcp_pose);
+  const Eigen::Isometry3d tool_isometry(array16_to_matrix(end_effector_frame));
+  return rokae_xmate3_ros2::runtime::pose_utils::isometryToPose(tcp_isometry * tool_isometry.inverse());
+}
+
+bool target_within_cartesian_limit(const DataStoreState::RtCartesianLimitSnapshot &limit,
+                                   const std::array<double, 6> &target) {
+  if (!limit.enabled) {
+    return true;
+  }
+  const Eigen::Vector4d point(target[0], target[1], target[2], 1.0);
+  const Eigen::Vector4d local = array16_to_matrix(limit.frame).inverse() * point;
+  for (std::size_t axis = 0; axis < 3; ++axis) {
+    const double half_extent = std::max(0.0, limit.lengths[axis]) * 0.5;
+    if (std::fabs(local(static_cast<int>(axis))) > half_extent + 1e-9) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::array<double, 6> make_default_joint_damping(const std::array<double, 6> &kp) {
+  std::array<double, 6> kd{};
+  for (std::size_t i = 0; i < kd.size(); ++i) {
+    kd[i] = std::max(2.0, 2.0 * std::sqrt(std::max(1.0, kp[i])));
+  }
+  return kd;
+}
+
+ControlCommand make_pd_effort(const RobotSnapshot &snapshot,
+                              const std::array<double, 6> &target,
+                              const std::array<double, 6> &kp,
+                              const std::array<double, 6> &kd) {
+  ControlCommand command;
+  command.has_effort = true;
+  for (std::size_t i = 0; i < 6; ++i) {
+    const double position_error = target[i] - snapshot.joint_position[i];
+    const double velocity_error = -snapshot.joint_velocity[i];
+    const double unclamped = kp[i] * position_error + kd[i] * velocity_error;
+    command.effort[i] = std::clamp(
+        unclamped,
+        -rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i],
+        rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i]);
+  }
+  return command;
+}
 
 bool exceeds_soft_limit(const RobotSnapshot &snapshot, const SoftLimitSnapshot &soft_limit) {
   if (!soft_limit.enabled) {
@@ -93,7 +228,7 @@ bool detect_collision_event(const RobotSnapshot &snapshot,
     const double residual = std::fabs(snapshot.joint_torque[axis] - expected[axis]);
     const double threshold =
         config.collision_nominal_thresholds[axis] /
-        std::clamp(collision_detection.sensitivity[axis], 0.1, 10.0);
+        std::clamp(collision_detection.sensitivity[axis], 0.01, 2.0);
     const double ratio = threshold > 1e-9 ? residual / threshold : 0.0;
     if (ratio > strongest_ratio) {
       strongest_axis = axis;
@@ -157,20 +292,25 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   const double loop_hz = (dt > 1e-9 && std::isfinite(dt)) ? 1.0 / dt : 0.0;
   runtime_context_.diagnosticsState().setLoopMetrics(loop_hz, loop_hz, std::max(dt, 0.0) * 1000.0);
   runtime_context_.diagnosticsState().setSessionModes(session_state.motionMode(), session_state.rtControlMode());
-  runtime_context_.diagnosticsState().setRtSubscriptionPlan(default_rt_plan_.summary());
+  const auto rt_field_policy_summary = summarizeRtFieldPolicies(default_rt_plan_.fields());
+  runtime_context_.diagnosticsState().setRtSubscriptionPlan(default_rt_plan_.summary() + "; " + rt_field_policy_summary);
   const auto active_profile = runtime_context_.diagnosticsState().snapshot().active_profile;
   const auto diagnostics_snapshot = runtime_context_.diagnosticsState().snapshot();
+  const auto rt_snapshot = runtime_context_.dataStoreState().rtControlSnapshot();
+  const auto semantic_snapshot = runtime_context_.dataStoreState().rtSemanticSnapshot();
+  const bool rt_network_tolerance_configured =
+      rt_snapshot.rt_network_tolerance_configured || config_.rt_network_tolerance_configured;
   const RtPrearmCheckInput prearm_input{
       session_state.motionMode(),
       session_state.rtControlMode(),
       session_state.powerOn(),
-      config_.rt_network_tolerance_configured,
+      rt_network_tolerance_configured,
       active_profile,
       diagnostics_snapshot.capability_flags,
       default_rt_plan_};
   const auto prearm_report = evaluateRtPrearm(prearm_input);
   runtime_context_.diagnosticsState().setRtPrearmStatus(prearm_report.summary());
-  const bool rt_command_expected = session_state.motionMode() == static_cast<int>(rokae::MotionControlMode::RtCommand);
+  const bool rt_command_expected = session_state.motionMode() == kSessionMotionModeRt;
   rt_watchdog_.observeCycle(dt, true, !rt_command_expected || session_state.powerOn());
   const auto watchdog_snapshot = rt_watchdog_.snapshot();
   runtime_context_.diagnosticsState().setRtWatchdogSummary(
@@ -186,14 +326,29 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       diagnostics_snapshot.backend_mode,
       active_profile,
       diagnostics_snapshot.capability_flags);
-  runtime_context_.diagnosticsState().setProfileCapabilitySummary(summarizeRuntimeProfileCatalog(profiles));
+  runtime_context_.diagnosticsState().setProfileCapabilitySummary(
+      summarizeRuntimeProfileCatalog(profiles) + "; " + rt_field_policy_summary);
   const auto kinematics_backends = buildKinematicsBackendCatalog();
   const auto retimer_policies = buildRetimerPolicyCatalog();
   const auto planner_policies = buildPlannerSelectionCatalog();
   runtime_context_.diagnosticsState().setPlanningCapabilitySummary(
       summarizePlanningCapabilityCatalog(kinematics_backends, retimer_policies, planner_policies));
-  const auto options = buildRuntimeOptionCatalog(motion_options, session_state);
+  const auto options = buildRuntimeOptionCatalog(motion_options, session_state, rt_snapshot, semantic_snapshot);
   runtime_context_.diagnosticsState().setRuntimeOptionSummary(summarizeRuntimeOptionCatalog(options));
+  const auto semantic_surface = semantic_snapshot.control_surface.empty() ? std::string{"sdk_shim"} : semantic_snapshot.control_surface;
+  const auto rt_state_source = default_rt_plan_.use_state_data_in_loop() ? std::string{"rt_stream_in_loop"}
+                                                                         : std::string{"rt_stream_polled"};
+  runtime_context_.diagnosticsState().setSemanticSurface(
+      semantic_surface,
+      "runtime",
+      semantic_snapshot.dispatch_mode.empty() ? std::string{"idle"} : semantic_snapshot.dispatch_mode);
+  runtime_context_.diagnosticsState().setRtStateSource(rt_state_source);
+  runtime_context_.diagnosticsState().setModelExactnessSummary(
+      "kinematics=simulation_grade;model_primary_backend=kdl;model_fallback_used=false;dynamics=approximate;jacobian=simulation_grade;wrench=approximate;rt_state_source=" +
+      rt_state_source);
+  runtime_context_.diagnosticsState().setModelBackendInfo("kdl", false);
+  runtime_context_.diagnosticsState().setCatalogProvenanceSummary(
+      summarizeCatalogProvenance(semantic_snapshot));
   runtime_context_.diagnosticsState().setCatalogSizes(
       static_cast<std::uint32_t>(buildRuntimeToolCatalog(tooling_state).size()),
       static_cast<std::uint32_t>(buildRuntimeWobjCatalog(tooling_state).size()),
@@ -333,6 +488,213 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       result.control_cleared = true;
     }
     result.status = motion_runtime.status();
+    return result;
+  }
+
+  if (session_state.motionMode() == kSessionMotionModeRt &&
+      session_state.rtControlMode() >= 0) {
+    if (rt_snapshot.use_rci_client) {
+      backend.setControlOwner(ControlOwner::none);
+      backend.clearControl();
+      result.control_cleared = true;
+      result.status = motion_runtime.status();
+      runtime_context_.diagnosticsState().setSemanticSurface(semantic_surface, "runtime_rci_client_enabled", "direct_rt_blocked_by_rci_client");
+      return result;
+    }
+
+    if (rt_snapshot.stop_requested) {
+      backend.setControlOwner(ControlOwner::none);
+      backend.clearControl();
+      result.control_cleared = true;
+      result.status = motion_runtime.status();
+      runtime_context_.diagnosticsState().setSemanticSurface(semantic_surface, "runtime_stop", "direct_rt_idle");
+      return result;
+    }
+
+    DataStoreState::RtDirectCommandSnapshot direct_command;
+    const double rt_command_timeout_sec = std::max(rt_snapshot.rt_command_timeout_sec, config_.rt_command_timeout_sec);
+    switch (static_cast<rokae::RtControllerMode>(session_state.rtControlMode())) {
+      case rokae::RtControllerMode::jointPosition:
+      case rokae::RtControllerMode::jointImpedance:
+        direct_command = rt_snapshot.joint_position_command;
+        break;
+      case rokae::RtControllerMode::cartesianPosition:
+      case rokae::RtControllerMode::cartesianImpedance:
+        direct_command = rt_snapshot.cartesian_position_command;
+        break;
+      case rokae::RtControllerMode::torque:
+        direct_command = rt_snapshot.torque_command;
+        break;
+      default:
+        break;
+    }
+
+    const double command_age_sec = direct_command.present
+        ? std::chrono::duration<double>(std::chrono::steady_clock::now() - direct_command.updated_at).count()
+        : std::numeric_limits<double>::infinity();
+    const bool direct_command_fresh =
+        direct_command.valid && command_age_sec <= std::max(rt_command_timeout_sec, 1e-6);
+
+    if (direct_command_fresh) {
+      if (runtime_context_.currentRuntimeView().busy()) {
+        motion_runtime.stop("rt direct control engaged");
+      }
+      backend.setControlOwner(ControlOwner::effort);
+      ControlCommand direct_effort;
+      auto joint_kp = configured_or(
+          rt_snapshot.joint_impedance_configured,
+          rt_snapshot.joint_impedance,
+          config_.joint_position_gain);
+      auto joint_kd = make_default_joint_damping(joint_kp);
+      const auto filter_freq = configured_or(
+          rt_snapshot.filter_frequency_configured,
+          rt_snapshot.filter_frequency,
+          std::array<double, 6>{80.0, 80.0, 80.0, 80.0, 80.0, 80.0});
+      const auto cartesian_limit = rt_snapshot.cartesian_limit;
+      const auto ee_frame = rt_snapshot.end_effector_frame_configured ? rt_snapshot.end_effector_frame : kIdentityMatrix16;
+      const auto fc_frame = rt_snapshot.force_control_frame;
+      const auto load_context = toLoadContext(rt_snapshot.load);
+      const auto gravity_comp = rokae_xmate3_ros2::gazebo_model::makeModelFacade(kinematics_, {}, load_context).gravity(snapshot.joint_position);
+      const auto rt_mode = static_cast<rokae::RtControllerMode>(session_state.rtControlMode());
+      if (rt_mode == rokae::RtControllerMode::jointPosition ||
+          rt_mode == rokae::RtControllerMode::jointImpedance) {
+        auto filtered_target = direct_command.values;
+        const double joint_filter_hz = effective_filter_frequency(rt_snapshot, std::max(filter_freq[0], 1.0));
+        const double alpha = std::isfinite(joint_filter_hz)
+            ? std::clamp(2.0 * kPi * joint_filter_hz * std::max(dt, 1e-6), 0.0, 1.0)
+            : 1.0;
+        for (std::size_t i = 0; i < 6; ++i) {
+          if (has_last_joint_target_) {
+            filtered_target[i] = last_joint_target_[i] + alpha * (filtered_target[i] - last_joint_target_[i]);
+          }
+        }
+        last_joint_target_ = filtered_target;
+        has_last_joint_target_ = true;
+        direct_effort = make_pd_effort(snapshot, filtered_target, joint_kp, joint_kd);
+        for (std::size_t i = 0; i < 6; ++i) {
+          direct_effort.effort[i] = std::clamp(
+              direct_effort.effort[i] + gravity_comp[i],
+              -rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i],
+              rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i]);
+        }
+      } else if (rt_mode == rokae::RtControllerMode::cartesianPosition ||
+                 rt_mode == rokae::RtControllerMode::cartesianImpedance) {
+        if (!target_within_cartesian_limit(cartesian_limit, direct_command.values)) {
+          backend.clearControl();
+          result.control_cleared = true;
+          result.status = motion_runtime.status();
+          runtime_context_.diagnosticsState().setSemanticSurface(semantic_surface, "runtime_cartesian_limit_rejected", "direct_rt_rejected");
+          return result;
+        }
+        std::vector<double> target_pose(direct_command.values.begin(), direct_command.values.end());
+        target_pose = apply_end_effector_frame_to_tcp_target(target_pose, ee_frame);
+        const auto flange_pose = kinematics_.forwardKinematicsRPY(std::vector<double>(snapshot.joint_position.begin(), snapshot.joint_position.end()));
+        std::array<double, 16> flange_pose_matrix = kIdentityMatrix16;
+        {
+          const auto flange_transform = rokae_xmate3_ros2::runtime::pose_utils::poseToIsometry(flange_pose).matrix();
+          for (int row = 0; row < 4; ++row) {
+            for (int col = 0; col < 4; ++col) {
+              flange_pose_matrix[static_cast<std::size_t>(row * 4 + col)] = flange_transform(row, col);
+            }
+          }
+        }
+        std::vector<double> current_joints(snapshot.joint_position.begin(), snapshot.joint_position.end());
+        const auto target_joints = kinematics_.inverseKinematics(target_pose, current_joints);
+        if (target_joints.size() == 6) {
+          std::array<double, 6> joint_target{};
+          std::copy_n(target_joints.begin(), 6, joint_target.begin());
+          const double cartesian_filter_hz = effective_filter_frequency(rt_snapshot, std::max(filter_freq[1], 1.0));
+          const double alpha = std::isfinite(cartesian_filter_hz)
+              ? std::clamp(2.0 * kPi * cartesian_filter_hz * std::max(dt, 1e-6), 0.0, 1.0)
+              : 1.0;
+          for (std::size_t i = 0; i < 6; ++i) {
+            if (has_last_cartesian_target_) {
+              joint_target[i] = last_cartesian_target_[i] + alpha * (joint_target[i] - last_cartesian_target_[i]);
+            }
+          }
+          last_cartesian_target_ = joint_target;
+          has_last_cartesian_target_ = true;
+          const auto cart_kp = configured_or(
+              rt_snapshot.cartesian_impedance_configured,
+              rt_snapshot.cartesian_impedance,
+              std::array<double, 6>{150.0, 150.0, 150.0, 60.0, 40.0, 25.0});
+          for (std::size_t i = 0; i < 6; ++i) {
+            joint_kp[i] = std::max(joint_kp[i], cart_kp[i]);
+          }
+          joint_kd = make_default_joint_damping(joint_kp);
+          direct_effort = make_pd_effort(snapshot, joint_target, joint_kp, joint_kd);
+          for (std::size_t i = 0; i < 6; ++i) {
+            direct_effort.effort[i] = std::clamp(
+                direct_effort.effort[i] + gravity_comp[i],
+                -rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i],
+                rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i]);
+          }
+          if (rt_mode == rokae::RtControllerMode::cartesianImpedance) {
+            const auto desired_wrench_local = configured_or(
+                rt_snapshot.cartesian_desired_wrench_configured,
+                rt_snapshot.cartesian_desired_wrench,
+                std::array<double, 6>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+            const auto desired_wrench = transform_wrench_to_base(fc_frame, ee_frame, flange_pose_matrix, desired_wrench_local);
+            const auto jacobian = kinematics_.computeJacobian(current_joints);
+            Eigen::Matrix<double, 6, 1> wrench;
+            for (std::size_t i = 0; i < 6; ++i) {
+              wrench(static_cast<int>(i)) = desired_wrench[i];
+            }
+            const auto joint_bias = jacobian.transpose() * wrench;
+            for (std::size_t i = 0; i < 6; ++i) {
+              direct_effort.effort[i] = std::clamp(
+                  direct_effort.effort[i] + joint_bias(static_cast<int>(i)),
+                  -rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i],
+                  rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i]);
+            }
+          }
+        } else {
+          backend.clearControl();
+          result.control_cleared = true;
+          result.status = motion_runtime.status();
+          runtime_context_.diagnosticsState().setSemanticSurface(semantic_surface, "runtime_cartesian_ik_failed", "direct_rt_ik_failed");
+          return result;
+        }
+      } else {
+        direct_effort.has_effort = true;
+        auto filtered = direct_command.values;
+        const double cutoff_hz = rt_snapshot.torque_cutoff_frequency_configured
+            ? rt_snapshot.torque_cutoff_frequency
+            : 80.0;
+        const double alpha = std::clamp(2.0 * kPi * cutoff_hz * std::max(dt, 1e-6), 0.0, 1.0);
+        for (std::size_t i = 0; i < 6; ++i) {
+          if (has_last_torque_command_) {
+            filtered[i] = last_torque_command_[i] + alpha * (filtered[i] - last_torque_command_[i]);
+          }
+          direct_effort.effort[i] = std::clamp(filtered[i] + gravity_comp[i],
+              -rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i],
+              rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i]);
+        }
+        last_torque_command_ = direct_effort.effort;
+        has_last_torque_command_ = true;
+      }
+      backend.applyControl(direct_effort);
+      result.status = motion_runtime.status();
+      runtime_context_.diagnosticsState().setSemanticSurface(semantic_surface, "runtime_direct_rt", "independent_rt");
+      if (direct_command.finished) {
+        backend.setControlOwner(ControlOwner::none);
+        backend.clearControl();
+        result.control_cleared = true;
+      }
+      last_rt_sequence_ = std::max(last_rt_sequence_, direct_command.sequence);
+      return result;
+    }
+
+    const bool stale_direct_command = direct_command.present;
+
+    backend.setControlOwner(ControlOwner::none);
+    backend.clearControl();
+    result.control_cleared = true;
+    result.status = motion_runtime.status();
+    runtime_context_.diagnosticsState().setSemanticSurface(
+        semantic_surface,
+        stale_direct_command ? "runtime_direct_command_timeout" : "runtime_no_direct_command",
+        stale_direct_command ? "direct_rt_starved" : "direct_rt_waiting");
     return result;
   }
 

@@ -54,6 +54,16 @@ inline bool validateServiceDescriptors(const std::vector<ServiceRegistrationDesc
   return true;
 }
 
+inline bool validateServiceDescriptorSets(const std::vector<ServiceRegistrationDescriptor> &lhs,
+                                          const std::vector<ServiceRegistrationDescriptor> &rhs,
+                                          std::string &error_message) {
+  std::vector<ServiceRegistrationDescriptor> merged;
+  merged.reserve(lhs.size() + rhs.size());
+  merged.insert(merged.end(), lhs.begin(), lhs.end());
+  merged.insert(merged.end(), rhs.begin(), rhs.end());
+  return validateServiceDescriptors(merged, error_message);
+}
+
 }  // namespace rokae_xmate3_ros2::runtime
 
 #endif

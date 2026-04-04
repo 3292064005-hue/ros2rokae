@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstdint>
 #include <cmath>
 #include <limits>
 
@@ -52,7 +53,7 @@ TEST(ServiceFacadeTest, ControlFacadeCoordinatesPowerDragAndStopWithRuntime) {
   rt::MotionRuntime motion_runtime;
   rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, motion_runtime);
   FakeBackend backend;
-  rt::ControlFacade facade(session_state, motion_options_state, &backend, &motion_runtime, &coordinator);
+  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, &motion_runtime, &coordinator);
 
   rokae_xmate3_ros2::srv::Connect::Request connect_req;
   rokae_xmate3_ros2::srv::Connect::Response connect_res;
@@ -71,6 +72,21 @@ TEST(ServiceFacadeTest, ControlFacadeCoordinatesPowerDragAndStopWithRuntime) {
 
   rokae_xmate3_ros2::srv::EnableDrag::Request drag_req;
   rokae_xmate3_ros2::srv::EnableDrag::Response drag_res;
+  facade.handleEnableDrag(drag_req, drag_res);
+  EXPECT_FALSE(drag_res.success);
+  EXPECT_EQ(drag_res.message, "drag mode requires manual operate mode");
+
+  rokae_xmate3_ros2::srv::SetOperateMode::Request operate_req;
+  rokae_xmate3_ros2::srv::SetOperateMode::Response operate_res;
+  operate_req.mode = static_cast<std::uint8_t>(rokae::OperateMode::manual);
+  facade.handleSetOperateMode(operate_req, operate_res);
+  ASSERT_TRUE(operate_res.success);
+
+  power_req.on = false;
+  facade.handleSetPowerState(power_req, power_res);
+  ASSERT_TRUE(power_res.success);
+  EXPECT_FALSE(session_state.powerOn());
+
   facade.handleEnableDrag(drag_req, drag_res);
   ASSERT_TRUE(drag_res.success);
   EXPECT_TRUE(session_state.dragMode());
@@ -93,7 +109,7 @@ TEST(ServiceFacadeTest, ControlFacadeCoordinatesPowerDragAndStopWithRuntime) {
 
   rokae_xmate3_ros2::srv::EnableCollisionDetection::Request collision_req;
   rokae_xmate3_ros2::srv::EnableCollisionDetection::Response collision_res;
-  collision_req.sensitivity = {2.0, 1.5, 1.0, 0.5, 3.0, 4.0};
+  collision_req.sensitivity = {2.0, 1.5, 1.0, 0.5, 1.2, 1.8};
   collision_req.behaviour = 2;
   collision_req.fallback = 0.7;
   facade.handleEnableCollisionDetection(collision_req, collision_res);
@@ -128,6 +144,99 @@ TEST(ServiceFacadeTest, ControlFacadeCoordinatesPowerDragAndStopWithRuntime) {
               motion_runtime.status().state == rt::ExecutionState::idle);
 }
 
+
+
+TEST(ServiceFacadeTest, ControlFacadeTreatsRepeatedLifecycleAndModeRequestsAsIdempotentSuccess) {
+  rt::SessionState session_state;
+  rt::MotionOptionsState motion_options_state;
+  rt::ToolingState tooling_state;
+  FakeBackend backend;
+  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, nullptr, nullptr);
+
+  rokae_xmate3_ros2::srv::Connect::Request connect_req;
+  rokae_xmate3_ros2::srv::Connect::Response connect_res;
+  connect_req.remote_ip = "127.0.0.1";
+  facade.handleConnect(connect_req, connect_res);
+  ASSERT_TRUE(connect_res.success);
+  facade.handleConnect(connect_req, connect_res);
+  EXPECT_TRUE(connect_res.success);
+  EXPECT_EQ(connect_res.message, "connect request treated as idempotent success");
+
+  rokae_xmate3_ros2::srv::SetPowerState::Request power_req;
+  rokae_xmate3_ros2::srv::SetPowerState::Response power_res;
+  power_req.on = true;
+  facade.handleSetPowerState(power_req, power_res);
+  ASSERT_TRUE(power_res.success);
+  facade.handleSetPowerState(power_req, power_res);
+  EXPECT_TRUE(power_res.success);
+  EXPECT_EQ(power_res.message, "power state already matches request");
+
+  rokae_xmate3_ros2::srv::SetOperateMode::Request operate_req;
+  rokae_xmate3_ros2::srv::SetOperateMode::Response operate_res;
+  operate_req.mode = static_cast<std::uint8_t>(rokae::OperateMode::manual);
+  facade.handleSetOperateMode(operate_req, operate_res);
+  ASSERT_TRUE(operate_res.success);
+  facade.handleSetOperateMode(operate_req, operate_res);
+  EXPECT_TRUE(operate_res.success);
+  EXPECT_EQ(operate_res.message, "operate mode already matches request");
+
+  rokae_xmate3_ros2::srv::SetMotionControlMode::Request motion_req;
+  rokae_xmate3_ros2::srv::SetMotionControlMode::Response motion_res;
+  motion_req.mode = 0;
+  facade.handleSetMotionControlMode(motion_req, motion_res);
+  ASSERT_TRUE(motion_res.success);
+  facade.handleSetMotionControlMode(motion_req, motion_res);
+  EXPECT_TRUE(motion_res.success);
+  EXPECT_EQ(motion_res.message, "motion control mode already matches request");
+
+  rokae_xmate3_ros2::srv::Disconnect::Request disconnect_req;
+  rokae_xmate3_ros2::srv::Disconnect::Response disconnect_res;
+  facade.handleDisconnect(disconnect_req, disconnect_res);
+  ASSERT_TRUE(disconnect_res.success);
+  facade.handleDisconnect(disconnect_req, disconnect_res);
+  EXPECT_TRUE(disconnect_res.success);
+  EXPECT_EQ(disconnect_res.message, "disconnect request treated as idempotent success");
+}
+
+TEST(ServiceFacadeTest, ControlFacadeRejectsOutOfContractCollisionAndSoftLimitRequests) {
+  rt::SessionState session_state;
+  rt::MotionOptionsState motion_options_state;
+  rt::ToolingState tooling_state;
+  FakeBackend backend;
+  backend.snapshot.joint_position = {0.0, 0.0, 1.0, 0.0, 1.0, 0.0};
+  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, nullptr, nullptr);
+
+  rokae_xmate3_ros2::srv::EnableCollisionDetection::Request collision_req;
+  rokae_xmate3_ros2::srv::EnableCollisionDetection::Response collision_res;
+  collision_req.sensitivity = {2.5, 1.0, 1.0, 1.0, 1.0, 1.0};
+  collision_req.behaviour = 1;
+  collision_req.fallback = 0.01;
+  facade.handleEnableCollisionDetection(collision_req, collision_res);
+  EXPECT_FALSE(collision_res.success);
+  EXPECT_EQ(collision_res.message, "collision sensitivity must stay within [0.01, 2.0]");
+
+  session_state.connect("127.0.0.1");
+  rokae_xmate3_ros2::srv::SetSoftLimit::Request soft_req;
+  rokae_xmate3_ros2::srv::SetSoftLimit::Response soft_res;
+  soft_req.enable = true;
+  soft_req.limits = {-3.0, 3.0, -2.0, 2.0, -2.0, 2.0, -3.0, 3.0, -2.0, 2.0, -6.0, 6.0};
+  facade.handleSetSoftLimit(soft_req, soft_res);
+  EXPECT_FALSE(soft_res.success);
+  EXPECT_EQ(soft_res.message, "soft limit requires manual operate mode");
+
+  session_state.setOperateMode(static_cast<int>(rokae::OperateMode::manual));
+  session_state.setPowerOn(true);
+  facade.handleSetSoftLimit(soft_req, soft_res);
+  EXPECT_FALSE(soft_res.success);
+  EXPECT_EQ(soft_res.message, "soft limit requires robot power off");
+
+  session_state.setPowerOn(false);
+  soft_req.limits[0] = -100.0;
+  facade.handleSetSoftLimit(soft_req, soft_res);
+  EXPECT_FALSE(soft_res.success);
+  EXPECT_NE(soft_res.message.find("exceeds mechanical joint limits"), std::string::npos);
+}
+
 TEST(ServiceFacadeTest, PathFacadeSubmitsReplayRequestsThroughCoordinator) {
   rt::ProgramState program_state;
   rt::MotionOptionsState motion_options_state;
@@ -147,8 +256,9 @@ TEST(ServiceFacadeTest, PathFacadeSubmitsReplayRequestsThroughCoordinator) {
   auto dt_provider = []() { return 0.01; };
   auto request_id_generator = [](const std::string &prefix) { return prefix + "_001"; };
 
+  session_state.connect("127.0.0.1");
   rt::PathFacade facade(
-      program_state, tooling_state, &coordinator, joint_state_fetcher, dt_provider, request_id_generator);
+      session_state, program_state, tooling_state, &coordinator, joint_state_fetcher, dt_provider, request_id_generator);
 
   program_state.startRecordingPath(tooling_state.toolset(), "test_record");
   program_state.recordPathSample(0.00, {0.0, 0.1, 0.2, 0.3, 0.4, 0.5}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
@@ -167,6 +277,39 @@ TEST(ServiceFacadeTest, PathFacadeSubmitsReplayRequestsThroughCoordinator) {
   EXPECT_TRUE(view.has_request);
   EXPECT_EQ(view.status.request_id, "replay_demo_path_001");
   EXPECT_EQ(view.status.state, rt::ExecutionState::planning);
+}
+
+TEST(ServiceFacadeTest, PathFacadeRejectsDisconnectedBusyAndInvalidRequests) {
+  rt::ProgramState program_state;
+  rt::ToolingState tooling_state;
+  rt::SessionState session_state;
+  auto joint_state_fetcher = [](std::array<double, 6> &position,
+                                std::array<double, 6> &velocity,
+                                std::array<double, 6> &torque) {
+    position.fill(0.0);
+    velocity.fill(0.0);
+    torque.fill(0.0);
+  };
+  rt::PathFacade facade(session_state,
+                        program_state,
+                        tooling_state,
+                        nullptr,
+                        joint_state_fetcher,
+                        []() { return 0.01; },
+                        [](const std::string &prefix) { return prefix + "_001"; });
+
+  rokae_xmate3_ros2::srv::StartRecordPath::Request start_req;
+  rokae_xmate3_ros2::srv::StartRecordPath::Response start_res;
+  start_req.duration = 1;
+  facade.handleStartRecordPath(start_req, start_res);
+  EXPECT_FALSE(start_res.success);
+  EXPECT_EQ(start_res.message, "Robot not connected");
+
+  session_state.connect("127.0.0.1");
+  start_req.duration = 0;
+  facade.handleStartRecordPath(start_req, start_res);
+  EXPECT_FALSE(start_res.success);
+  EXPECT_EQ(start_res.message, "record duration must be positive");
 }
 
 TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproximateServices) {
@@ -198,6 +341,7 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
                          []() { return rclcpp::Time(0); },
                          []() { return 0.01; },
                          6);
+  rt::ControlFacade control_facade(session_state, motion_options_state, tooling_state, nullptr, nullptr, nullptr);
 
   rokae_xmate3_ros2::srv::SetToolset::Request set_tool_req;
   rokae_xmate3_ros2::srv::SetToolset::Response set_tool_res;
@@ -205,7 +349,7 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   set_tool_req.wobj_name = "fixtureA";
   set_tool_req.tool_pose = {0.0, 0.0, 0.10, 0.0, 0.0, 0.0};
   set_tool_req.wobj_pose = {0.20, -0.10, 0.30, 0.0, 0.0, 0.0};
-  facade.handleSetToolset(set_tool_req, set_tool_res);
+  control_facade.handleSetToolset(set_tool_req, set_tool_res);
   ASSERT_TRUE(set_tool_res.success);
   tooling_state.setToolDynamics("tcpA", 0.6, {0.0, 0.0, 0.08});
 
@@ -213,8 +357,8 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   rokae_xmate3_ros2::srv::GetBaseFrame::Response base_res;
   facade.handleGetBaseFrame(base_req, base_res);
   ASSERT_TRUE(base_res.success);
-  EXPECT_DOUBLE_EQ(base_res.base_frame[0], 0.20);
-  EXPECT_DOUBLE_EQ(base_res.base_frame[2], 0.30);
+  EXPECT_DOUBLE_EQ(base_res.base_frame[0], 0.0);
+  EXPECT_DOUBLE_EQ(base_res.base_frame[2], 0.0);
 
   rokae_xmate3_ros2::srv::GetPosture::Request flange_req;
   rokae_xmate3_ros2::srv::GetPosture::Response flange_res;
@@ -241,10 +385,10 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   rokae_xmate3_ros2::srv::SetToolsetByName::Response named_res;
   named_req.tool_name = "tcpA";
   named_req.wobj_name = "fixtureA";
-  facade.handleSetToolsetByName(named_req, named_res);
+  control_facade.handleSetToolsetByName(named_req, named_res);
   EXPECT_TRUE(named_res.success);
   named_req.tool_name = "missing";
-  facade.handleSetToolsetByName(named_req, named_res);
+  control_facade.handleSetToolsetByName(named_req, named_res);
   EXPECT_FALSE(named_res.success);
   EXPECT_EQ(named_res.message, "unknown tool_name or wobj_name");
 
@@ -326,7 +470,7 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   EXPECT_DOUBLE_EQ(traj_res.trajectory_points.back().pos[0], retimed.samples.positions.back()[0]);
   const auto nrt_logs = data_store_state.queryLogs(8);
   ASSERT_FALSE(nrt_logs.empty());
-  EXPECT_NE(nrt_logs.back().content.find("generate_s_trajectory retimer[s_trajectory]"), std::string::npos);
+  EXPECT_NE(nrt_logs.front().content.find("generate_s_trajectory retimer[s_trajectory]"), std::string::npos);
   traj_req.is_cartesian = true;
   traj_req.max_velocity = 0.6;
   traj_req.max_acceleration = 1.5;
@@ -340,9 +484,8 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   }
   const auto cartesian_logs = data_store_state.queryLogs(16);
   ASSERT_FALSE(cartesian_logs.empty());
-  EXPECT_NE(cartesian_logs.back().content.find("generate_s_trajectory retimer[s_trajectory]"), std::string::npos);
+  EXPECT_NE(cartesian_logs.front().content.find("generate_s_trajectory retimer[s_trajectory]"), std::string::npos);
 
-  rt::ControlFacade control_facade(session_state, motion_options_state, nullptr, nullptr, nullptr);
   rokae_xmate3_ros2::srv::SetDefaultZone::Request zone_req;
   rokae_xmate3_ros2::srv::SetDefaultZone::Response zone_res;
   zone_req.zone = 250;
@@ -357,4 +500,138 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   zone_req.zone = 60;
   control_facade.handleSetDefaultZone(zone_req, zone_res);
   EXPECT_TRUE(zone_res.success);
+}
+
+TEST(ServiceFacadeTest, ControlFacadeRejectsDisconnectedAndInvalidModeRequests) {
+  rt::SessionState session_state;
+  rt::MotionOptionsState motion_options_state;
+  rt::ToolingState tooling_state;
+  FakeBackend backend;
+  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, nullptr, nullptr);
+
+  rokae_xmate3_ros2::srv::SetOperateMode::Request operate_req;
+  rokae_xmate3_ros2::srv::SetOperateMode::Response operate_res;
+  operate_req.mode = static_cast<std::uint8_t>(rokae::OperateMode::manual);
+  facade.handleSetOperateMode(operate_req, operate_res);
+  EXPECT_FALSE(operate_res.success);
+  EXPECT_EQ(operate_res.message, "Robot not connected");
+
+  rokae_xmate3_ros2::srv::SetMotionControlMode::Request motion_req;
+  rokae_xmate3_ros2::srv::SetMotionControlMode::Response motion_res;
+  motion_req.mode = 1;
+  facade.handleSetMotionControlMode(motion_req, motion_res);
+  EXPECT_FALSE(motion_res.success);
+  EXPECT_EQ(motion_res.message, "Robot not connected");
+
+  session_state.connect("127.0.0.1");
+  operate_req.mode = 255;
+  facade.handleSetOperateMode(operate_req, operate_res);
+  EXPECT_FALSE(operate_res.success);
+  EXPECT_EQ(operate_res.message, "operate mode must be manual or automatic");
+
+  motion_req.mode = 42;
+  facade.handleSetMotionControlMode(motion_req, motion_res);
+  EXPECT_FALSE(motion_res.success);
+  EXPECT_EQ(motion_res.message,
+            "motion control mode must be one of Idle/NrtCommand/RtCommand-compatible values");
+
+  rokae_xmate3_ros2::srv::MoveStart::Request move_start_req;
+  rokae_xmate3_ros2::srv::MoveStart::Response move_start_res;
+  session_state.setPowerOn(true);
+  session_state.setMotionMode(1);
+  facade.handleMoveStart(move_start_req, move_start_res);
+  EXPECT_FALSE(move_start_res.success);
+  EXPECT_EQ(move_start_res.message, "moveStart requires NrtCommand-compatible motion mode");
+
+  session_state.setMotionMode(0);
+  session_state.setDragMode(true);
+  facade.handleMoveStart(move_start_req, move_start_res);
+  EXPECT_FALSE(move_start_res.success);
+  EXPECT_EQ(move_start_res.message, "moveStart is not allowed while drag mode is enabled");
+
+  session_state.setDragMode(false);
+  facade.handleMoveStart(move_start_req, move_start_res);
+  EXPECT_TRUE(move_start_res.success);
+}
+
+TEST(ServiceFacadeTest, PathFacadeSaveRequiresRecordedDataAndSupportsRenameOnlyWhenNoPendingRecording) {
+  rt::ProgramState program_state;
+  rt::ToolingState tooling_state;
+  rt::SessionState session_state;
+  session_state.connect("127.0.0.1");
+  rt::PathFacade facade(session_state,
+                        program_state,
+                        tooling_state,
+                        nullptr,
+                        [](std::array<double, 6> &position,
+                           std::array<double, 6> &velocity,
+                           std::array<double, 6> &torque) {
+                          position.fill(0.0);
+                          velocity.fill(0.0);
+                          torque.fill(0.0);
+                        },
+                        []() { return 0.01; },
+                        [](const std::string &prefix) { return prefix + "_001"; });
+
+  rokae_xmate3_ros2::srv::SaveRecordPath::Request save_req;
+  rokae_xmate3_ros2::srv::SaveRecordPath::Response save_res;
+  save_req.name = "demo_path";
+  facade.handleSaveRecordPath(save_req, save_res);
+  EXPECT_FALSE(save_res.success);
+  EXPECT_EQ(save_res.message, "no recorded path available to save");
+
+  program_state.startRecordingPath(tooling_state.toolset(), "test_record");
+  program_state.recordPathSample(0.0, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+  program_state.stopRecordingPath();
+  facade.handleSaveRecordPath(save_req, save_res);
+  ASSERT_TRUE(save_res.success);
+  EXPECT_EQ(save_res.message, "path saved");
+
+  rokae_xmate3_ros2::srv::SaveRecordPath::Request save_as_req;
+  rokae_xmate3_ros2::srv::SaveRecordPath::Response save_as_res;
+  program_state.startRecordingPath(tooling_state.toolset(), "test_record");
+  program_state.recordPathSample(0.1, {0.1, 0.0, 0.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
+  program_state.stopRecordingPath();
+  save_as_req.name = "ignored_pending_name";
+  save_as_req.save_as = "saved_with_save_as";
+  facade.handleSaveRecordPath(save_as_req, save_as_res);
+  ASSERT_TRUE(save_as_res.success);
+  EXPECT_EQ(save_as_res.message, "path saved");
+
+  ReplayPathAsset pending_asset;
+  EXPECT_FALSE(program_state.getReplayAsset("ignored_pending_name", pending_asset));
+  EXPECT_TRUE(program_state.getReplayAsset("saved_with_save_as", pending_asset));
+
+  rokae_xmate3_ros2::srv::SaveRecordPath::Request rename_req;
+  rokae_xmate3_ros2::srv::SaveRecordPath::Response rename_res;
+  rename_req.name = "demo_path";
+  rename_req.save_as = "renamed_path";
+  facade.handleSaveRecordPath(rename_req, rename_res);
+  ASSERT_TRUE(rename_res.success);
+  EXPECT_EQ(rename_res.message, "path renamed");
+
+  ReplayPathAsset asset;
+  EXPECT_FALSE(program_state.getReplayAsset("demo_path", asset));
+  EXPECT_TRUE(program_state.getReplayAsset("renamed_path", asset));
+}
+
+TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMate6Lane) {
+  rt::SessionState session_state;
+  rt::MotionOptionsState motion_options_state;
+  rt::ToolingState tooling_state;
+  FakeBackend backend;
+  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, nullptr, nullptr);
+
+  rokae_xmate3_ros2::srv::SetAvoidSingularity::Request req;
+  rokae_xmate3_ros2::srv::SetAvoidSingularity::Response res;
+  req.enable = true;
+  facade.handleSetAvoidSingularity(req, res);
+  EXPECT_FALSE(res.success);
+  EXPECT_EQ(res.message, "Robot not connected");
+
+  session_state.connect("127.0.0.1");
+  facade.handleSetAvoidSingularity(req, res);
+  EXPECT_FALSE(res.success);
+  EXPECT_EQ(res.message, "avoid singularity is not supported on the xMate6 compatibility lane");
+  EXPECT_FALSE(motion_options_state.avoidSingularityEnabled());
 }

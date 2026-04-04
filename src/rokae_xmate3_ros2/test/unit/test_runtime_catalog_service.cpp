@@ -5,6 +5,7 @@
 #include "runtime/session_state.hpp"
 #include "runtime/runtime_catalog_service.hpp"
 #include "runtime/tooling_state.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_semantic_topics.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -56,9 +57,18 @@ TEST(RuntimeCatalogService, BuildsRegisterNamespaceDescriptors) {
 }
 
 
+
+TEST(RuntimeCatalogService, SummarizesCatalogProvenanceFromRuntimeStore) {
+  DataStoreState data_store_state;
+  data_store_state.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kCatalogProvenance,
+                                 "legacy_cache_fallback:toolsInfo");
+  EXPECT_EQ(summarizeCatalogProvenance(data_store_state), "legacy_cache_fallback:toolsInfo");
+}
+
 TEST(RuntimeCatalogService, BuildsRuntimeOptionDescriptors) {
   MotionOptionsState motion_options;
   SessionState session_state;
+  DataStoreState data_store;
   motion_options.setDefaultSpeed(80.0);
   motion_options.setDefaultZone(15);
   motion_options.setDefaultConfOpt(true);
@@ -67,7 +77,7 @@ TEST(RuntimeCatalogService, BuildsRuntimeOptionDescriptors) {
   session_state.setMotionMode(1);
   session_state.setRtControlMode(2);
 
-  const auto options = buildRuntimeOptionCatalog(motion_options, session_state);
+  const auto options = buildRuntimeOptionCatalog(motion_options, session_state, data_store);
   ASSERT_GE(options.size(), 8u);
   const auto summary = summarizeRuntimeOptionCatalog(options);
   EXPECT_NE(summary.find("default_zone=15"), std::string::npos);

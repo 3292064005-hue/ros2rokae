@@ -26,19 +26,15 @@ int main() {
     return 1;
   }
 
-  printSection("1 奇异规避与默认配置选项");
+  printSection("1 默认配置选项与能力边界");
   robot.setAvoidSingularity(true, ec);
-  if (reportError("setAvoidSingularity(true)", ec)) {
-    cleanupRobot(robot);
-    return 1;
+  if (ec) {
+    os << "setAvoidSingularity(true): xMate6 compatibility lane reports unsupported as expected -> "
+       << ec.message() << std::endl;
+    ec.clear();
   }
   robot.setDefaultConfOpt(true, ec);
   if (reportError("setDefaultConfOpt(true)", ec)) {
-    cleanupRobot(robot);
-    return 1;
-  }
-  os << "avoid singularity: " << (robot.getAvoidSingularity(ec) ? "ON" : "OFF") << std::endl;
-  if (reportError("getAvoidSingularity", ec)) {
     cleanupRobot(robot);
     return 1;
   }

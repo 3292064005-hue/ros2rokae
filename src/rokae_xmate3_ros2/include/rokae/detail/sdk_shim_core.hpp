@@ -28,11 +28,15 @@
 #include <Eigen/Geometry>
 
 #include "rokae/base.h"
+#include "rokae/exception.h"
 #include "rokae/data_types.h"
 #include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "rokae_xmate3_ros2/robot.hpp"
 #include "rokae_xmate3_ros2/utils.hpp"
+#include "compat/rt_motion_primitives.hpp"
+#include "runtime/rt_command_bridge.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_semantic_topics.hpp"
 
 namespace rokae {
 
@@ -68,6 +72,13 @@ enum class SegmentFrame : unsigned {
 };
 
 namespace detail {
+
+inline std::array<double, 16> identity_matrix_16() {
+  return {1.0, 0.0, 0.0, 0.0,
+          0.0, 1.0, 0.0, 0.0,
+          0.0, 0.0, 1.0, 0.0,
+          0.0, 0.0, 0.0, 1.0};
+}
 
 template <typename T>
 struct is_vector : std::false_type {};
@@ -132,6 +143,274 @@ inline std::string register_elem_key(const std::string &name, unsigned index) {
   return name + "[" + std::to_string(index) + "]";
 }
 
+inline std::string serialize_bool(bool value) {
+  return value ? "1" : "0";
+}
+
+template <typename Container>
+inline std::string serialize_numeric_container(const Container &values) {
+  std::ostringstream oss;
+  bool first = true;
+  for (const auto &value : values) {
+    if (!first) {
+      oss << ',';
+    }
+    first = false;
+    oss << format_double(static_cast<double>(value));
+  }
+  return oss.str();
+}
+
+inline std::string build_rt_payload(std::uint64_t seq, const std::array<double, 6> &values, bool finished = false) {
+  std::ostringstream oss;
+  oss << "seq=" << seq << ";finished=" << serialize_bool(finished)
+      << ";values=" << serialize_numeric_container(values);
+  return oss.str();
+}
+
+inline std::string build_rt_payload(std::uint64_t seq, const std::vector<double> &values, bool finished = false) {
+  std::ostringstream oss;
+  oss << "seq=" << seq << ";finished=" << serialize_bool(finished)
+      << ";values=" << serialize_numeric_container(values);
+  return oss.str();
+}
+
+
+template <std::size_t N>
+inline std::array<double, N> vector_to_array(const std::vector<double> &values) {
+  std::array<double, N> out{};
+  const auto count = std::min<std::size_t>(N, values.size());
+  std::copy_n(values.begin(), count, out.begin());
+  return out;
+}
+
+inline bool publish_custom_data(const std::shared_ptr<RobotSession> &session,
+                                const std::string &topic,
+                                const std::string &payload,
+                                error_code &ec) {
+  if (!session || !session->robot) {
+    ec = make_error_code(SdkError::not_connected);
+    return false;
+  }
+  session->robot->sendCustomData(topic, payload, ec);
+  remember_error(session, ec);
+  return !ec;
+}
+
+inline void publish_rt_metadata(const std::shared_ptr<RobotSession> &session,
+                                const std::string &dispatch_mode,
+                                error_code &ec) {
+  if (!session || !session->robot) {
+    ec = make_error_code(SdkError::not_connected);
+    return;
+  }
+  rokae_xmate3_ros2::runtime::rt_command_bridge::publishMetadata(*session->robot, dispatch_mode, ec);
+  remember_error(session, ec);
+}
+
+inline bool publish_rt_joint_command(const std::shared_ptr<RobotSession> &session,
+                                     const std::array<double, 6> &values,
+                                     bool finished,
+                                     error_code &ec) {
+  if (!session || !session->robot) {
+    ec = make_error_code(SdkError::not_connected);
+    return false;
+  }
+  const auto ok = rokae_xmate3_ros2::runtime::rt_command_bridge::publishCommand(
+      *session->robot,
+      session->rt_command_sequence,
+      rokae_xmate3_ros2::runtime::rt_command_bridge::CommandKind::JointPosition,
+      values,
+      finished,
+      ec,
+      "independent_rt");
+  remember_error(session, ec);
+  return ok;
+}
+
+inline bool publish_rt_cartesian_command(const std::shared_ptr<RobotSession> &session,
+                                         const std::array<double, 6> &values,
+                                         bool finished,
+                                         error_code &ec) {
+  if (!session || !session->robot) {
+    ec = make_error_code(SdkError::not_connected);
+    return false;
+  }
+  const auto ok = rokae_xmate3_ros2::runtime::rt_command_bridge::publishCommand(
+      *session->robot,
+      session->rt_command_sequence,
+      rokae_xmate3_ros2::runtime::rt_command_bridge::CommandKind::CartesianPosition,
+      values,
+      finished,
+      ec,
+      "independent_rt");
+  remember_error(session, ec);
+  return ok;
+}
+
+inline bool publish_rt_torque_command(const std::shared_ptr<RobotSession> &session,
+                                      const std::array<double, 6> &values,
+                                      bool finished,
+                                      error_code &ec) {
+  if (!session || !session->robot) {
+    ec = make_error_code(SdkError::not_connected);
+    return false;
+  }
+  const auto ok = rokae_xmate3_ros2::runtime::rt_command_bridge::publishCommand(
+      *session->robot,
+      session->rt_command_sequence,
+      rokae_xmate3_ros2::runtime::rt_command_bridge::CommandKind::Torque,
+      values,
+      finished,
+      ec,
+      "independent_rt");
+  remember_error(session, ec);
+  return ok;
+}
+
+inline std::array<double, 6> posture_to_array6(const CartesianPosition &pose) {
+  return {pose.x, pose.y, pose.z, pose.rx, pose.ry, pose.rz};
+}
+
+inline bool wait_until_joint_target(const std::shared_ptr<RobotSession> &session,
+                                    const std::array<double, 6> &target,
+                                    std::chrono::milliseconds timeout,
+                                    double tolerance_rad,
+                                    error_code &ec) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    std::array<double, 6> position{}, velocity{}, torque{};
+    if (!session->robot->getRtJointData(position, velocity, torque, ec)) {
+      return false;
+    }
+    bool reached = true;
+    for (std::size_t i = 0; i < 6; ++i) {
+      if (std::fabs(position[i] - target[i]) > tolerance_rad) {
+        reached = false;
+        break;
+      }
+    }
+    if (reached) {
+      ec.clear();
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ec = make_error_code(SdkError::service_timeout);
+  return false;
+}
+
+inline bool wait_until_cartesian_target(const std::shared_ptr<RobotSession> &session,
+                                        const std::array<double, 6> &target,
+                                        std::chrono::milliseconds timeout,
+                                        double translation_tolerance,
+                                        double angular_tolerance,
+                                        error_code &ec) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    const auto pose = session->robot->cartPosture(CoordinateType::flangeInBase, ec);
+    if (ec) {
+      return false;
+    }
+    const auto current = posture_to_array6(pose);
+    if (compat_rt::cartesianPoseWithinTolerance(current, target, translation_tolerance, angular_tolerance)) {
+      ec.clear();
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ec = make_error_code(SdkError::service_timeout);
+  return false;
+}
+
+inline Eigen::Matrix4d array16_to_matrix4d(const std::array<double, 16> &values) {
+  Eigen::Matrix4d matrix = Eigen::Matrix4d::Identity();
+  for (int row = 0; row < 4; ++row) {
+    for (int col = 0; col < 4; ++col) {
+      matrix(row, col) = values[static_cast<std::size_t>(row * 4 + col)];
+    }
+  }
+  return matrix;
+}
+
+inline bool validate_rt_joint_start(const std::shared_ptr<RobotSession> &session,
+                                    const std::array<double, 6> &start,
+                                    double tolerance_rad,
+                                    error_code &ec) {
+  if (!session || !session->robot) {
+    ec = make_error_code(SdkError::not_connected);
+    return false;
+  }
+  std::array<double, 6> position{}, velocity{}, torque{};
+  if (!session->robot->getRtJointData(position, velocity, torque, ec)) {
+    return false;
+  }
+  for (std::size_t i = 0; i < start.size(); ++i) {
+    if (std::fabs(position[i] - start[i]) > tolerance_rad) {
+      ec = std::make_error_code(std::errc::invalid_argument);
+      return false;
+    }
+  }
+  ec.clear();
+  return true;
+}
+
+inline bool validate_rt_cartesian_start(const std::shared_ptr<RobotSession> &session,
+                                        const std::array<double, 6> &start,
+                                        double translation_tolerance,
+                                        double angular_tolerance,
+                                        error_code &ec) {
+  if (!session || !session->robot) {
+    ec = make_error_code(SdkError::not_connected);
+    return false;
+  }
+  const auto pose = session->robot->cartPosture(CoordinateType::flangeInBase, ec);
+  if (ec) {
+    return false;
+  }
+  const auto current = posture_to_array6(pose);
+  if (!compat_rt::cartesianPoseWithinTolerance(current, start, translation_tolerance, angular_tolerance)) {
+    ec = std::make_error_code(std::errc::invalid_argument);
+    return false;
+  }
+  ec.clear();
+  return true;
+}
+
+inline bool cartesian_target_within_limit(const std::array<double, 6> &target,
+                                          const std::array<double, 3> &lengths,
+                                          const std::array<double, 16> &frame) {
+  if (std::all_of(lengths.begin(), lengths.end(), [](double value) { return value <= 1e-9; })) {
+    return true;
+  }
+  const Eigen::Matrix4d limit_frame = array16_to_matrix4d(frame);
+  const Eigen::Vector4d point(target[0], target[1], target[2], 1.0);
+  const Eigen::Vector4d local = limit_frame.inverse() * point;
+  for (std::size_t axis = 0; axis < 3; ++axis) {
+    const double half_extent = std::max(0.0, lengths[axis]) * 0.5;
+    if (std::fabs(local(static_cast<int>(axis))) > half_extent + 1e-9) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline std::string build_cartesian_limit_payload(const std::array<double, 3> &lengths,
+                                                 const std::array<double, 16> &frame) {
+  std::ostringstream oss;
+  oss << "lengths=" << serialize_numeric_container(lengths)
+      << ";frame=" << serialize_numeric_container(frame);
+  return oss.str();
+}
+
+inline std::string build_load_payload(const Load &load) {
+  std::ostringstream oss;
+  oss << "mass=" << format_double(load.mass)
+      << ";cog=" << serialize_numeric_container(load.cog)
+      << ";inertia=" << serialize_numeric_container(load.inertia);
+  return oss.str();
+}
+
 inline WorkToolInfo make_default_tool_info() {
   WorkToolInfo tool;
   tool.name = "tool0";
@@ -148,6 +427,12 @@ struct RobotSession {
     tools.push_back(make_default_tool_info());
     previous_joint_velocity.fill(0.0);
     previous_joint_torque.fill(0.0);
+    model_f_t_ee = {1.0, 0.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0, 0.0,
+                    0.0, 0.0, 1.0, 0.0,
+                    0.0, 0.0, 0.0, 1.0};
+    model_ee_t_k = model_f_t_ee;
+    force_control_frame = model_f_t_ee;
   }
 
   std::shared_ptr<::rokae::ros2::xMateRobot> robot;
@@ -164,6 +449,11 @@ struct RobotSession {
   std::array<double, 6> previous_joint_torque{};
   std::chrono::steady_clock::time_point previous_state_time{};
   bool has_previous_state = false;
+  std::array<double, 6> previous_pose_abc{};
+  std::array<double, 6> previous_pose_velocity{};
+  bool has_previous_pose = false;
+  std::string rt_state_plan_summary{"inactive"};
+  bool rt_state_plan_rejected = false;
   int max_cache_size = 10;
   uint64_t next_cmd_id = 1;
   RLProjectInfo current_project;
@@ -171,17 +461,30 @@ struct RobotSession {
   std::vector<WorkToolInfo> tools;
   std::vector<WorkToolInfo> wobjs;
   Toolset toolset_cache{};
+  Load model_load_cache{};
+  std::array<double, 16> model_f_t_ee{};
+  std::array<double, 16> model_ee_t_k{};
+  std::array<double, 16> force_control_frame{};
+  FrameType force_control_type = FrameType::world;
   xPanelOpt::Vout xpanel_vout = xPanelOpt::off;
   unsigned rt_network_tolerance = 0;
   bool use_rci_client = false;
   std::shared_ptr<RtMotionControlCobot<6>> rt_controller;
   std::string pending_move_id;
   int pending_move_count = 0;
+  std::atomic<std::uint64_t> rt_command_sequence{1};
 };
 
+/**
+ * @brief Create the default SDK-wrapper ROS client options.
+ * @details Compatibility wrappers now default to strict runtime authority so
+ *          catalog reads fail visibly unless the caller explicitly opts back
+ *          into legacy cache fallback.
+ * @return Normalized strict-authority client options.
+ */
 inline ::rokae::ros2::RosClientOptions make_compatibility_client_options() {
   ::rokae::ros2::RosClientOptions options;
-  options.catalog_policy = ::rokae::ros2::legacySdkCompatibilityCatalogPolicy();
+  options.catalog_policy = ::rokae::ros2::strictRuntimeCatalogPolicy();
   return options;
 }
 
@@ -197,9 +500,17 @@ inline std::shared_ptr<RobotSession> make_session(const std::string &remote_ip, 
   return std::make_shared<RobotSession>(std::make_shared<::rokae::ros2::xMateRobot>(options));
 }
 
+/**
+ * @brief Normalize externally supplied SDK-wrapper ROS client options.
+ * @param options Caller-provided options.
+ * @return Options with a default strict runtime-authority catalog policy when
+ *         no explicit override was supplied.
+ * @details Legacy catalog fallback remains available only through an explicit
+ *          policy override or the dedicated environment variable gate.
+ */
 inline ::rokae::ros2::RosClientOptions normalize_compatibility_client_options(::rokae::ros2::RosClientOptions options) {
   if (!options.catalog_policy.has_value()) {
-    options.catalog_policy = ::rokae::ros2::legacySdkCompatibilityCatalogPolicy();
+    options.catalog_policy = ::rokae::ros2::strictRuntimeCatalogPolicy();
   }
   return options;
 }
@@ -331,11 +642,18 @@ inline unsigned refresh_state_cache(const std::shared_ptr<RobotSession> &session
 
   std::vector<std::string> fields;
   std::chrono::steady_clock::duration interval{std::chrono::milliseconds(1)};
+  bool plan_rejected = false;
   {
     std::lock_guard<std::mutex> lock(session->mutex);
     fields = session->state_fields;
     interval = session->state_interval;
+    plan_rejected = session->rt_state_plan_rejected;
     session->state_cache.clear();
+  }
+  if (plan_rejected) {
+    ec = std::make_error_code(std::errc::operation_not_supported);
+    remember_error(session, ec);
+    return 0;
   }
   if (fields.empty()) {
     return 0;
@@ -344,54 +662,77 @@ inline unsigned refresh_state_cache(const std::shared_ptr<RobotSession> &session
   std::array<double, 6> joints{};
   std::array<double, 6> joint_vel{};
   std::array<double, 6> joint_tau{};
-  const bool got_rt = session->robot->getRtJointData(joints, joint_vel, joint_tau, ec);
-  if (!got_rt) {
-    ec.clear();
-    joints = session->robot->jointPos(ec);
-    if (ec) {
-      remember_error(session, ec);
-      return 0;
+  if (!session->robot->getRtJointData(joints, joint_vel, joint_tau, ec)) {
+    if (!ec) {
+      ec = std::make_error_code(std::errc::io_error);
     }
-    joint_vel = session->robot->jointVel(ec);
-    if (ec) {
-      remember_error(session, ec);
-      return 0;
-    }
-    joint_tau = session->robot->jointTorques(ec);
-    if (ec) {
-      remember_error(session, ec);
-      return 0;
-    }
+    remember_error(session, ec);
+    return 0;
   }
 
-  const auto pose = session->robot->cartPosture(CoordinateType::flangeInBase, ec);
-  if (ec) {
-    remember_error(session, ec);
-    return 0;
+  const auto requires_pose_fields = std::any_of(fields.begin(), fields.end(), [](const std::string &field) {
+    return field == RtSupportedFields::tcpPoseAbc_m ||
+           field == RtSupportedFields::tcpPose_m ||
+           field == RtSupportedFields::tcpPose_c ||
+           field == RtSupportedFields::tcpVel_c ||
+           field == RtSupportedFields::tcpAcc_c;
+  });
+  const auto requires_end_torque_fields = std::any_of(fields.begin(), fields.end(), [](const std::string &field) {
+    return field == RtSupportedFields::tauExt_inBase || field == RtSupportedFields::tauExt_inStiff;
+  });
+
+  CartesianPosition pose{};
+  std::array<double, 16> pose_matrix{};
+  std::array<double, 6> pose_abc{};
+  if (requires_pose_fields) {
+    pose = session->robot->cartPosture(CoordinateType::flangeInBase, ec);
+    if (ec) {
+      remember_error(session, ec);
+      return 0;
+    }
+    pose_matrix = Utils::postureToMatrix(pose);
+    pose_abc = {pose.x, pose.y, pose.z, pose.rx, pose.ry, pose.rz};
   }
-  const auto pose_matrix = Utils::postureToMatrix(pose);
-  const auto end_torque = session->robot->getEndEffectorTorque(ec);
-  if (ec) {
-    remember_error(session, ec);
-    return 0;
+
+  std::array<double, 6> end_torque{};
+  if (requires_end_torque_fields) {
+    end_torque = session->robot->getEndEffectorTorque(ec);
+    if (ec) {
+      remember_error(session, ec);
+      return 0;
+    }
   }
 
   const auto now = std::chrono::steady_clock::now();
-  const double dt = std::max(1e-6, std::chrono::duration<double>(interval).count());
+  const double interval_dt = std::max(1e-6, std::chrono::duration<double>(interval).count());
   std::array<double, 6> joint_acc{};
   std::array<double, 6> tau_vel{};
+  std::array<double, 6> tcp_vel{};
+  std::array<double, 6> tcp_acc{};
   {
     std::lock_guard<std::mutex> lock(session->mutex);
     const double derived_dt = session->has_previous_state
                                 ? std::max(1e-6, std::chrono::duration<double>(now - session->previous_state_time).count())
-                                : dt;
-    for (size_t i = 0; i < 6; ++i) {
-      if (session->has_previous_state) {
+                                : interval_dt;
+    if (session->has_previous_state) {
+      for (size_t i = 0; i < 6; ++i) {
         joint_acc[i] = (joint_vel[i] - session->previous_joint_velocity[i]) / derived_dt;
         tau_vel[i] = (joint_tau[i] - session->previous_joint_torque[i]) / derived_dt;
       }
-      session->previous_joint_velocity[i] = joint_vel[i];
-      session->previous_joint_torque[i] = joint_tau[i];
+    }
+    if (requires_pose_fields && session->has_previous_pose) {
+      for (size_t i = 0; i < 6; ++i) {
+        tcp_vel[i] = (pose_abc[i] - session->previous_pose_abc[i]) / derived_dt;
+        tcp_acc[i] = (tcp_vel[i] - session->previous_pose_velocity[i]) / derived_dt;
+      }
+    }
+
+    session->previous_joint_velocity = joint_vel;
+    session->previous_joint_torque = joint_tau;
+    if (requires_pose_fields) {
+      session->previous_pose_abc = pose_abc;
+      session->previous_pose_velocity = tcp_vel;
+      session->has_previous_pose = true;
     }
     session->previous_state_time = now;
     session->has_previous_state = true;
@@ -408,20 +749,22 @@ inline unsigned refresh_state_cache(const std::shared_ptr<RobotSession> &session
                  field == RtSupportedFields::motorTau || field == RtSupportedFields::motorTauFiltered) {
         session->state_cache[field] = joint_tau;
       } else if (field == RtSupportedFields::tcpPoseAbc_m) {
-        session->state_cache[field] = std::array<double, 6>{pose.x, pose.y, pose.z, pose.rx, pose.ry, pose.rz};
+        session->state_cache[field] = pose_abc;
       } else if (field == RtSupportedFields::tcpPose_m || field == RtSupportedFields::tcpPose_c) {
         session->state_cache[field] = pose_matrix;
-      } else if (field == RtSupportedFields::tcpVel_c || field == RtSupportedFields::tcpAcc_c) {
-        session->state_cache[field] = zero6;
-      } else if (field == RtSupportedFields::elbow_m || field == RtSupportedFields::elbow_c ||
-                 field == RtSupportedFields::elbowVel_c || field == RtSupportedFields::elbowAcc_c) {
-        session->state_cache[field] = 0.0;
+      } else if (field == RtSupportedFields::tcpVel_c) {
+        session->state_cache[field] = tcp_vel;
+      } else if (field == RtSupportedFields::tcpAcc_c) {
+        session->state_cache[field] = tcp_acc;
       } else if (field == RtSupportedFields::tauVel_c) {
         session->state_cache[field] = tau_vel;
       } else if (field == RtSupportedFields::tauExt_inBase || field == RtSupportedFields::tauExt_inStiff) {
         session->state_cache[field] = end_torque;
+      } else {
+        session->state_cache[field] = zero6;
       }
     }
+    session->last_error_code = ec;
     return static_cast<unsigned>(session->state_cache.size());
   }
 }
@@ -527,7 +870,8 @@ public:
     detail::remember_error(session_, ec);
   }
 
-  // Gazebo shim note: this keeps the SDK RT API shape, but runs as a simulated RT facade.
+  // Gazebo shim note: this preserves the SDK RT API surface while dispatching to an
+  // explicit runtime-owned RT command channel instead of reusing the NRT move queue.
   template <class Command>
   void setControlLoop(const std::function<Command(void)> &callback, int priority = 0, bool useStateDataInLoop = false) noexcept {
     (void)priority;
@@ -545,57 +889,46 @@ public:
         return;
       }
       error_code ec;
-      const auto state = session_->robot->operationState(ec);
-      if (ec) {
-        detail::remember_error(session_, ec);
-        return;
-      }
-      if (state != OperationState::idle && state != OperationState::unknown) {
-        return;
-      }
       if (value.type() == typeid(JointPosition)) {
         const auto &command = std::any_cast<const JointPosition &>(value);
+        const std::array<double, 6> target = detail::vector_to_array<6>(command.joints);
         if (!command.isFinished()) {
           if (has_last_joint_command_ && detail::approx_equal_joint_command(command, last_joint_command_)) {
             return;
           }
-          MoveAbsJCommand move(command);
-          session_->robot->moveReset(ec);
-          if (!ec) {
-            session_->robot->moveAbsJ(move, ec);
-          }
-          if (!ec) {
-            session_->robot->moveStart(ec);
-          }
+          detail::publish_rt_joint_command(session_, target, false, ec);
           if (!ec) {
             last_dispatch_time_ = now;
             last_joint_command_ = command;
             has_last_joint_command_ = true;
           }
+        } else {
+          detail::publish_rt_joint_command(session_, target, true, ec);
         }
       } else if (value.type() == typeid(CartesianPosition)) {
         const auto &command = std::any_cast<const CartesianPosition &>(value);
+        const auto target = detail::posture_to_array6(command);
         if (!command.isFinished()) {
           if (has_last_cartesian_command_ &&
               detail::approx_equal_cartesian_command(command, last_cartesian_command_)) {
             return;
           }
-          auto move = MoveLCommand(command);
-          session_->robot->moveReset(ec);
-          if (!ec) {
-            session_->robot->moveL(move, ec);
-          }
-          if (!ec) {
-            session_->robot->moveStart(ec);
-          }
+          detail::publish_rt_cartesian_command(session_, target, false, ec);
           if (!ec) {
             last_dispatch_time_ = now;
             last_cartesian_command_ = command;
             has_last_cartesian_command_ = true;
           }
+        } else {
+          detail::publish_rt_cartesian_command(session_, target, true, ec);
         }
       } else if (value.type() == typeid(Torque)) {
-        // Gazebo shim: torque loop is simulation-only and not a true hardware torque servo.
+        const auto &command = std::any_cast<const Torque &>(value);
+        const std::array<double, 6> target = detail::vector_to_array<6>(command.tau);
+        detail::publish_rt_torque_command(session_, target, command.isFinished() != 0, ec);
+        if (!ec) {
+          last_dispatch_time_ = now;
+        }
       }
       detail::remember_error(session_, ec);
     };
@@ -655,7 +988,7 @@ public:
       return;
     }
     error_code ec;
-    session_->robot->stop(ec);
+    rokae_xmate3_ros2::runtime::rt_command_bridge::publishStop(*session_->robot, ec);
     detail::remember_error(session_, ec);
   }
 
@@ -695,12 +1028,22 @@ public:
   explicit RtMotionControl(std::shared_ptr<detail::RobotSession> session)
       : MotionControl<MotionControlMode::RtCommand>(std::move(session)) {}
 
+  /**
+   * @brief Arm the runtime RT channel for a specific control mode.
+   * @param rtMode Requested controller-side RT mode.
+   * @throws no-throw; errors are reported through the session error state.
+   * @details The call validates the requested mode transition through the runtime facade and
+   *          publishes the semantic dispatch metadata consumed by the Gazebo RT bridge.
+   */
   void startMove(RtControllerMode rtMode) {
     if (!this->session_) {
       return;
     }
     error_code ec;
     this->session_->robot->setRtControlMode(rtMode, ec);
+    if (!ec) {
+      detail::publish_rt_metadata(this->session_, "independent_rt", ec);
+    }
     detail::remember_error(this->session_, ec);
   }
 
@@ -710,86 +1053,215 @@ public:
     return true;
   }
 
+  /**
+   * @brief Configure the Cartesian safety box consumed by the RT bridge.
+   * @param lengths Box dimensions along XYZ expressed in metres.
+   * @param frame Homogeneous transform of the box centre in base coordinates.
+   * @param ec Receives invalid_argument when any extent is negative and not finite.
+   * @details The configuration is persisted locally and published to the runtime semantic store.
+   */
   void setCartesianLimit(const std::array<double, 3> &lengths, const std::array<double, 16> &frame, error_code &ec) noexcept {
+    if (!std::all_of(lengths.begin(), lengths.end(), [](double value) { return std::isfinite(value) && value >= 0.0; })) {
+      ec = std::make_error_code(std::errc::invalid_argument);
+      detail::remember_error(this->session_, ec);
+      return;
+    }
     cartesian_limit_lengths_ = lengths;
     cartesian_limit_frame_ = frame;
     ec.clear();
+    detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigCartesianLimit,
+                                detail::build_cartesian_limit_payload(lengths, frame), ec);
   }
 
+  /**
+   * @brief Configure the TCP transform used by RT Cartesian commands.
+   * @param frame Homogeneous transform from flange to TCP.
+   * @param ec Error state propagated to the caller.
+   */
   void setEndEffectorFrame(const std::array<double, 16> &frame, error_code &ec) noexcept {
+    if (!std::all_of(frame.begin(), frame.end(), [](double value) { return std::isfinite(value); })) {
+      ec = std::make_error_code(std::errc::invalid_argument);
+      detail::remember_error(this->session_, ec);
+      return;
+    }
     end_effector_frame_ = frame;
+    {
+      std::lock_guard<std::mutex> lock(this->session_->mutex);
+      this->session_->model_f_t_ee = frame;
+      this->session_->toolset_cache.end = Frame(frame);
+    }
     ec.clear();
+    detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigEndEffectorFrame,
+                                detail::serialize_numeric_container(frame), ec);
   }
 
+  /**
+   * @brief Configure payload data consumed by RT model approximations.
+   * @param load Payload description expressed in SI units.
+   * @param ec Error state propagated to the caller.
+   */
   void setLoad(const Load &load, error_code &ec) noexcept {
+    if (!std::isfinite(load.mass) || load.mass < 0.0 ||
+        !std::all_of(load.cog.begin(), load.cog.end(), [](double value) { return std::isfinite(value); }) ||
+        !std::all_of(load.inertia.begin(), load.inertia.end(), [](double value) { return std::isfinite(value) && value >= 0.0; })) {
+      ec = std::make_error_code(std::errc::invalid_argument);
+      detail::remember_error(this->session_, ec);
+      return;
+    }
     load_ = load;
+    {
+      std::lock_guard<std::mutex> lock(this->session_->mutex);
+      this->session_->model_load_cache = load;
+      this->session_->toolset_cache.load = load;
+    }
     ec.clear();
+    detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigLoad,
+                                detail::build_load_payload(load), ec);
   }
 
+  /**
+   * @brief Execute an RT joint move using the independent RT semantic channel.
+   * @param speed Normalised speed factor in (0, 1].
+   * @param start Expected robot joint state at command start.
+   * @param target Target joint position.
+   * @throws RealtimeMotionException Raised when the runtime rejects the command or the robot never reaches the target.
+   * @details The shim now validates that @p start matches the live joint state before publishing the RT command.
+   */
   void MoveJ(double speed, const std::array<double, DoF> &start, const std::array<double, DoF> &target) {
     if (!this->session_) {
       return;
     }
+    if (!compat_rt::isSpeedFactorValid(speed)) {
+      throw RealtimeParameterException("RtMotionControl::MoveJ invalid speed",
+                                       std::make_error_code(std::errc::invalid_argument));
+    }
+    const auto timeout = std::chrono::milliseconds(static_cast<int>(std::clamp(30.0 / std::max(speed, 0.05), 5.0, 60.0) * 1000.0));
     error_code ec;
-    (void)start;
-    MoveAbsJCommand cmd;
-    cmd.target = JointPosition(std::vector<double>(target.begin(), target.end()));
-    cmd.speed = detail::rt_speed_ratio_to_nrt_speed_mm_per_s(speed);
-    cmd.zone = 0;
-    this->session_->robot->moveReset(ec);
-    if (!ec) {
-      this->session_->robot->moveAbsJ(cmd, ec);
-    }
-    if (!ec) {
-      this->session_->robot->moveStart(ec);
-    }
-    if (!ec) {
-      detail::wait_until_idle(this->session_, ec, std::chrono::seconds(30));
+    if constexpr (DoF == 6) {
+      const auto start6 = detail::vector_to_array<6>(std::vector<double>(start.begin(), start.end()));
+      if (!detail::validate_rt_joint_start(this->session_, start6, 1e-2, ec)) {
+        detail::remember_error(this->session_, ec);
+        throw_if_error<RealtimeParameterException>(ec, "RtMotionControl::MoveJ start validation failed");
+        return;
+      }
+      detail::publish_rt_joint_command(this->session_, detail::vector_to_array<6>(std::vector<double>(target.begin(), target.end())), false, ec);
+      if (!ec) {
+        detail::wait_until_joint_target(this->session_, detail::vector_to_array<6>(std::vector<double>(target.begin(), target.end())), timeout, 2e-2, ec);
+      }
     }
     detail::remember_error(this->session_, ec);
+    throw_if_error<RealtimeMotionException>(ec, "RtMotionControl::MoveJ");
   }
 
+  /**
+   * @brief Execute an RT Cartesian line move.
+   * @param speed Normalised speed factor in (0, 1].
+   * @param start Expected flange/TCP pose at command start.
+   * @param target Target pose.
+   * @throws RealtimeMotionException Raised when start validation, safety-box validation or execution fails.
+   */
   void MoveL(double speed, CartesianPosition &start, CartesianPosition &target) {
     if (!this->session_) {
       return;
     }
+    if (!compat_rt::isSpeedFactorValid(speed)) {
+      throw RealtimeParameterException("RtMotionControl::MoveL invalid speed",
+                                       std::make_error_code(std::errc::invalid_argument));
+    }
     error_code ec;
-    (void)start;
-    MoveLCommand cmd(target);
-    cmd.speed = detail::rt_speed_ratio_to_nrt_speed_mm_per_s(speed);
-    this->session_->robot->moveReset(ec);
-    if (!ec) {
-      this->session_->robot->moveL(cmd, ec);
+    const auto start_pose = detail::posture_to_array6(start);
+    const auto target_pose = detail::posture_to_array6(target);
+    if (!detail::validate_rt_cartesian_start(this->session_, start_pose, 3e-2, 6e-2, ec)) {
+      detail::remember_error(this->session_, ec);
+      throw_if_error<RealtimeParameterException>(ec, "RtMotionControl::MoveL start validation failed");
+      return;
     }
-    if (!ec) {
-      this->session_->robot->moveStart(ec);
+    if (!detail::cartesian_target_within_limit(target_pose, cartesian_limit_lengths_, cartesian_limit_frame_)) {
+      ec = std::make_error_code(std::errc::result_out_of_range);
+      detail::remember_error(this->session_, ec);
+      throw_if_error<RealtimeParameterException>(ec, "RtMotionControl::MoveL cartesian limit violated");
+      return;
     }
+    detail::publish_rt_cartesian_command(this->session_, target_pose, false, ec);
     if (!ec) {
-      detail::wait_until_idle(this->session_, ec, std::chrono::seconds(30));
+      const auto timeout = std::chrono::milliseconds(static_cast<int>(std::clamp(30.0 / std::max(speed, 0.05), 5.0, 60.0) * 1000.0));
+      detail::wait_until_cartesian_target(this->session_, target_pose, timeout, 3e-2, 6e-2, ec);
     }
     detail::remember_error(this->session_, ec);
+    throw_if_error<RealtimeMotionException>(ec, "RtMotionControl::MoveL");
   }
 
+  /**
+   * @brief Execute an RT circular move using a verified geometric circle fit.
+   * @param speed Normalised speed factor in (0, 1].
+   * @param start Expected start pose.
+   * @param aux Auxiliary point defining the arc.
+   * @param target Arc end pose.
+   * @throws RealtimeMotionException Raised on invalid arc geometry, start mismatch or execution failure.
+   */
   void MoveC(double speed, CartesianPosition &start, CartesianPosition &aux, CartesianPosition &target) {
     if (!this->session_) {
       return;
     }
+    if (!compat_rt::isSpeedFactorValid(speed)) {
+      throw RealtimeParameterException("RtMotionControl::MoveC invalid speed",
+                                       std::make_error_code(std::errc::invalid_argument));
+    }
     error_code ec;
-    (void)start;
-    MoveCCommand cmd(target, aux);
-    cmd.speed = detail::rt_speed_ratio_to_nrt_speed_mm_per_s(speed);
-    this->session_->robot->moveReset(ec);
-    if (!ec) {
-      this->session_->robot->moveC(cmd, ec);
+    const auto start_pose = detail::posture_to_array6(start);
+    const auto aux_pose = detail::posture_to_array6(aux);
+    const auto target_pose = detail::posture_to_array6(target);
+    if (!detail::validate_rt_cartesian_start(this->session_, start_pose, 4e-2, 8e-2, ec)) {
+      detail::remember_error(this->session_, ec);
+      throw_if_error<RealtimeParameterException>(ec, "RtMotionControl::MoveC start validation failed");
+      return;
+    }
+    if (!detail::cartesian_target_within_limit(target_pose, cartesian_limit_lengths_, cartesian_limit_frame_) ||
+        !detail::cartesian_target_within_limit(aux_pose, cartesian_limit_lengths_, cartesian_limit_frame_)) {
+      ec = std::make_error_code(std::errc::result_out_of_range);
+      detail::remember_error(this->session_, ec);
+      throw_if_error<RealtimeParameterException>(ec, "RtMotionControl::MoveC cartesian limit violated");
+      return;
+    }
+    const auto geometry = compat_rt::fitCircularArc(start_pose, aux_pose, target_pose, ec);
+    if (!geometry) {
+      detail::remember_error(this->session_, ec);
+      const Eigen::Vector3d p1(start_pose[0], start_pose[1], start_pose[2]);
+      const Eigen::Vector3d p2(aux_pose[0], aux_pose[1], aux_pose[2]);
+      const Eigen::Vector3d p3(target_pose[0], target_pose[1], target_pose[2]);
+      if ((p2 - p1).cross(p3 - p1).squaredNorm() < 1e-10) {
+        throw_if_error<RealtimeParameterException>(ec, "RtMotionControl::MoveC degenerate arc");
+      }
+      throw_if_error<RealtimeParameterException>(ec, "RtMotionControl::MoveC invalid radius");
+      return;
+    }
+    const int steps = compat_rt::estimateArcInterpolationSteps(speed, geometry->radius, geometry->sweep_angle);
+    const Eigen::Quaterniond q_start = rokae_xmate3_ros2::runtime::pose_utils::rpyToQuaternion(start_pose[3], start_pose[4], start_pose[5]);
+    const Eigen::Quaterniond q_target = rokae_xmate3_ros2::runtime::pose_utils::rpyToQuaternion(target_pose[3], target_pose[4], target_pose[5]);
+    const Eigen::Vector3d start_point(start_pose[0], start_pose[1], start_pose[2]);
+    for (int i = 1; i <= steps && !ec; ++i) {
+      const double alpha = static_cast<double>(i) / static_cast<double>(steps);
+      const Eigen::AngleAxisd rot(alpha * geometry->sweep_angle, geometry->axis);
+      const Eigen::Vector3d point = geometry->center + rot * (start_point - geometry->center);
+      const Eigen::Quaterniond q = q_start.slerp(alpha, q_target);
+      const auto pose = compat_rt::quaternionToPose(q, point);
+      if (!detail::cartesian_target_within_limit(pose, cartesian_limit_lengths_, cartesian_limit_frame_)) {
+        ec = std::make_error_code(std::errc::result_out_of_range);
+        break;
+      }
+      detail::publish_rt_cartesian_command(this->session_, pose, i == steps, ec);
+      if (!ec) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
     }
     if (!ec) {
-      this->session_->robot->moveStart(ec);
-    }
-    if (!ec) {
-      detail::wait_until_idle(this->session_, ec, std::chrono::seconds(30));
+      const auto timeout = std::chrono::milliseconds(static_cast<int>(std::clamp(40.0 / std::max(speed, 0.05), 8.0, 80.0) * 1000.0));
+      detail::wait_until_cartesian_target(this->session_, target_pose, timeout, 4e-2, 8e-2, ec);
     }
     detail::remember_error(this->session_, ec);
+    throw_if_error<RealtimeMotionException>(ec, "RtMotionControl::MoveC");
   }
+
 
 protected:
   bool filter_limit_enabled_ = false;
@@ -810,16 +1282,24 @@ public:
   void setJointImpedance(const std::array<double, DoF> &factor, error_code &ec) noexcept {
     joint_impedance_ = factor;
     ec.clear();
+    if constexpr (DoF == 6) {
+      detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigJointImpedance,
+                                  detail::serialize_numeric_container(factor), ec);
+    }
   }
 
   void setCartesianImpedance(const std::array<double, 6> &factor, error_code &ec) noexcept {
     cartesian_impedance_ = factor;
     ec.clear();
+    detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigCartesianImpedance,
+                                detail::serialize_numeric_container(factor), ec);
   }
 
   void setFilterFrequency(double jointFrequency, double cartesianFrequency, double torqueFrequency, error_code &ec) noexcept {
     filter_frequencies_ = {jointFrequency, cartesianFrequency, torqueFrequency};
     ec.clear();
+    detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigFilterFrequency,
+                                detail::serialize_numeric_container(filter_frequencies_), ec);
   }
 
   void setCollisionBehaviour(const std::array<double, DoF> &torqueThresholds, error_code &ec) noexcept {
@@ -842,17 +1322,40 @@ public:
   void setCartesianImpedanceDesiredTorque(const std::array<double, 6> &torque, error_code &ec) noexcept {
     desired_cartesian_torque_ = torque;
     ec.clear();
+    detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigCartesianDesiredWrench,
+                                detail::serialize_numeric_container(torque), ec);
   }
 
   void setTorqueFilterCutOffFrequency(double frequency, error_code &ec) noexcept {
     torque_cutoff_frequency_ = frequency;
     ec.clear();
+    detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigTorqueCutoffFrequency,
+                                detail::format_double(frequency), ec);
   }
 
   void setFcCoor(const std::array<double, 16> &frame, FrameType type, error_code &ec) noexcept {
+    if (type != FrameType::world && type != FrameType::tool && type != FrameType::path) {
+      ec = std::make_error_code(std::errc::invalid_argument);
+      detail::remember_error(this->session_, ec);
+      return;
+    }
+    if (!std::all_of(frame.begin(), frame.end(), [](double value) { return std::isfinite(value); })) {
+      ec = std::make_error_code(std::errc::invalid_argument);
+      detail::remember_error(this->session_, ec);
+      return;
+    }
     fc_frame_ = frame;
     fc_type_ = type;
+    {
+      std::lock_guard<std::mutex> lock(this->session_->mutex);
+      this->session_->force_control_frame = frame;
+      this->session_->force_control_type = type;
+    }
     ec.clear();
+    std::ostringstream payload;
+    payload << "type=" << static_cast<int>(type) << ";values=" << detail::serialize_numeric_container(frame);
+    detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigForceControlFrame,
+                                payload.str(), ec);
   }
 
 private:
@@ -877,19 +1380,48 @@ public:
   }
 
   Toolset toolset(error_code &ec) const noexcept {
-    return session_->robot->toolset(ec);
+    auto toolset_value = session_->robot->toolset(ec);
+    if (!ec && session_) {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      session_->toolset_cache = toolset_value;
+      session_->model_load_cache = toolset_value.load;
+      session_->model_f_t_ee = toolset_value.end.pos;
+      if (session_->model_ee_t_k == std::array<double, 16>{}) {
+        session_->model_ee_t_k = detail::identity_matrix_16();
+      }
+    }
+    detail::remember_error(session_, ec);
+    return toolset_value;
   }
 
   void setToolset(const Toolset &toolset_value, error_code &ec) noexcept {
     session_->robot->setToolset(toolset_value, ec);
+    if (!ec && session_) {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      session_->toolset_cache = toolset_value;
+      session_->model_load_cache = toolset_value.load;
+      session_->model_f_t_ee = toolset_value.end.pos;
+      session_->model_ee_t_k = detail::identity_matrix_16();
+    }
+    detail::remember_error(session_, ec);
   }
 
   Toolset setToolset(const std::string &toolName, const std::string &wobjName, error_code &ec) noexcept {
     session_->robot->setToolset(toolName, wobjName, ec);
     if (ec) {
+      detail::remember_error(session_, ec);
       return {};
     }
-    return session_->robot->toolset(ec);
+    auto toolset_value = session_->robot->toolset(ec);
+    if (!ec && session_) {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      session_->toolset_cache = toolset_value;
+      session_->model_load_cache = toolset_value.load;
+      session_->model_f_t_ee = toolset_value.end.pos;
+      session_->model_ee_t_k = detail::identity_matrix_16();
+    }
+    detail::remember_error(session_, ec);
+    return toolset_value;
   }
 
 protected:
@@ -922,20 +1454,43 @@ class XCORE_API xMateModel : public Model_T<DoF> {
 public:
   xMateModel() = default;
   explicit xMateModel(std::shared_ptr<detail::RobotSession> session)
-      : Model_T<DoF>(std::move(session)) {}
+      : Model_T<DoF>(std::move(session)) {
+    syncContextFromSession();
+  }
 
   void setLoad(double mass, const std::array<double, 3> &cog, const std::array<double, 3> &inertia) {
+    if (!std::isfinite(mass) || mass < 0.0 ||
+        !std::all_of(cog.begin(), cog.end(), [](double value) { return std::isfinite(value); }) ||
+        !std::all_of(inertia.begin(), inertia.end(), [](double value) { return std::isfinite(value) && value >= 0.0; })) {
+      return;
+    }
     model_load_.mass = mass;
     model_load_.cog = cog;
     model_load_.inertia = inertia;
+    if (this->session_) {
+      std::lock_guard<std::mutex> lock(this->session_->mutex);
+      this->session_->model_load_cache = model_load_;
+      this->session_->toolset_cache.load = model_load_;
+    }
   }
 
   void setTcpCoor(const std::array<double, 16> &f_t_ee, const std::array<double, 16> &ee_t_k) {
+    if (!std::all_of(f_t_ee.begin(), f_t_ee.end(), [](double value) { return std::isfinite(value); }) ||
+        !std::all_of(ee_t_k.begin(), ee_t_k.end(), [](double value) { return std::isfinite(value); })) {
+      return;
+    }
     f_t_ee_ = f_t_ee;
     ee_t_k_ = ee_t_k;
+    if (this->session_) {
+      std::lock_guard<std::mutex> lock(this->session_->mutex);
+      this->session_->model_f_t_ee = f_t_ee_;
+      this->session_->model_ee_t_k = ee_t_k_;
+      this->session_->toolset_cache.end = Frame(f_t_ee_);
+    }
   }
 
   std::array<double, 16> getCartPose(const std::array<double, DoF> &jntPos, SegmentFrame nr = SegmentFrame::flange) {
+    syncContextFromSession();
     std::vector<double> joints(jntPos.begin(), jntPos.end());
     Eigen::Matrix4d matrix = kinematics_.forwardKinematics(joints);
     if (nr == SegmentFrame::endEffector) {
@@ -947,6 +1502,7 @@ public:
   std::array<double, 6> getCartVel(const std::array<double, DoF> &jntPos,
                                    const std::array<double, DoF> &jntVel,
                                    SegmentFrame nr = SegmentFrame::flange) {
+    syncContextFromSession();
     (void)nr;
     return modelFacade().cartVelocity(jntPos, jntVel);
   }
@@ -955,6 +1511,7 @@ public:
                                    const std::array<double, DoF> &jntVel,
                                    const std::array<double, DoF> &jntAcc,
                                    SegmentFrame nr = SegmentFrame::flange) {
+    syncContextFromSession();
     (void)nr;
     return modelFacade().cartAcceleration(jntPos, jntVel, jntAcc);
   }
@@ -963,6 +1520,7 @@ public:
                   double elbow,
                   const std::array<double, DoF> &jntInit,
                   std::array<double, DoF> &jntPos) {
+    syncContextFromSession();
     (void)elbow;
     Eigen::Matrix4d target_matrix = arrayToMatrix(cartPos);
     const Eigen::Matrix4d tcp_matrix = arrayToMatrix(f_t_ee_) * arrayToMatrix(ee_t_k_);
@@ -991,6 +1549,7 @@ public:
   }
 
   std::array<double, DoF> getJointVel(const std::array<double, 6> &cartVel, const std::array<double, DoF> &jntPos) {
+    syncContextFromSession();
     std::vector<double> joints(jntPos.begin(), jntPos.end());
     const auto jacobian = kinematics_.computeJacobian(joints);
     const auto pseudo_inv = jacobian.completeOrthogonalDecomposition().pseudoInverse();
@@ -1009,11 +1568,13 @@ public:
   std::array<double, DoF> getJointAcc(const std::array<double, 6> &cartAcc,
                                       const std::array<double, DoF> &jntPos,
                                       const std::array<double, DoF> &jntVel) {
+    syncContextFromSession();
     (void)jntVel;
     return modelFacade().jointAcceleration(cartAcc, jntPos);
   }
 
   std::array<double, DoF * 6> jacobian(const std::array<double, DoF> &jntPos, SegmentFrame nr = SegmentFrame::flange) {
+    syncContextFromSession();
     (void)nr;
     const auto jac = modelFacade().jacobian(jntPos);
     std::array<double, DoF * 6> result{};
@@ -1038,6 +1599,7 @@ public:
                                     const std::array<double, DoF> &jntVel,
                                     const std::array<double, DoF> &jntAcc,
                                     TorqueType torque_type) {
+    syncContextFromSession();
     std::array<double, DoF> full{};
     std::array<double, DoF> inertia{};
     std::array<double, DoF> coriolis{};
@@ -1066,6 +1628,7 @@ public:
                              std::array<double, DoF> &trq_coriolis,
                              std::array<double, DoF> &trq_friction,
                              std::array<double, DoF> &trq_gravity) {
+    syncContextFromSession();
     const auto breakdown = approximateDynamics(jntPos, jntVel, jntAcc);
     for (size_t i = 0; i < DoF; ++i) {
       trq_full[i] = breakdown.full[i] + friction_[i];
@@ -1083,6 +1646,7 @@ public:
                            std::array<double, DoF> &trq_inertia,
                            std::array<double, DoF> &trq_coriolis,
                            std::array<double, DoF> &trq_gravity) {
+    syncContextFromSession();
     const auto breakdown = approximateDynamics(jntPos, jntVel, jntAcc);
     for (size_t i = 0; i < DoF; ++i) {
       trq_full[i] = breakdown.full[i];
@@ -1093,6 +1657,22 @@ public:
   }
 
 private:
+  void syncContextFromSession() {
+    if (!this->session_) {
+      return;
+    }
+    std::lock_guard<std::mutex> lock(this->session_->mutex);
+    model_load_ = this->session_->model_load_cache;
+    f_t_ee_ = this->session_->model_f_t_ee;
+    ee_t_k_ = this->session_->model_ee_t_k;
+    if (f_t_ee_ == std::array<double, 16>{}) {
+      f_t_ee_ = detail::identity_matrix_16();
+    }
+    if (ee_t_k_ == std::array<double, 16>{}) {
+      ee_t_k_ = detail::identity_matrix_16();
+    }
+  }
+
   [[nodiscard]] rokae_xmate3_ros2::gazebo_model::LoadContext loadContext() const {
     return rokae_xmate3_ros2::gazebo_model::LoadContext{model_load_.mass, model_load_.cog};
   }
@@ -1222,6 +1802,11 @@ public:
     if (!ec) {
       std::lock_guard<std::mutex> lock(session_->mutex);
       session_->toolset_cache = toolset_value;
+      session_->model_load_cache = toolset_value.load;
+      session_->model_f_t_ee = toolset_value.end.pos;
+      if (session_->model_ee_t_k == std::array<double, 16>{}) {
+        session_->model_ee_t_k = detail::identity_matrix_16();
+      }
     }
     detail::remember_error(session_, ec);
     return toolset_value;
@@ -1232,6 +1817,9 @@ public:
     if (!ec) {
       std::lock_guard<std::mutex> lock(session_->mutex);
       session_->toolset_cache = toolset_value;
+      session_->model_load_cache = toolset_value.load;
+      session_->model_f_t_ee = toolset_value.end.pos;
+      session_->model_ee_t_k = detail::identity_matrix_16();
     }
     detail::remember_error(session_, ec);
   }
@@ -1243,6 +1831,13 @@ public:
       return {};
     }
     auto toolset_value = session_->robot->toolset(ec);
+    if (!ec) {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      session_->toolset_cache = toolset_value;
+      session_->model_load_cache = toolset_value.load;
+      session_->model_f_t_ee = toolset_value.end.pos;
+      session_->model_ee_t_k = detail::identity_matrix_16();
+    }
     detail::remember_error(session_, ec);
     return toolset_value;
   }
@@ -1523,19 +2118,103 @@ public:
     return info;
   }
 
+  void startReceiveRobotState(std::chrono::steady_clock::duration interval,
+                              const std::vector<std::string> &fields) noexcept {
+    session_->robot->startReceiveRobotState(interval, fields);
+    error_code ec = session_->robot->lastErrorCode();
+    {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      session_->state_interval = interval;
+      session_->state_cache.clear();
+      session_->has_previous_state = false;
+      session_->has_previous_pose = false;
+      if (ec) {
+        session_->state_fields.clear();
+        session_->rt_state_plan_rejected = true;
+        session_->rt_state_plan_summary = "strict_rejected";
+      } else {
+        session_->state_fields = fields;
+        session_->rt_state_plan_rejected = false;
+        session_->rt_state_plan_summary = "strict_ok";
+      }
+    }
+    detail::remember_error(session_, ec);
+  }
+
   void stopReceiveRobotState() noexcept {
-    std::lock_guard<std::mutex> lock(session_->mutex);
-    session_->state_fields.clear();
-    session_->state_cache.clear();
-    session_->has_previous_state = false;
+    session_->robot->stopReceiveRobotState();
+    {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      session_->state_fields.clear();
+      session_->state_cache.clear();
+      session_->has_previous_state = false;
+      session_->has_previous_pose = false;
+      session_->rt_state_plan_rejected = false;
+      session_->rt_state_plan_summary = "inactive";
+    }
+    detail::remember_error(session_, {});
   }
 
   unsigned updateRobotState(std::chrono::steady_clock::duration timeout) {
-    (void)timeout;
-    error_code ec;
-    const auto count = detail::refresh_state_cache(session_, ec);
+    const auto count = session_->robot->updateRobotState(timeout);
+    error_code ec = session_->robot->lastErrorCode();
+    if (ec || count == 0U) {
+      detail::remember_error(session_, ec);
+      return 0U;
+    }
+
+    std::vector<std::string> fields;
+    {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      fields = session_->state_fields;
+      session_->state_cache.clear();
+    }
+
+    std::unordered_map<std::string, std::any> new_cache;
+    for (const auto &field : fields) {
+      std::array<double, 16> matrix16{};
+      std::array<double, 6> array6{};
+      double scalar{};
+      bool boolean{};
+      if (field == RtSupportedFields::tcpPose_m || field == RtSupportedFields::tcpPose_c) {
+        if (session_->robot->getStateDataMatrix16(field, matrix16) != 0) {
+          ec = std::make_error_code(std::errc::invalid_argument);
+          detail::remember_error(session_, ec);
+          return 0U;
+        }
+        new_cache[field] = matrix16;
+      } else if (field == RtCompatFields::samplePeriod_s) {
+        if (session_->robot->getStateDataScalarDouble(field, scalar) != 0) {
+          ec = std::make_error_code(std::errc::invalid_argument);
+          detail::remember_error(session_, ec);
+          return 0U;
+        }
+        new_cache[field] = scalar;
+      } else if (field == RtCompatFields::sampleFresh) {
+        if (session_->robot->getStateDataBool(field, boolean) != 0) {
+          ec = std::make_error_code(std::errc::invalid_argument);
+          detail::remember_error(session_, ec);
+          return 0U;
+        }
+        new_cache[field] = boolean;
+      } else {
+        if (session_->robot->getStateDataArray6(field, array6) != 0) {
+          ec = std::make_error_code(std::errc::invalid_argument);
+          detail::remember_error(session_, ec);
+          return 0U;
+        }
+        new_cache[field] = array6;
+      }
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(session_->mutex);
+      session_->state_cache = std::move(new_cache);
+      session_->has_previous_state = true;
+    }
+    ec.clear();
     detail::remember_error(session_, ec);
-    return ec ? 0U : count;
+    return count;
   }
 
   template <typename R>
@@ -1703,194 +2382,34 @@ public:
     return jointTorques(ec);
   }
 
+  /**
+   * @brief Compatibility stub for frame calibration.
+   * @param type Requested frame category.
+   * @param points Joint-space sample set.
+   * @param is_held Reserved compatibility flag.
+   * @param ec Receives function_not_supported because frame calibration is intentionally not implemented.
+   * @param base_aux Reserved base calibration hint.
+   * @return Empty calibration result with success=false.
+   * @details The simulation package no longer provides calibrateFrame(). The API surface is retained only to
+   *          avoid breaking historical call sites at compile time; every invocation returns
+   *          std::errc::function_not_supported.
+   */
   FrameCalibrationResult calibrateFrame(FrameType type,
                                         const std::vector<std::array<double, DoF>> &points,
                                         bool is_held,
                                         error_code &ec,
                                         const std::array<double, 3> &base_aux = {}) noexcept {
+    (void)type;
+    (void)points;
     (void)is_held;
+    (void)base_aux;
     FrameCalibrationResult result{};
-    if (!this->session_) {
-      ec = std::make_error_code(std::errc::not_connected);
-      return result;
-    }
-    if constexpr (DoF != 6) {
-      ec = std::make_error_code(std::errc::not_supported);
+    ec = std::make_error_code(std::errc::function_not_supported);
+    if (this->session_) {
       detail::remember_error(this->session_, ec);
-      return result;
     }
-    if (points.size() < 3) {
-      ec = std::make_error_code(std::errc::invalid_argument);
-      detail::remember_error(this->session_, ec);
-      return result;
-    }
-
-    gazebo::xMate3Kinematics kinematics;
-    std::vector<Eigen::Matrix3d> rotations;
-    std::vector<Eigen::Vector3d> flange_positions;
-    rotations.reserve(points.size());
-    flange_positions.reserve(points.size());
-    for (const auto &sample : points) {
-      std::vector<double> joints(sample.begin(), sample.end());
-      const Eigen::Matrix4d tf = kinematics.forwardKinematics(joints);
-      rotations.push_back(tf.block<3, 3>(0, 0));
-      flange_positions.push_back(tf.block<3, 1>(0, 3));
-    }
-
-    auto stats_from_errors = [](const std::vector<double> &errors) {
-      std::array<double, 3> stats{};
-      if (errors.empty()) {
-        return stats;
-      }
-      const auto [min_it, max_it] = std::minmax_element(errors.begin(), errors.end());
-      const double sum = std::accumulate(errors.begin(), errors.end(), 0.0);
-      stats[0] = *min_it;
-      stats[1] = sum / static_cast<double>(errors.size());
-      stats[2] = *max_it;
-      return stats;
-    };
-
-    auto frame_from_origin_axes = [](const Eigen::Vector3d &origin,
-                                     Eigen::Vector3d x_axis,
-                                     Eigen::Vector3d y_hint) {
-      if (x_axis.norm() < 1e-9) {
-        x_axis = Eigen::Vector3d::UnitX();
-      }
-      x_axis.normalize();
-      y_hint -= y_hint.dot(x_axis) * x_axis;
-      if (y_hint.norm() < 1e-9) {
-        y_hint = Eigen::Vector3d::UnitY() - Eigen::Vector3d::UnitY().dot(x_axis) * x_axis;
-      }
-      if (y_hint.norm() < 1e-9) {
-        y_hint = Eigen::Vector3d::UnitZ() - Eigen::Vector3d::UnitZ().dot(x_axis) * x_axis;
-      }
-      y_hint.normalize();
-      Eigen::Vector3d z_axis = x_axis.cross(y_hint);
-      if (z_axis.norm() < 1e-9) {
-        z_axis = Eigen::Vector3d::UnitZ();
-      }
-      z_axis.normalize();
-      Eigen::Vector3d y_axis = z_axis.cross(x_axis).normalized();
-      Eigen::Matrix4d tf = Eigen::Matrix4d::Identity();
-      tf.block<3, 1>(0, 0) = x_axis;
-      tf.block<3, 1>(0, 1) = y_axis;
-      tf.block<3, 1>(0, 2) = z_axis;
-      tf.block<3, 1>(0, 3) = origin;
-      std::array<double, 16> pose{};
-      for (int r = 0; r < 4; ++r) {
-        for (int c = 0; c < 4; ++c) {
-          pose[r * 4 + c] = tf(r, c);
-        }
-      }
-      return Frame(pose);
-    };
-
-    if (type == FrameType::tool) {
-      Eigen::MatrixXd A(static_cast<int>((points.size() * (points.size() - 1)) / 2) * 3, 3);
-      Eigen::VectorXd b(A.rows());
-      int row = 0;
-      for (size_t i = 0; i < rotations.size(); ++i) {
-        for (size_t j = i + 1; j < rotations.size(); ++j) {
-          A.block<3, 3>(row, 0) = rotations[i] - rotations[j];
-          b.segment<3>(row) = flange_positions[j] - flange_positions[i];
-          row += 3;
-        }
-      }
-      const Eigen::Vector3d tcp_in_flange = A.completeOrthogonalDecomposition().solve(b);
-      std::vector<Eigen::Vector3d> tcp_positions;
-      std::vector<double> errors;
-      tcp_positions.reserve(points.size());
-      errors.reserve(points.size());
-      for (size_t i = 0; i < rotations.size(); ++i) {
-        tcp_positions.push_back(flange_positions[i] + rotations[i] * tcp_in_flange);
-      }
-      Eigen::Vector3d tcp_mean = Eigen::Vector3d::Zero();
-      for (const auto &p : tcp_positions) {
-        tcp_mean += p;
-      }
-      tcp_mean /= static_cast<double>(tcp_positions.size());
-      for (const auto &p : tcp_positions) {
-        errors.push_back((p - tcp_mean).norm());
-      }
-
-      Frame frame;
-      frame.trans = {tcp_in_flange.x(), tcp_in_flange.y(), tcp_in_flange.z()};
-      frame.rpy = {0.0, 0.0, 0.0};
-      frame.syncPoseMatrix();
-      result.frame = frame;
-      result.errors = stats_from_errors(errors);
-      result.success = true;
-
-      {
-        std::lock_guard<std::mutex> lock(this->session_->mutex);
-        this->session_->toolset_cache.end = result.frame;
-      }
-      ec.clear();
-      detail::remember_error(this->session_, ec);
-      return result;
-    }
-
-    std::vector<Eigen::Vector3d> tcp_points;
-    tcp_points.reserve(points.size());
-    Eigen::Vector3d tcp_offset = Eigen::Vector3d::Zero();
-    {
-      std::lock_guard<std::mutex> lock(this->session_->mutex);
-      tcp_offset = Eigen::Vector3d(this->session_->toolset_cache.end.trans[0],
-                                   this->session_->toolset_cache.end.trans[1],
-                                   this->session_->toolset_cache.end.trans[2]);
-    }
-    for (size_t i = 0; i < flange_positions.size(); ++i) {
-      tcp_points.push_back(flange_positions[i] + rotations[i] * tcp_offset);
-    }
-
-    const Eigen::Vector3d origin = tcp_points[0];
-    const Eigen::Vector3d x_axis = tcp_points[1] - origin;
-    Eigen::Vector3d y_hint = (type == FrameType::base && Eigen::Vector3d(base_aux[0], base_aux[1], base_aux[2]).norm() > 1e-9)
-                           ? Eigen::Vector3d(base_aux[0], base_aux[1], base_aux[2]) - origin
-                           : (tcp_points[2] - origin);
-    result.frame = frame_from_origin_axes(origin, x_axis, y_hint);
-
-    std::vector<double> errors;
-    errors.reserve(tcp_points.size());
-    Eigen::Vector3d x_dir(result.frame.pos[0], result.frame.pos[4], result.frame.pos[8]);
-    Eigen::Vector3d y_dir(result.frame.pos[1], result.frame.pos[5], result.frame.pos[9]);
-    Eigen::Vector3d z_dir(result.frame.pos[2], result.frame.pos[6], result.frame.pos[10]);
-    const Eigen::Matrix3d rot = (Eigen::Matrix3d() << x_dir.x(), y_dir.x(), z_dir.x(),
-                                                      x_dir.y(), y_dir.y(), z_dir.y(),
-                                                      x_dir.z(), y_dir.z(), z_dir.z()).finished();
-    for (const auto &p : tcp_points) {
-      const Eigen::Vector3d local = rot.transpose() * (p - origin);
-      errors.push_back(std::abs(local.z()));
-    }
-    result.errors = stats_from_errors(errors);
-    result.success = true;
-    ec.clear();
-    {
-      std::lock_guard<std::mutex> lock(this->session_->mutex);
-      if (type == FrameType::wobj || type == FrameType::base || type == FrameType::world) {
-        this->session_->toolset_cache.ref = result.frame;
-      }
-    }
-    detail::remember_error(this->session_, ec);
     return result;
   }
-
-  Model_T<DoF> model() noexcept {
-    return Model_T<DoF>(this->session_);
-  }
-
-  void startReceiveRobotState(std::chrono::steady_clock::duration interval, const std::vector<std::string> &fields) {
-    {
-      std::lock_guard<std::mutex> lock(this->session_->mutex);
-      this->session_->state_interval = interval;
-      this->session_->state_fields = fields;
-      this->session_->state_cache.clear();
-      this->session_->has_previous_state = false;
-    }
-    error_code refresh_ec;
-    detail::refresh_state_cache(this->session_, refresh_ec);
-  }
-
   bool getSoftLimit(std::array<double[2], DoF> &limits, error_code &ec) noexcept {
     std::array<std::array<double, 2>, 6> tmp{};
     const auto enabled = this->session_->robot->getSoftLimit(tmp, ec);
@@ -1975,11 +2494,18 @@ public:
   }
 
   void setRtNetworkTolerance(unsigned percent, error_code &ec) noexcept {
+    if (percent > 100u) {
+      ec = std::make_error_code(std::errc::invalid_argument);
+      detail::remember_error(this->session_, ec);
+      return;
+    }
     {
       std::lock_guard<std::mutex> lock(this->session_->mutex);
       this->session_->rt_network_tolerance = percent;
     }
     ec.clear();
+    detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigRtNetworkTolerance,
+                                std::to_string(percent), ec);
     detail::remember_error(this->session_, ec);
   }
 
@@ -1989,6 +2515,8 @@ public:
       this->session_->use_rci_client = use;
     }
     ec.clear();
+    detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigUseRciClient,
+                                use ? "1" : "0", ec);
     detail::remember_error(this->session_, ec);
   }
 

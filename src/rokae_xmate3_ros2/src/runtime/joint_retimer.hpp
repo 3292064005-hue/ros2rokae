@@ -7,6 +7,7 @@
 
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
 #include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/runtime/strict_jerk_profile.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -19,7 +20,7 @@ struct JointRetimerConfig {
   double max_joint_step_rad = 0.025;
 };
 
-struct QuinticRetimerResult {
+struct JointRetimerResult {
   std::vector<std::vector<double>> positions;
   std::vector<std::vector<double>> velocities;
   std::vector<std::vector<double>> accelerations;
@@ -36,14 +37,24 @@ struct QuinticRetimerResult {
     const std::array<double, 6> &joint_speed_limits_rad_per_sec,
     const std::array<double, 6> &joint_acc_limits_rad_per_sec2);
 
-[[nodiscard]] QuinticRetimerResult retimeJointQuintic(
+[[nodiscard]] JointRetimerResult retimeJointStrictJerkLimited(
     const std::vector<double> &start,
     const std::vector<double> &target,
     const JointRetimerConfig &config,
     const std::array<double, 6> &joint_speed_limits_rad_per_sec,
     const std::array<double, 6> &joint_acc_limits_rad_per_sec2);
 
-[[nodiscard]] ::gazebo::TrajectorySamples toTrajectorySamples(const QuinticRetimerResult &result);
+[[nodiscard]] ::gazebo::TrajectorySamples toTrajectorySamples(const JointRetimerResult &result);
+
+using QuinticRetimerResult = JointRetimerResult;
+inline JointRetimerResult retimeJointQuintic(
+    const std::vector<double> &start,
+    const std::vector<double> &target,
+    const JointRetimerConfig &config,
+    const std::array<double, 6> &joint_speed_limits_rad_per_sec,
+    const std::array<double, 6> &joint_acc_limits_rad_per_sec2) {
+  return retimeJointStrictJerkLimited(start, target, config, joint_speed_limits_rad_per_sec, joint_acc_limits_rad_per_sec2);
+}
 
 }  // namespace rokae_xmate3_ros2::runtime
 

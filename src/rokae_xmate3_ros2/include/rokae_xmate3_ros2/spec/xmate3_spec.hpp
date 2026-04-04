@@ -11,9 +11,36 @@ inline constexpr double kServoTickSec = 0.001;
 inline constexpr int kRos2ControlNrtUpdateRateHz = 250;
 inline constexpr int kRos2ControlRtUpdateRateHz = 1000;
 
+inline constexpr const char *kRobotModelName = "xMate3";
+inline constexpr const char *kRuntimeSerialNumber = "SIMULATION";
+inline constexpr const char *kControlSystemVersion = "2.1.0";
+inline constexpr const char *kWrapperVersion = "2.1.0 (xCore SDK ROS2 Wrapper)";
+inline constexpr const char *kSourceXacroEntry = "urdf/xMate3.xacro";
+inline constexpr const char *kBuildGeneratedUrdf = "<build>/generated/urdf/xMate3.urdf";
+inline constexpr const char *kBuildGeneratedUrdfMetadata = "<build>/generated/urdf/xMate3.description.json";
+
 inline constexpr std::array<const char *, kDoF> kJointNames = {
     "xmate_joint_1", "xmate_joint_2", "xmate_joint_3",
     "xmate_joint_4", "xmate_joint_5", "xmate_joint_6"};
+
+inline constexpr std::array<double, kDoF> kJointEffortLimit = {
+    85.0, 85.0, 85.0, 85.0, 36.0, 36.0};
+inline constexpr std::array<std::array<double, 3>, kDoF> kJointAxis = {{
+    {{0.0, 0.0, 1.0}},
+    {{0.0, 1.0, 0.0}},
+    {{0.0, 1.0, 0.0}},
+    {{0.0, 0.0, 1.0}},
+    {{0.0, 1.0, 0.0}},
+    {{0.0, 0.0, 1.0}}
+}};
+inline constexpr std::array<std::array<double, 3>, kDoF> kJointOrigin = {{
+    {{0.0, 0.0, 0.0}},
+    {{0.0, 0.0, 0.3415}},
+    {{0.0, 0.0, 0.394}},
+    {{0.0, 0.0, 0.366}},
+    {{0.0, 0.0, 0.0}},
+    {{0.0, 0.0, 0.2503}}
+}};
 
 inline constexpr std::array<double, kDoF> kJointLimitMin = {
     -3.0527, -2.0933, -2.0933, -3.0527, -2.0933, -6.1082};
@@ -40,6 +67,16 @@ inline constexpr std::array<std::array<double, 2>, kDoF> kDefaultSoftLimits{{
 }};
 
 [[nodiscard]] constexpr const auto &jointNames() noexcept { return kJointNames; }
+[[nodiscard]] constexpr const char *robotModelName() noexcept { return kRobotModelName; }
+[[nodiscard]] constexpr const char *runtimeSerialNumber() noexcept { return kRuntimeSerialNumber; }
+[[nodiscard]] constexpr const char *controlSystemVersion() noexcept { return kControlSystemVersion; }
+[[nodiscard]] constexpr const char *wrapperVersion() noexcept { return kWrapperVersion; }
+[[nodiscard]] constexpr const char *sourceXacroEntry() noexcept { return kSourceXacroEntry; }
+[[nodiscard]] constexpr const char *buildGeneratedUrdf() noexcept { return kBuildGeneratedUrdf; }
+[[nodiscard]] constexpr const char *buildGeneratedUrdfMetadata() noexcept { return kBuildGeneratedUrdfMetadata; }
+[[nodiscard]] constexpr const auto &jointEffortLimit() noexcept { return kJointEffortLimit; }
+[[nodiscard]] constexpr const auto &jointAxis() noexcept { return kJointAxis; }
+[[nodiscard]] constexpr const auto &jointOrigin() noexcept { return kJointOrigin; }
 [[nodiscard]] constexpr const auto &jointLimitMin() noexcept { return kJointLimitMin; }
 [[nodiscard]] constexpr const auto &jointLimitMax() noexcept { return kJointLimitMax; }
 [[nodiscard]] constexpr const auto &jointVelocityLimit() noexcept { return kJointVelocityLimit; }

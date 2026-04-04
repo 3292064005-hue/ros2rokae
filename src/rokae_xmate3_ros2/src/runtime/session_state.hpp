@@ -12,6 +12,12 @@
 
 namespace rokae_xmate3_ros2::runtime {
 
+inline constexpr int kSessionMotionModeNrt = 0;
+inline constexpr int kSessionMotionModeRt = 1;
+inline constexpr int kSessionMotionModeRl = 2;
+inline constexpr int kSessionMotionModeMin = kSessionMotionModeNrt;
+inline constexpr int kSessionMotionModeMax = kSessionMotionModeRl;
+
 class SessionState {
  public:
   void connect(const std::string &remote_ip);
@@ -57,7 +63,7 @@ class SessionState {
   std::array<double, 6> collision_sensitivity_{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
   std::uint8_t collision_behaviour_ = 1;
   double collision_fallback_ = 0.0;
-  int motion_mode_ = 0;
+  int motion_mode_ = kSessionMotionModeNrt;
   rokae_xmate3_ros2::msg::OperateMode operate_mode_{};
   int rt_control_mode_ = -1;
   std::string remote_ip_;

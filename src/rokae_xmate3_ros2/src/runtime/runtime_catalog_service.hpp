@@ -57,7 +57,14 @@ struct RuntimeProjectCatalogEntry {
 [[nodiscard]] std::vector<RuntimeProjectCatalogEntry> buildRuntimeProjectCatalog(const ProgramState &program_state);
 [[nodiscard]] std::vector<RuntimeRegisterCatalogEntry> buildRuntimeRegisterCatalog(const DataStoreState &data_store_state);
 [[nodiscard]] std::vector<RuntimeOptionCatalogEntry> buildRuntimeOptionCatalog(const MotionOptionsState &motion_options_state,
-                                                                              const SessionState &session_state);
+                                                                              const SessionState &session_state,
+                                                                              const DataStoreState &data_store_state);
+[[nodiscard]] std::vector<RuntimeOptionCatalogEntry> buildRuntimeOptionCatalog(const MotionOptionsState &motion_options_state,
+                                                                              const SessionState &session_state,
+                                                                              const DataStoreState::RtControlSnapshot &rt_snapshot,
+                                                                              const DataStoreState::RtSemanticSnapshot &semantic_snapshot);
+[[nodiscard]] std::string summarizeCatalogProvenance(const DataStoreState &data_store_state);
+[[nodiscard]] std::string summarizeCatalogProvenance(const DataStoreState::RtSemanticSnapshot &semantic_snapshot);
 [[nodiscard]] std::string summarizeRuntimeOptionCatalog(const std::vector<RuntimeOptionCatalogEntry> &entries);
 
 }  // namespace rokae_xmate3_ros2::runtime

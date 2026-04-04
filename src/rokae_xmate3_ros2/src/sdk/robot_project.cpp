@@ -5,6 +5,8 @@
 namespace rokae::ros2 {
 
 std::vector<rokae::RLProjectInfo> xMateRobot::projectInfo(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensureProjectClients();
     const bool connected = impl_->connected_;
     if (connected && impl_->xmate3_rl_get_project_info_client_ && impl_->wait_for_service(impl_->xmate3_rl_get_project_info_client_, ec)) {
         auto request = std::make_shared<rokae_xmate3_ros2::srv::GetRlProjectInfo::Request>();
@@ -21,8 +23,11 @@ std::vector<rokae::RLProjectInfo> xMateRobot::projectInfo(std::error_code& ec) {
                     info.loop_mode = i < result->loop_modes.size() ? result->loop_modes[i] : false;
                     projects.push_back(info);
                 }
-                std::lock_guard<std::mutex> lock(impl_->state_mutex_);
-                impl_->projects_ = projects;
+                {
+                    std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+                    impl_->projects_ = projects;
+                }
+                impl_->publishCatalogProvenance("runtime_authoritative");
                 ec.clear();
                 return projects;
             }
@@ -49,15 +54,45 @@ std::vector<rokae::RLProjectInfo> xMateRobot::projectInfo(std::error_code& ec) {
 }
 
 void xMateRobot::ppToMain(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
     }
-    ec = std::make_error_code(std::errc::function_not_supported);
-    RCLCPP_WARN(impl_->node_->get_logger(), "ppToMain is not implemented in the Gazebo/runtime facade");
+    std::string project_name;
+    std::string project_path;
+    bool running = false;
+    {
+        std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+        project_name = impl_->current_project_.name;
+        project_path = impl_->current_project_path_;
+        running = impl_->current_project_.is_running;
+    }
+    if (project_name.empty() || project_path.empty()) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        RCLCPP_ERROR(impl_->node_->get_logger(), "ppToMain requires a previously loaded RL project path");
+        return;
+    }
+    if (running) {
+        pauseProject(ec);
+        if (ec) {
+            return;
+        }
+    }
+    std::string reloaded_name;
+    if (!loadRLProject(project_path, reloaded_name, ec)) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(impl_->state_mutex_);
+        impl_->current_project_.name = reloaded_name;
+        impl_->current_project_.is_running = false;
+    }
+    ec.clear();
 }
 
 void xMateRobot::runProject(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     int current_episode = 0;
     std::string project_name;
     {
@@ -72,6 +107,8 @@ void xMateRobot::runProject(std::error_code& ec) {
 }
 
 void xMateRobot::pauseProject(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensureProjectClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
@@ -106,6 +143,8 @@ void xMateRobot::pauseProject(std::error_code& ec) {
 }
 
 void xMateRobot::setProjectRunningOpt(double rate, bool loop, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensureProjectClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
@@ -137,6 +176,8 @@ void xMateRobot::setProjectRunningOpt(double rate, bool loop, std::error_code& e
 }
 
 std::vector<rokae::WorkToolInfo> xMateRobot::toolsInfo(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensureProjectClients();
     if (impl_->connected_ && impl_->xmate3_rl_get_tools_info_client_ && impl_->wait_for_service(impl_->xmate3_rl_get_tools_info_client_, ec)) {
         auto request = std::make_shared<rokae_xmate3_ros2::srv::GetToolCatalog::Request>();
         auto future = impl_->xmate3_rl_get_tools_info_client_->async_send_request(request);
@@ -167,6 +208,7 @@ std::vector<rokae::WorkToolInfo> xMateRobot::toolsInfo(std::error_code& ec) {
                     std::lock_guard<std::mutex> lock(impl_->state_mutex_);
                     impl_->tools_ = tools;
                 }
+                impl_->publishCatalogProvenance("runtime_authoritative");
                 ec.clear();
                 return tools;
             }
@@ -198,6 +240,8 @@ std::vector<rokae::WorkToolInfo> xMateRobot::toolsInfo(std::error_code& ec) {
 }
 
 std::vector<rokae::WorkToolInfo> xMateRobot::wobjsInfo(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensureProjectClients();
     if (impl_->connected_ && impl_->xmate3_rl_get_wobjs_info_client_ && impl_->wait_for_service(impl_->xmate3_rl_get_wobjs_info_client_, ec)) {
         auto request = std::make_shared<rokae_xmate3_ros2::srv::GetWobjCatalog::Request>();
         auto future = impl_->xmate3_rl_get_wobjs_info_client_->async_send_request(request);
@@ -225,6 +269,7 @@ std::vector<rokae::WorkToolInfo> xMateRobot::wobjsInfo(std::error_code& ec) {
                     std::lock_guard<std::mutex> lock(impl_->state_mutex_);
                     impl_->wobjs_ = wobjs;
                 }
+                impl_->publishCatalogProvenance("runtime_authoritative");
                 ec.clear();
                 return wobjs;
             }
@@ -255,6 +300,8 @@ std::vector<rokae::WorkToolInfo> xMateRobot::wobjsInfo(std::error_code& ec) {
 }
 
 bool xMateRobot::loadRLProject(const std::string& project_path, std::string& project_name, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensureProjectClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return false;
@@ -280,6 +327,7 @@ bool xMateRobot::loadRLProject(const std::string& project_path, std::string& pro
         std::lock_guard<std::mutex> lock(impl_->state_mutex_);
         impl_->current_project_.name = project_name;
         impl_->current_project_.is_running = false;
+        impl_->current_project_path_ = project_path;
         auto it = std::find_if(impl_->projects_.begin(), impl_->projects_.end(), [&](const rokae::RLProjectInfo& info) {
             return info.name == project_name;
         });
@@ -294,6 +342,8 @@ bool xMateRobot::loadRLProject(const std::string& project_path, std::string& pro
 }
 
 bool xMateRobot::startRLProject(const std::string& project_id, int& current_episode, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensureProjectClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return false;
@@ -324,6 +374,8 @@ bool xMateRobot::startRLProject(const std::string& project_id, int& current_epis
 }
 
 bool xMateRobot::stopRLProject(const std::string& project_id, int& finished_episode, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    impl_->ensureProjectClients();
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return false;

@@ -71,6 +71,14 @@ rokae_xmate3_ros2::msg::RuntimeDiagnostics RuntimePublishBridge::buildRuntimeDia
   msg.profile_capability_summary = snapshot.profile_capability_summary;
   msg.planning_capability_summary = snapshot.planning_capability_summary;
   msg.runtime_option_summary = snapshot.runtime_option_summary;
+  msg.last_api_surface = snapshot.last_api_surface;
+  msg.last_result_source = snapshot.last_result_source;
+  msg.rt_dispatch_mode = snapshot.rt_dispatch_mode;
+  msg.rt_state_source = snapshot.rt_state_source;
+  msg.model_exactness_summary = snapshot.model_exactness_summary;
+  msg.model_primary_backend = snapshot.model_primary_backend;
+  msg.model_fallback_used = snapshot.model_fallback_used;
+  msg.catalog_provenance_summary = snapshot.catalog_provenance_summary;
   msg.tool_catalog_size = snapshot.tool_catalog_size;
   msg.wobj_catalog_size = snapshot.wobj_catalog_size;
   msg.project_catalog_size = snapshot.project_catalog_size;

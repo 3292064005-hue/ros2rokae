@@ -23,7 +23,6 @@ void printSnapshot(xMateRobot &robot, error_code &ec, int index) {
   std::array<double, 6> dq_m{};
   std::array<double, 6> tau_m{};
   std::array<double, 16> tcp_pose_m{};
-  double psi_m = 0.0;
   if (robot.getStateData(RtSupportedFields::jointPos_m, q_m) == 0) {
     printArray("q_m", q_m, 4, " rad");
   }
@@ -35,9 +34,6 @@ void printSnapshot(xMateRobot &robot, error_code &ec, int index) {
   }
   if (robot.getStateData(RtSupportedFields::tcpPose_m, tcp_pose_m) == 0) {
     printArray("tcpPose_m", tcp_pose_m, 4);
-  }
-  if (robot.getStateData(RtSupportedFields::elbow_m, psi_m) == 0) {
-    os << "psi_m: " << psi_m << std::endl;
   }
   if (ec) {
     reportError("updateRobotState", ec);
@@ -61,12 +57,11 @@ int main() {
 
   printSection("1 启动状态缓存");
   robot.startReceiveRobotState(
-      std::chrono::milliseconds(50),
+      std::chrono::milliseconds(8),
       {RtSupportedFields::jointPos_m,
        RtSupportedFields::jointVel_m,
        RtSupportedFields::tau_m,
-       RtSupportedFields::tcpPose_m,
-       RtSupportedFields::elbow_m});
+       RtSupportedFields::tcpPose_m});
   printSnapshot(robot, ec, 0);
   if (ec) {
     cleanupRobot(robot);

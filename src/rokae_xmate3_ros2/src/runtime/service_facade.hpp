@@ -47,6 +47,7 @@
 #include "rokae_xmate3_ros2/srv/get_posture.hpp"
 #include "rokae_xmate3_ros2/srv/get_power_state.hpp"
 #include "rokae_xmate3_ros2/srv/get_runtime_diagnostics.hpp"
+#include "rokae_xmate3_ros2/srv/get_runtime_state_snapshot.hpp"
 #include "rokae_xmate3_ros2/srv/get_profile_capabilities.hpp"
 #include "rokae_xmate3_ros2/srv/get_rt_joint_data.hpp"
 #include "rokae_xmate3_ros2/srv/get_soft_limit.hpp"
@@ -102,6 +103,7 @@ class ControlFacade {
  public:
   ControlFacade(SessionState &session_state,
                 MotionOptionsState &motion_options_state,
+                ToolingState &tooling_state,
                 BackendInterface *backend,
                 MotionRuntime *motion_runtime,
                 MotionRequestCoordinator *request_coordinator);
@@ -116,10 +118,27 @@ class ControlFacade {
                             rokae_xmate3_ros2::srv::SetOperateMode::Response &res) const;
   void handleClearServoAlarm(const rokae_xmate3_ros2::srv::ClearServoAlarm::Request &req,
                              rokae_xmate3_ros2::srv::ClearServoAlarm::Response &res) const;
+  /**
+   * @brief Validate and apply collision-detection settings using the public xCore contract.
+   * @param req Collision sensitivity, stop behaviour and fallback value.
+   * @param res Success flag and human-readable validation result.
+   * @throws None. Validation failures are reported through @p res.
+   * @note The request is rejected when the sensitivity vector is not empty and not exactly six values,
+   *       when any value is outside [0.01, 2.0], or when the fallback value is invalid for the
+   *       selected stop behaviour.
+   */
   void handleEnableCollisionDetection(const rokae_xmate3_ros2::srv::EnableCollisionDetection::Request &req,
                                       rokae_xmate3_ros2::srv::EnableCollisionDetection::Response &res) const;
   void handleDisableCollisionDetection(const rokae_xmate3_ros2::srv::DisableCollisionDetection::Request &req,
                                        rokae_xmate3_ros2::srv::DisableCollisionDetection::Response &res) const;
+  /**
+   * @brief Apply soft-limit settings after enforcing the public xCore preconditions.
+   * @param req Enable flag and lower/upper limit pairs in radians.
+   * @param res Success flag and validation result.
+   * @throws None. Validation failures are reported through @p res.
+   * @note Enabling soft limits requires a connected robot in manual mode, powered off, with current
+   *       joints inside the requested range and the requested range inside the mechanical limits.
+   */
   void handleSetSoftLimit(const rokae_xmate3_ros2::srv::SetSoftLimit::Request &req,
                           rokae_xmate3_ros2::srv::SetSoftLimit::Response &res) const;
   void handleSetMotionControlMode(const rokae_xmate3_ros2::srv::SetMotionControlMode::Request &req,
@@ -142,6 +161,10 @@ class ControlFacade {
                               rokae_xmate3_ros2::srv::SetRtControlMode::Response &res) const;
   void handleSetSimulationMode(const rokae_xmate3_ros2::srv::SetSimulationMode::Request &req,
                                rokae_xmate3_ros2::srv::SetSimulationMode::Response &res) const;
+  void handleSetToolset(const rokae_xmate3_ros2::srv::SetToolset::Request &req,
+                        rokae_xmate3_ros2::srv::SetToolset::Response &res) const;
+  void handleSetToolsetByName(const rokae_xmate3_ros2::srv::SetToolsetByName::Request &req,
+                              rokae_xmate3_ros2::srv::SetToolsetByName::Response &res) const;
   void handleEnableDrag(const rokae_xmate3_ros2::srv::EnableDrag::Request &req,
                         rokae_xmate3_ros2::srv::EnableDrag::Response &res) const;
   void handleDisableDrag(const rokae_xmate3_ros2::srv::DisableDrag::Request &req,
@@ -156,6 +179,7 @@ class ControlFacade {
 
   SessionState &session_state_;
   MotionOptionsState &motion_options_state_;
+  ToolingState &tooling_state_;
   BackendInterface *backend_;
   MotionRuntime *motion_runtime_;
   MotionRequestCoordinator *request_coordinator_;
@@ -179,6 +203,18 @@ class QueryFacade {
                            rokae_xmate3_ros2::srv::GetPowerState::Response &res) const;
   void handleGetRuntimeDiagnostics(const rokae_xmate3_ros2::srv::GetRuntimeDiagnostics::Request &req,
                                    rokae_xmate3_ros2::srv::GetRuntimeDiagnostics::Response &res) const;
+  /**
+   * @brief Return one runtime-owned aggregated read snapshot for high-frequency SDK query fan-out.
+   * @param req Unused empty request.
+   * @param res Aggregated state/tooling/diagnostics response. `success=false` only when runtime state
+   *        acquisition fails before a coherent snapshot can be assembled.
+   * @throws None. Errors are reported through response fields.
+   * @note Boundary behavior: this surface is read-only and does not mutate runtime state. Missing
+   *       optional fields are returned as default-initialized values while preserving the rest of the
+   *       snapshot.
+   */
+  void handleGetRuntimeStateSnapshot(const rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot::Request &req,
+                                     rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot::Response &res) const;
   void handleGetProfileCapabilities(const rokae_xmate3_ros2::srv::GetProfileCapabilities::Request &req,
                                      rokae_xmate3_ros2::srv::GetProfileCapabilities::Response &res) const;
   void handleGetInfo(const rokae_xmate3_ros2::srv::GetInfo::Request &req,
@@ -205,10 +241,6 @@ class QueryFacade {
                     rokae_xmate3_ros2::srv::CalcIk::Response &res) const;
   void handleGetToolset(const rokae_xmate3_ros2::srv::GetToolset::Request &req,
                         rokae_xmate3_ros2::srv::GetToolset::Response &res) const;
-  void handleSetToolset(const rokae_xmate3_ros2::srv::SetToolset::Request &req,
-                        rokae_xmate3_ros2::srv::SetToolset::Response &res) const;
-  void handleSetToolsetByName(const rokae_xmate3_ros2::srv::SetToolsetByName::Request &req,
-                              rokae_xmate3_ros2::srv::SetToolsetByName::Response &res) const;
   void handleGetSoftLimit(const rokae_xmate3_ros2::srv::GetSoftLimit::Request &req,
                           rokae_xmate3_ros2::srv::GetSoftLimit::Response &res) const;
   void handleGetRtJointData(const rokae_xmate3_ros2::srv::GetRtJointData::Request &req,
@@ -250,7 +282,18 @@ class QueryFacade {
 
 class IoProgramFacade {
  public:
-  explicit IoProgramFacade(DataStoreState &data_store_state,
+  /**
+   * @brief Construct the IO/program facade on top of the authoritative session state.
+   * @param session_state Shared session truth source used for connection preconditions.
+   * @param data_store_state Register/custom-data storage.
+   * @param program_state Program/RL bookkeeping state.
+   * @param tooling_state Tool catalog and current toolset state.
+   * @param time_provider Clock provider used for response timestamps.
+   * @note Boundary behavior: argument validation still runs before connection validation so callers
+   *       get deterministic invalid-argument failures even when the transport session is down.
+   */
+  explicit IoProgramFacade(SessionState &session_state,
+                           DataStoreState &data_store_state,
                            ProgramState &program_state,
                            ToolingState &tooling_state,
                            TimeProvider time_provider);
@@ -293,6 +336,7 @@ class IoProgramFacade {
                    rokae_xmate3_ros2::srv::SetAO::Response &res) const;
 
  private:
+  SessionState &session_state_;
   DataStoreState &data_store_state_;
   ProgramState &program_state_;
   ToolingState &tooling_state_;
@@ -301,7 +345,20 @@ class IoProgramFacade {
 
 class PathFacade {
  public:
-  PathFacade(ProgramState &program_state,
+  /**
+   * @brief Construct the path facade with explicit session and tooling context.
+   * @param session_state Shared session truth source used for connection/power gating.
+   * @param program_state Path recording and replay asset storage.
+   * @param tooling_state Current tool/wobj/base context.
+   * @param request_coordinator Runtime request coordinator for replay dispatch.
+   * @param joint_state_fetcher Fetches current joint state for replay planning seeds.
+   * @param trajectory_dt_provider Provides controller trajectory sample period.
+   * @param request_id_generator Generates stable replay request identifiers.
+   * @note Boundary behavior: replay and record requests are rejected when the session state does not
+   *       satisfy the compatibility-lane preconditions, rather than mutating program state first.
+   */
+  PathFacade(SessionState &session_state,
+             ProgramState &program_state,
              ToolingState &tooling_state,
              MotionRequestCoordinator *request_coordinator,
              JointStateFetcher joint_state_fetcher,
@@ -325,6 +382,7 @@ class PathFacade {
 
 
  private:
+  SessionState &session_state_;
   ProgramState &program_state_;
   ToolingState &tooling_state_;
   MotionRequestCoordinator *request_coordinator_;

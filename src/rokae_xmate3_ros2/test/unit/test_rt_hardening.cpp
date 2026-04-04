@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 
 #include "runtime/rt_field_registry.hpp"
 #include "runtime/rt_prearm_checks.hpp"
+#include "runtime/session_state.hpp"
 #include "runtime/rt_subscription_plan.hpp"
 #include "runtime/rt_watchdog.hpp"
 #include "rokae_xmate3_ros2/types.hpp"
@@ -14,8 +16,11 @@ TEST(RtHardening, FieldRegistryRecognizesDefaultFields) {
   EXPECT_TRUE(isRtFieldSupported(rokae::RtSupportedFields::jointPos_m));
   EXPECT_TRUE(isRtFieldSupported(rokae::RtSupportedFields::jointVel_m));
   EXPECT_TRUE(isRtFieldSupported(rokae::RtSupportedFields::tau_m));
+  EXPECT_TRUE(isRtFieldSupported(rokae::RtCompatFields::samplePeriod_s));
+  EXPECT_TRUE(isRtFieldSupported(rokae::RtCompatFields::sampleFresh));
   EXPECT_FALSE(isRtFieldSupported("unknown_field"));
   EXPECT_GT(rtFieldBytes(rokae::RtSupportedFields::tcpPose_m), rtFieldBytes(rokae::RtSupportedFields::jointPos_m));
+  EXPECT_EQ(rtFieldBytes(rokae::RtCompatFields::samplePeriod_s), sizeof(double));
 }
 
 TEST(RtHardening, SubscriptionPlanRejectsUnsupportedFieldsAndWrongInLoopRate) {
@@ -27,15 +32,72 @@ TEST(RtHardening, SubscriptionPlanRejectsUnsupportedFieldsAndWrongInLoopRate) {
   EXPECT_FALSE(wrong_rate.ok);
   EXPECT_EQ(wrong_rate.status, "in_loop_requires_1ms");
 
+  const auto unsupported_interval = buildRtSubscriptionPlan(defaultRtFieldSet(), std::chrono::milliseconds(3), false);
+  EXPECT_FALSE(unsupported_interval.ok);
+  EXPECT_EQ(unsupported_interval.status, "unsupported_interval");
+
+  const auto unsupported_50ms = buildRtSubscriptionPlan(defaultRtFieldSet(), std::chrono::milliseconds(50), false);
+  EXPECT_FALSE(unsupported_50ms.ok);
+  EXPECT_EQ(unsupported_50ms.status, "unsupported_interval");
+
+  const auto polled_1s = buildRtSubscriptionPlan(defaultRtFieldSet(), std::chrono::seconds(1), false);
+  EXPECT_TRUE(polled_1s.ok);
+  EXPECT_EQ(polled_1s.status, "armed_polled");
+
   const auto ok = buildRtSubscriptionPlan(defaultRtFieldSet(), std::chrono::milliseconds(1), true);
   EXPECT_TRUE(ok.ok);
   EXPECT_EQ(ok.status, "armed_in_loop");
   EXPECT_FALSE(ok.accepted_fields.empty());
 }
 
+TEST(RtHardening, SubscriptionPlanRejectsServiceBackedFieldsForStrictInLoopRt) {
+  const auto strict_pose = buildRtSubscriptionPlan({rokae::RtSupportedFields::jointPos_m,
+                                                    rokae::RtSupportedFields::tcpPose_m},
+                                                   std::chrono::milliseconds(1),
+                                                   true);
+  EXPECT_FALSE(strict_pose.ok);
+  EXPECT_EQ(strict_pose.status, "unsupported_fields");
+  EXPECT_NE(std::find(strict_pose.rejected_fields.begin(), strict_pose.rejected_fields.end(),
+                      rokae::RtSupportedFields::tcpPose_m),
+            strict_pose.rejected_fields.end());
+
+  const auto polled_pose = buildRtSubscriptionPlan({rokae::RtSupportedFields::jointPos_m,
+                                                    rokae::RtSupportedFields::tcpPose_m},
+                                                   std::chrono::milliseconds(8),
+                                                   false);
+  EXPECT_TRUE(polled_pose.ok);
+  EXPECT_EQ(polled_pose.status, "armed_polled");
+}
+
+TEST(RtHardening, CompatRtMetadataFieldsRemainStrictInLoopSafe) {
+  EXPECT_TRUE(isStrictRtInLoopFieldSupported(rokae::RtCompatFields::samplePeriod_s));
+  EXPECT_TRUE(isStrictRtInLoopFieldSupported(rokae::RtCompatFields::sampleFresh));
+
+  const auto plan = buildRtSubscriptionPlan({rokae::RtSupportedFields::jointPos_m,
+                                             rokae::RtCompatFields::samplePeriod_s,
+                                             rokae::RtCompatFields::sampleFresh},
+                                            std::chrono::milliseconds(1),
+                                            true);
+  EXPECT_TRUE(plan.ok);
+  EXPECT_EQ(plan.status, "armed_in_loop");
+  EXPECT_NE(std::find(plan.accepted_fields.begin(), plan.accepted_fields.end(), rokae::RtCompatFields::samplePeriod_s),
+            plan.accepted_fields.end());
+  EXPECT_NE(std::find(plan.accepted_fields.begin(), plan.accepted_fields.end(), rokae::RtCompatFields::sampleFresh),
+            plan.accepted_fields.end());
+}
+
+TEST(RtHardening, StrictInLoopFieldClassificationMatchesRegistry) {
+  EXPECT_TRUE(isStrictRtInLoopFieldSupported(rokae::RtSupportedFields::jointPos_m));
+  EXPECT_TRUE(isStrictRtInLoopFieldSupported(rokae::RtSupportedFields::jointAcc_c));
+  EXPECT_TRUE(isStrictRtInLoopFieldSupported(rokae::RtSupportedFields::tauVel_c));
+  EXPECT_FALSE(isStrictRtInLoopFieldSupported(rokae::RtSupportedFields::tcpPose_m));
+  EXPECT_FALSE(isStrictRtInLoopFieldSupported(rokae::RtSupportedFields::tauExt_inBase));
+  EXPECT_FALSE(isStrictRtInLoopFieldSupported(rokae::RtSupportedFields::elbow_m));
+}
+
 TEST(RtHardening, PrearmRequiresRtModePowerCapabilityAndValidPlan) {
   RtPrearmCheckInput input;
-  input.motion_mode = static_cast<int>(rokae::MotionControlMode::RtCommand);
+  input.motion_mode = kSessionMotionModeRt;
   input.rt_mode = static_cast<int>(rokae::RtControllerMode::jointPosition);
   input.power_on = true;
   input.active_profile = "rt_simulated";
@@ -61,7 +123,7 @@ TEST(RtHardening, PrearmRequiresRtModePowerCapabilityAndValidPlan) {
 
 TEST(RtHardening, PrearmRejectsIncompleteModeSpecificSubscription) {
   RtPrearmCheckInput input;
-  input.motion_mode = static_cast<int>(rokae::MotionControlMode::RtCommand);
+  input.motion_mode = kSessionMotionModeRt;
   input.rt_mode = static_cast<int>(rokae::RtControllerMode::torque);
   input.power_on = true;
   input.active_profile = "rt_simulated";

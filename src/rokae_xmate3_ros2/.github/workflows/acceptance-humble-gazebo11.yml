@@ -13,6 +13,7 @@ on:
         default: "true"
   push:
     branches: [main, master]
+  pull_request:
 
 jobs:
   acceptance:
@@ -23,11 +24,21 @@ jobs:
         shell: bash
         run: |
           set -e
-          EXTRA_ARGS=()
+          REPORT_DIR="${GITHUB_WORKSPACE}/.artifacts/acceptance-humble-gazebo11"
+          mkdir -p "${REPORT_DIR}"
+          EXTRA_ARGS=(--report-dir "${REPORT_DIR}")
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.release_gate }}" = "true" ]; then
             EXTRA_ARGS+=(--release-gate)
           fi
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.launch_smoke }}" = "true" ]; then
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] || [ "${{ github.event.inputs.launch_smoke }}" = "true" ]; then
             EXTRA_ARGS+=(--launch-smoke)
           fi
           ./tools/run_target_env_acceptance.sh "${EXTRA_ARGS[@]}"
+
+      - name: Upload acceptance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-humble-gazebo11-report
+          path: .artifacts/acceptance-humble-gazebo11
+          if-no-files-found: error

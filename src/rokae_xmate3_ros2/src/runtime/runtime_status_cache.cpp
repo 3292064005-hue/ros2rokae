@@ -14,6 +14,7 @@ void MotionRuntime::rememberStatus(RuntimeStatus &status) {
   }
 
   status.revision = next_status_revision_++;
+  last_view_update_time_ = std::chrono::steady_clock::now();
   status_cache_[status.request_id] = status;
   if (std::find(status_order_.begin(), status_order_.end(), status.request_id) == status_order_.end()) {
     status_order_.push_back(status.request_id);
@@ -71,17 +72,34 @@ RuntimeView MotionRuntime::buildViewLocked(const std::string *request_id) const 
   view.status = effective_status;
   view.active_motion = is_active_state(effective_status.state);
   view.terminal = effective_status.terminal();
-  view.can_accept_request = (not request_slot_busy) &&
-                            (active_request_id_.empty() || is_terminal_state(active_status_.state));
+  view.queue_initialized = queue_initialized_;
+  view.queue_has_pending_commands = request_slot_busy || !active_request_id_.empty();
+  const auto snapshot_age = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_view_update_time_);
+  view.snapshot_age_ms = static_cast<std::uint64_t>(std::max<std::int64_t>(0, snapshot_age.count()));
+  view.snapshot_fresh = view.snapshot_age_ms <= 250U;
+  if (!view.snapshot_fresh) {
+    view.snapshot_stale_reason = "runtime_view_age_exceeded";
+  }
+  view.nrt_ready = queue_initialized_ && (not request_slot_busy) &&
+                   (active_request_id_.empty() || is_terminal_state(active_status_.state));
+  view.can_accept_request = view.nrt_ready;
   return view;
 }
 
 bool MotionRuntime::canAcceptRequest() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  const bool request_slot_busy =
-      pending_request_.has_value() || queued_plan_.has_value() || executor_.hasActivePlan() ||
-      using_backend_trajectory_ || active_trajectory_plan_.has_value();
-  return (not request_slot_busy) && (active_request_id_.empty() || is_terminal_state(active_status_.state));
+  return buildViewLocked(nullptr).can_accept_request;
+}
+
+bool MotionRuntime::queueInitialized() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return queue_initialized_;
+}
+
+bool MotionRuntime::queueHasPendingCommands() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto view = buildViewLocked(nullptr);
+  return view.queue_has_pending_commands;
 }
 
 RuntimeStatus MotionRuntime::status() const {

@@ -25,6 +25,11 @@ TEST(RuntimeDiagnosticsStateTest, ExtendedFieldsAreTracked) {
   state.setPlanningCapabilitySummary("kinematics[kdl=active]; retimer[nominal=active]; planner[risk_weighted=active]");
   state.notePlanSummary("plan_explanation[policy=risk_weighted; candidate=nominal]", "nominal");
   state.setRuntimeOptionSummary("default_speed=50.000; simulation_mode=true");
+  state.setSemanticSurface("preferred", "runtime_authoritative", "independent_rt");
+  state.setRtStateSource("rt_stream_in_loop");
+  state.setModelExactnessSummary("kinematics=simulation_grade;dynamics=approximate");
+  state.setModelBackendInfo("kdl", false);
+  state.setCatalogProvenanceSummary("legacy_cache_fallback:toolsInfo");
   state.setCatalogSizes(2, 1, 1, 3);
 
   const auto snap = state.snapshot();
@@ -55,6 +60,14 @@ TEST(RuntimeDiagnosticsStateTest, ExtendedFieldsAreTracked) {
   EXPECT_NE(snap.planning_capability_summary.find("kinematics[kdl=active"), std::string::npos);
   EXPECT_NE(snap.event_bus_summary.find("events=1"), std::string::npos);
   EXPECT_NE(snap.runtime_option_summary.find("default_speed"), std::string::npos);
+  EXPECT_EQ(snap.last_api_surface, "preferred");
+  EXPECT_EQ(snap.last_result_source, "runtime_authoritative");
+  EXPECT_EQ(snap.rt_dispatch_mode, "independent_rt");
+  EXPECT_EQ(snap.rt_state_source, "rt_stream_in_loop");
+  EXPECT_NE(snap.model_exactness_summary.find("kinematics=simulation_grade"), std::string::npos);
+  EXPECT_EQ(snap.model_primary_backend, "kdl");
+  EXPECT_FALSE(snap.model_fallback_used);
+  EXPECT_EQ(snap.catalog_provenance_summary, "legacy_cache_fallback:toolsInfo");
   EXPECT_EQ(snap.tool_catalog_size, 2u);
   EXPECT_EQ(snap.register_catalog_size, 3u);
 }

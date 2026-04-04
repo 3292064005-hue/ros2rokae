@@ -28,6 +28,8 @@ class MotionRuntime {
   void attachBackend(BackendInterface *backend);
   void setExecutorConfig(const MotionExecutorConfig &config);
   [[nodiscard]] bool canAcceptRequest() const;
+  [[nodiscard]] bool queueInitialized() const;
+  [[nodiscard]] bool queueHasPendingCommands() const;
   [[nodiscard]] bool submit(const MotionRequest &request, std::string &message);
 
   void setActiveSpeedScale(double scale);
@@ -35,6 +37,7 @@ class MotionRuntime {
 
   void stop(const std::string &message = "stopped");
   void reset();
+  void clearForModeChange(const std::string &message = "motion mode changed");
 
   [[nodiscard]] RuntimeStatus status() const;
   [[nodiscard]] RuntimeStatus status(const std::string &request_id) const;
@@ -63,6 +66,7 @@ class MotionRuntime {
   std::condition_variable planner_cv_;
   mutable std::condition_variable status_cv_;
   bool shutdown_ = false;
+  bool queue_initialized_ = false;
   std::optional<MotionRequest> pending_request_;
   std::optional<MotionPlan> queued_plan_;
   std::string active_request_id_;
@@ -70,6 +74,7 @@ class MotionRuntime {
   std::unordered_map<std::string, RuntimeStatus> status_cache_;
   std::deque<std::string> status_order_;
   std::uint64_t next_status_revision_ = 1;
+  std::chrono::steady_clock::time_point last_view_update_time_{std::chrono::steady_clock::now()};
   std::thread planner_thread_;
   MotionPlanner planner_;
   MotionExecutor executor_;

@@ -42,6 +42,9 @@ TEST(ImplementationAudit, ReadmeLinksToAuditAndBacklog) {
   EXPECT_NE(readme.find("docs/IMPLEMENTATION_AUDIT.md"), std::string::npos);
   EXPECT_NE(readme.find("docs/HARDENING_BACKLOG.md"), std::string::npos);
   EXPECT_NE(readme.find("## 实现审计"), std::string::npos);
+  EXPECT_NE(readme.find("<build>/generated/urdf/xMate3.urdf"), std::string::npos);
+  EXPECT_EQ(readme.find("│   ├── xMate3.urdf"), std::string::npos);
+  EXPECT_EQ(readme.find("├── generated/"), std::string::npos);
 }
 
 TEST(ImplementationAudit, RuntimeStateMachineAndPlannerPreflightExist) {
@@ -59,12 +62,15 @@ TEST(ImplementationAudit, RuntimeCatalogPolicyDocExists) {
   const auto policy = readText(kProjectRoot / "docs" / "RUNTIME_CATALOG_POLICY.md");
   EXPECT_NE(policy.find("runtime is the only source of truth"), std::string::npos);
   EXPECT_NE(policy.find("GetToolCatalog"), std::string::npos);
+  EXPECT_NE(policy.find("both default to strict runtime authority"), std::string::npos);
+  EXPECT_NE(policy.find("ROKAE_SDK_LEGACY_CATALOG_FALLBACK=true"), std::string::npos);
 }
 
 TEST(ImplementationAudit, RtHardeningProfileDocExists) {
   const auto profile = readText(kProjectRoot / "docs" / "RT_HARDENING_PROFILE.md");
   EXPECT_NE(profile.find("RT field registry"), std::string::npos);
   EXPECT_NE(profile.find("rt_watchdog"), std::string::npos);
+  EXPECT_NE(profile.find("no silent NRT fallback"), std::string::npos);
 }
 
 TEST(ImplementationAudit, QueryAndSdkStateDomainsStaySplitOnDisk) {
@@ -79,3 +85,13 @@ TEST(ImplementationAudit, QueryAndSdkStateDomainsStaySplitOnDisk) {
 }
 
 }  // namespace
+
+
+TEST(ImplementationAudit, LifecycleContractsRemainExplicit) {
+  const auto bootstrap = readText(kProjectRoot / "src" / "gazebo" / "runtime_bootstrap.cpp");
+  EXPECT_NE(bootstrap.find("/xmate3/internal/prepare_shutdown"), std::string::npos);
+  EXPECT_NE(bootstrap.find("prepare_shutdown contract accepted="), std::string::npos);
+
+  const auto ros_context_owner = readText(kProjectRoot / "include" / "rokae_xmate3_ros2" / "runtime" / "ros_context_owner.hpp");
+  EXPECT_NE(ros_context_owner.find("not call global rclcpp::shutdown()"), std::string::npos);
+}

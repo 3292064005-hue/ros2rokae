@@ -35,12 +35,12 @@ TEST(SdkCatalogPolicyTest, LegacyCompatibilityFactoryKeepsFallbackEnabled) {
 }
 
 
-TEST(SdkCatalogPolicyTest, CompatibilityOptionsNormalizationDefaultsToLegacyFallback) {
+TEST(SdkCatalogPolicyTest, CompatibilityOptionsNormalizationDefaultsToStrictRuntimeAuthority) {
   ::rokae::ros2::RosClientOptions options;
   const auto normalized = ::rokae::detail::normalize_compatibility_client_options(options);
   ASSERT_TRUE(normalized.catalog_policy.has_value());
-  EXPECT_FALSE(normalized.catalog_policy->strict_runtime_authority);
-  EXPECT_TRUE(normalized.catalog_policy->allow_legacy_catalog_fallback);
+  EXPECT_TRUE(normalized.catalog_policy->strict_runtime_authority);
+  EXPECT_FALSE(normalized.catalog_policy->allow_legacy_catalog_fallback);
 }
 
 TEST(SdkCatalogPolicyTest, CompatibilityOptionsNormalizationPreservesExplicitOverride) {

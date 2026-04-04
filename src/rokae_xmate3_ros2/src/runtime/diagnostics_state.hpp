@@ -38,6 +38,13 @@ class RuntimeDiagnosticsState {
   void setProfileCapabilitySummary(const std::string &summary);
   void setPlanningCapabilitySummary(const std::string &summary);
   void setRuntimeOptionSummary(const std::string &summary);
+  void setSemanticSurface(const std::string &api_surface,
+                          const std::string &result_source,
+                          const std::string &rt_dispatch_mode);
+  void setRtStateSource(const std::string &source);
+  void setModelExactnessSummary(const std::string &summary);
+  void setModelBackendInfo(const std::string &primary_backend, bool fallback_used);
+  void setCatalogProvenanceSummary(const std::string &summary);
   void setCatalogSizes(std::uint32_t tool_count,
                        std::uint32_t wobj_count,
                        std::uint32_t project_count,

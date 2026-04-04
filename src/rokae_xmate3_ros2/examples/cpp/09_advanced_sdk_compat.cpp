@@ -29,17 +29,15 @@ int main() {
     return 1;
   }
 
-  printSection("1 奇异规避与末端力矩");
+  printSection("1 末端力矩与能力边界");
   robot.setAvoidSingularity(true, ec);
-  if (reportError("setAvoidSingularity", ec)) {
-    cleanupRobot(robot);
-    return 1;
+  if (ec) {
+    os << "setAvoidSingularity: xMate6 compatibility lane reports unsupported as expected -> "
+       << ec.message() << std::endl;
+    ec.clear();
   }
-  os << "avoid singularity: " << (robot.getAvoidSingularity(ec) ? "ON" : "OFF") << std::endl;
-  if (reportError("getAvoidSingularity", ec)) {
-    cleanupRobot(robot);
-    return 1;
-  }
+  os << "skip getAvoidSingularity on xMate6 compatibility lane because the official manual scopes it to xMateCR/xMateSR only"
+     << std::endl;
 
   std::array<double, 6> joint_tau{};
   std::array<double, 6> ext_tau{};
@@ -63,11 +61,11 @@ int main() {
     cleanupRobot(robot);
     return 1;
   }
-  robot.startReceiveRobotState(std::chrono::milliseconds(100),
+  robot.startReceiveRobotState(std::chrono::milliseconds(8),
                                {RtSupportedFields::jointPos_m,
                                 RtSupportedFields::tau_m,
                                 RtSupportedFields::tcpPose_m});
-  robot.updateRobotState(std::chrono::milliseconds(100));
+  robot.updateRobotState(std::chrono::milliseconds(8));
   std::array<double, 6> q_m{};
   std::array<double, 6> tau_m{};
   std::array<double, 16> tcp_pose_m{};
@@ -82,50 +80,37 @@ int main() {
   }
   robot.stopReceiveRobotState();
 
-  printSection("3 寄存器与工程元数据");
+  printSection("3 运行时选项与 public-lane 边界");
   float counter = 42.0F;
   robot.writeRegister("demo_counter", 0, counter, ec);
-  if (reportError("writeRegister(demo_counter)", ec)) {
+  if (ec) {
+    if (isSimulationOnlyCapabilityError(ec)) {
+      printCapabilityStatus("public-lane", "register workflow is internal/backend only on the install-facing xMate6 SDK lane");
+      ec.clear();
+    } else if (reportError("writeRegister(demo_counter)", ec)) {
+      cleanupRobot(robot);
+      return 1;
+    }
+  } else {
+    counter = 0.0F;
+    robot.readRegister("demo_counter", 0, counter, ec);
+    if (reportError("readRegister(demo_counter)", ec)) {
+      cleanupRobot(robot);
+      return 1;
+    }
+    os << "demo_counter[0] = " << counter << std::endl;
+  }
+  robot.setRtNetworkTolerance(15, ec);
+  if (reportError("setRtNetworkTolerance", ec)) {
     cleanupRobot(robot);
     return 1;
   }
-  counter = 0.0F;
-  robot.readRegister("demo_counter", 0, counter, ec);
-  if (reportError("readRegister(demo_counter)", ec)) {
+  robot.useRciClient(false, ec);
+  if (reportError("useRciClient(false)", ec)) {
     cleanupRobot(robot);
     return 1;
   }
-  os << "demo_counter[0] = " << counter << std::endl;
-
-  const auto projects = robot.projectsInfo(ec);
-  if (reportError("projectsInfo", ec)) {
-    cleanupRobot(robot);
-    return 1;
-  }
-  os << "projects count: " << projects.size() << std::endl;
-  if (!projects.empty()) {
-    os << "first project: " << projects.front().name << std::endl;
-  }
-
-  const auto tools = robot.toolsInfo(ec);
-  if (reportError("toolsInfo", ec)) {
-    cleanupRobot(robot);
-    return 1;
-  }
-  os << "tools count: " << tools.size() << std::endl;
-  if (!tools.empty()) {
-    os << "first tool: " << tools.front().name << std::endl;
-  }
-
-  const auto wobjs = robot.wobjsInfo(ec);
-  if (reportError("wobjsInfo", ec)) {
-    cleanupRobot(robot);
-    return 1;
-  }
-  os << "wobjs count: " << wobjs.size() << std::endl;
-  if (!wobjs.empty()) {
-    os << "first wobj: " << wobjs.front().name << std::endl;
-  }
+  os << "runtime options updated" << std::endl;
 
   printSection("4 模型、规划与 RT 控制器");
   auto model = robot.model();

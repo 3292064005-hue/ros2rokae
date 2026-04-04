@@ -10,6 +10,7 @@ namespace rokae_xmate3_ros2::runtime {
 
 TEST(RuntimeProfileCapabilitiesContract, SummariesStayStructured) {
   SessionState session;
+  DataStoreState data_store;
   MotionOptionsState options;
   session.setSimulationMode(true);
   session.setMotionMode(3);
@@ -18,7 +19,7 @@ TEST(RuntimeProfileCapabilitiesContract, SummariesStayStructured) {
   options.setDefaultZone(20);
   const auto profiles = buildRuntimeProfileCatalog("hybrid", "rt_simulated", {"rt.experimental", "trajectory_executor"});
   const auto summary = summarizeRuntimeProfileCatalog(profiles);
-  const auto option_entries = buildRuntimeOptionCatalog(options, session);
+  const auto option_entries = buildRuntimeOptionCatalog(options, session, data_store);
   const auto option_summary = summarizeRuntimeOptionCatalog(option_entries);
   const auto planning_summary = summarizePlanningCapabilityCatalog(
       buildKinematicsBackendCatalog("kdl"),
@@ -28,6 +29,9 @@ TEST(RuntimeProfileCapabilitiesContract, SummariesStayStructured) {
   EXPECT_NE(option_summary.find("default_speed=250.000"), std::string::npos);
   EXPECT_NE(option_summary.find("simulation_mode=true"), std::string::npos);
   EXPECT_NE(planning_summary.find("kinematics[kdl=active"), std::string::npos);
+  const auto field_policy_summary = summarizeRtFieldPolicies(defaultRtFieldSet());
+  EXPECT_NE(field_policy_summary.find("policy_source=rt_field_registry"), std::string::npos);
+  EXPECT_NE(field_policy_summary.find("jointPos_m=strict_in_loop"), std::string::npos);
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

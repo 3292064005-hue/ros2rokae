@@ -25,7 +25,6 @@ void ToolingState::setToolset(const std::string &tool_name,
   }
   current_tool_mass_ = tool_mass_registry_[current_tool_name_];
   current_tool_com_ = tool_com_registry_[current_tool_name_];
-  base_pose_ = current_wobj_pose_;
 }
 
 bool ToolingState::setToolsetByName(const std::string &tool_name, const std::string &wobj_name) {
@@ -43,7 +42,6 @@ bool ToolingState::setToolsetByName(const std::string &tool_name, const std::str
   current_wobj_pose_ = wobj_it->second;
   current_tool_mass_ = tool_mass_registry_[current_tool_name_];
   current_tool_com_ = tool_com_registry_[current_tool_name_];
-  base_pose_ = current_wobj_pose_;
   return true;
 }
 
@@ -71,6 +69,21 @@ ToolsetSnapshot ToolingState::toolset() const {
       current_tool_mass_,
       current_tool_com_,
   };
+}
+
+
+bool ToolingState::isCompatibleWith(const ToolsetSnapshot &snapshot) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto normalize = [](const std::vector<double> &pose) {
+    return detail::normalize_runtime_pose(pose);
+  };
+  return current_tool_name_ == (snapshot.tool_name.empty() ? std::string("tool0") : snapshot.tool_name) &&
+         current_wobj_name_ == (snapshot.wobj_name.empty() ? std::string("wobj0") : snapshot.wobj_name) &&
+         current_tool_pose_ == normalize(snapshot.tool_pose) &&
+         current_wobj_pose_ == normalize(snapshot.wobj_pose) &&
+         base_pose_ == normalize(snapshot.base_pose) &&
+         std::abs(current_tool_mass_ - snapshot.tool_mass) < 1e-9 &&
+         current_tool_com_ == snapshot.tool_com;
 }
 
 void ToolingState::setBaseFrame(const std::vector<double> &base_pose) {

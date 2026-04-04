@@ -38,6 +38,14 @@ uint32 watchdog_trigger_count
 string profile_capability_summary
 string planning_capability_summary
 string runtime_option_summary
+string last_api_surface
+string last_result_source
+string rt_dispatch_mode
+string rt_state_source
+string model_exactness_summary
+string model_primary_backend
+bool model_fallback_used
+string catalog_provenance_summary
 uint32 tool_catalog_size
 uint32 wobj_catalog_size
 uint32 project_catalog_size

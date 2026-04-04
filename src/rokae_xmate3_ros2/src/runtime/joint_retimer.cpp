@@ -8,8 +8,6 @@ namespace {
 
 constexpr double kMinJointVelocityRadPerSec = 0.05;
 constexpr double kMinJointAccelerationRadPerSec2 = 0.10;
-constexpr double kQuinticPeakVelocityCoeff = 1.875;
-constexpr double kQuinticPeakAccelerationCoeff = 10.0 / std::sqrt(3.0);
 
 int determine_interval_count(double total_time,
                              double requested_dt,
@@ -52,21 +50,20 @@ double computeJointRetimerDuration(const std::vector<double> &start,
         std::max(joint_speed_limits_rad_per_sec[axis], kMinJointVelocityRadPerSec);
     const double acceleration_limit =
         std::max(joint_acc_limits_rad_per_sec2[axis], kMinJointAccelerationRadPerSec2);
-    const double velocity_bound = kQuinticPeakVelocityCoeff * delta / velocity_limit;
-    const double acceleration_bound =
-        std::sqrt(kQuinticPeakAccelerationCoeff * delta / acceleration_limit);
-    total_time = std::max(total_time, std::max(velocity_bound, acceleration_bound));
+    StrictJerkLimitedScalarProfile profile;
+    profile.configure(delta, velocity_limit, acceleration_limit, acceleration_limit);
+    total_time = std::max(total_time, profile.total_time());
   }
   return total_time;
 }
 
-QuinticRetimerResult retimeJointQuintic(
+JointRetimerResult retimeJointStrictJerkLimited(
     const std::vector<double> &start,
     const std::vector<double> &target,
     const JointRetimerConfig &config,
     const std::array<double, 6> &joint_speed_limits_rad_per_sec,
     const std::array<double, 6> &joint_acc_limits_rad_per_sec2) {
-  QuinticRetimerResult result;
+  JointRetimerResult result;
   if (start.empty() || start.size() != target.size()) {
     return result;
   }
@@ -102,24 +99,28 @@ QuinticRetimerResult retimeJointQuintic(
   result.velocities.reserve(static_cast<std::size_t>(interval_count) + 1);
   result.accelerations.reserve(static_cast<std::size_t>(interval_count) + 1);
 
+  std::vector<StrictJerkLimitedScalarProfile> profiles(start.size());
+  for (std::size_t axis = 0; axis < start.size(); ++axis) {
+    const double velocity_limit = std::max(joint_speed_limits_rad_per_sec[axis], kMinJointVelocityRadPerSec);
+    const double acceleration_limit = std::max(joint_acc_limits_rad_per_sec2[axis], kMinJointAccelerationRadPerSec2);
+    profiles[axis].configure(target[axis] - start[axis], velocity_limit, acceleration_limit, acceleration_limit);
+  }
+
   for (int index = 0; index <= interval_count; ++index) {
-    const double u = static_cast<double>(index) / static_cast<double>(interval_count);
-    const double u2 = u * u;
-    const double u3 = u2 * u;
-    const double u4 = u3 * u;
-    const double u5 = u4 * u;
-    const double blend = 10.0 * u3 - 15.0 * u4 + 6.0 * u5;
-    const double blend_dot = 30.0 * u2 - 60.0 * u3 + 30.0 * u4;
-    const double blend_ddot = 60.0 * u - 180.0 * u2 + 120.0 * u3;
+    const double t = static_cast<double>(index) * result.sample_dt;
 
     std::vector<double> position(start.size(), 0.0);
     std::vector<double> velocity(start.size(), 0.0);
     std::vector<double> acceleration(start.size(), 0.0);
     for (std::size_t axis = 0; axis < start.size(); ++axis) {
-      const double delta = target[axis] - start[axis];
-      position[axis] = start[axis] + delta * blend;
-      velocity[axis] = delta * blend_dot / result.total_time;
-      acceleration[axis] = delta * blend_ddot / (result.total_time * result.total_time);
+      const double axis_total_time = profiles[axis].total_time();
+      const double sample_time = (axis_total_time <= 1e-12 || result.total_time <= 1e-12)
+                                     ? axis_total_time
+                                     : std::clamp(t / result.total_time, 0.0, 1.0) * axis_total_time;
+      const auto sample = profiles[axis].sample(sample_time);
+      position[axis] = start[axis] + sample.position;
+      velocity[axis] = sample.velocity;
+      acceleration[axis] = sample.acceleration;
     }
     result.positions.push_back(std::move(position));
     result.velocities.push_back(std::move(velocity));
@@ -129,7 +130,7 @@ QuinticRetimerResult retimeJointQuintic(
   return result;
 }
 
-::gazebo::TrajectorySamples toTrajectorySamples(const QuinticRetimerResult &result) {
+::gazebo::TrajectorySamples toTrajectorySamples(const JointRetimerResult &result) {
   ::gazebo::TrajectorySamples samples;
   samples.points = result.positions;
   samples.velocities = result.velocities;

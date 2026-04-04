@@ -16,3 +16,9 @@ Kinematics now follows a stricter rule than before:
 - a single request never mixes primary backends mid-solve
 
 This avoids the previous ambiguity where different steps of the same solve could silently traverse different geometry models.
+
+## Runtime RT dispatch policy
+
+- public RT APIs now prefer a runtime-owned direct RT command channel
+- the default implementation no longer intentionally routes RT loop commands through the queued NRT move pipeline
+- diagnostics must expose `last_api_surface`, `last_result_source`, and `rt_dispatch_mode` so simulation-only behaviour stays auditable

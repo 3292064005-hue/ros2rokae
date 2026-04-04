@@ -5,6 +5,7 @@ namespace rokae::ros2 {
 std::string xMateRobot::sendCustomData(const std::string& topic,
                                        const std::string& payload,
                                        std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return {};
@@ -33,6 +34,7 @@ std::string xMateRobot::sendCustomData(const std::string& topic,
 bool xMateRobot::registerDataCallback(const std::string& data_topic,
                                       const std::string& callback_id,
                                       std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return false;
@@ -59,6 +61,7 @@ bool xMateRobot::registerDataCallback(const std::string& data_topic,
 }
 
 std::string xMateRobot::readRegister(const std::string& name, int index, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (impl_->connected_ && impl_->xmate3_comm_read_register_ex_client_ && impl_->wait_for_service(impl_->xmate3_comm_read_register_ex_client_, ec)) {
         auto request = std::make_shared<rokae_xmate3_ros2::srv::ReadRegisterEx::Request>();
         request->name = name;
@@ -76,6 +79,7 @@ std::string xMateRobot::readRegister(const std::string& name, int index, std::er
 }
 
 std::string xMateRobot::readRegister(const std::string& key, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return {};
@@ -100,6 +104,7 @@ std::string xMateRobot::readRegister(const std::string& key, std::error_code& ec
 }
 
 void xMateRobot::writeRegister(const std::string& name, int index, const std::string& value, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (impl_->connected_ && impl_->xmate3_comm_write_register_ex_client_ && impl_->wait_for_service(impl_->xmate3_comm_write_register_ex_client_, ec)) {
         auto request = std::make_shared<rokae_xmate3_ros2::srv::WriteRegisterEx::Request>();
         request->name = name;
@@ -118,6 +123,7 @@ void xMateRobot::writeRegister(const std::string& name, int index, const std::st
 }
 
 void xMateRobot::setxPanelVout(rokae::xPanelOpt::Vout opt, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (impl_->connected_ && impl_->xmate3_comm_set_xpanel_vout_client_ && impl_->wait_for_service(impl_->xmate3_comm_set_xpanel_vout_client_, ec)) {
         auto request = std::make_shared<rokae_xmate3_ros2::srv::SetXPanelVout::Request>();
         request->mode = static_cast<int>(opt);
@@ -140,6 +146,7 @@ void xMateRobot::setxPanelVout(rokae::xPanelOpt::Vout opt, std::error_code& ec) 
 }
 
 void xMateRobot::writeRegister(const std::string& key, const std::string& value, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return;

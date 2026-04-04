@@ -11,6 +11,14 @@ namespace {
 
 constexpr std::size_t kMaxRtPayloadBytes = 1024;
 
+bool isAllowedRtIntervalMs(double interval_ms) {
+  return std::fabs(interval_ms - 1.0) <= 1e-6 ||
+         std::fabs(interval_ms - 2.0) <= 1e-6 ||
+         std::fabs(interval_ms - 4.0) <= 1e-6 ||
+         std::fabs(interval_ms - 8.0) <= 1e-6 ||
+         std::fabs(interval_ms - 1000.0) <= 1e-6;
+}
+
 }  // namespace
 
 std::string RtSubscriptionPlan::summary() const {
@@ -41,6 +49,12 @@ RtSubscriptionPlan buildRtSubscriptionPlan(const std::vector<std::string> &reque
   plan.use_state_data_in_loop = use_state_data_in_loop;
   plan.interval_ms = std::chrono::duration<double, std::milli>(interval).count();
 
+  if (!isAllowedRtIntervalMs(plan.interval_ms)) {
+    plan.status = "unsupported_interval";
+    plan.notes.push_back("rt.plan=unsupported_interval");
+    return plan;
+  }
+
   if (requested_fields.empty()) {
     plan.status = "no_fields";
     plan.notes.push_back("rt.plan=no_fields");
@@ -55,6 +69,12 @@ RtSubscriptionPlan buildRtSubscriptionPlan(const std::vector<std::string> &reque
     const auto *descriptor = findRtFieldDescriptor(field);
     if (descriptor == nullptr) {
       plan.rejected_fields.push_back(field);
+      plan.notes.push_back("rt.plan.unsupported=" + field);
+      continue;
+    }
+    if (use_state_data_in_loop && !descriptor->strict_in_loop_supported) {
+      plan.rejected_fields.push_back(field);
+      plan.notes.push_back("rt.plan.requires_polled_state=" + field);
       continue;
     }
     plan.accepted_fields.push_back(field);
@@ -69,6 +89,9 @@ RtSubscriptionPlan buildRtSubscriptionPlan(const std::vector<std::string> &reque
   if (!plan.rejected_fields.empty()) {
     plan.status = "unsupported_fields";
     plan.notes.push_back("rt.plan=rejected_fields_present");
+    if (use_state_data_in_loop) {
+      plan.notes.push_back("rt.plan.strict_in_loop_native_only=true");
+    }
     return plan;
   }
   if (plan.total_bytes > kMaxRtPayloadBytes) {

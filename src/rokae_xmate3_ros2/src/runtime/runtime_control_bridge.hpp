@@ -21,6 +21,9 @@ struct RuntimeControlBridgeConfig {
   std::vector<std::string> rt_default_fields{"q_m", "dq_m", "tau_m"};
   bool rt_use_state_data_in_loop = true;
   bool rt_network_tolerance_configured = true;
+  double rt_command_timeout_sec = 0.25;
+  std::array<double, 6> joint_position_gain{{220.0, 220.0, 180.0, 90.0, 60.0, 40.0}};
+  std::array<double, 6> joint_damping_gain{{28.0, 28.0, 22.0, 12.0, 8.0, 6.0}};
 };
 
 struct ControlTickResult {
@@ -52,6 +55,13 @@ class RuntimeControlBridge {
   std::size_t servo_lag_warning_count_ = 0;
   RtSubscriptionPlan default_rt_plan_{};
   RtWatchdog rt_watchdog_{};
+  std::uint64_t last_rt_sequence_ = 0;
+  std::array<double, 6> last_torque_command_{};
+  std::array<double, 6> last_joint_target_{};
+  std::array<double, 6> last_cartesian_target_{};
+  bool has_last_torque_command_ = false;
+  bool has_last_joint_target_ = false;
+  bool has_last_cartesian_target_ = false;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

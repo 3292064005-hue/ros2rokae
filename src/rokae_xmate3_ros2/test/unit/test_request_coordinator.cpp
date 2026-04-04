@@ -17,6 +17,7 @@ TEST(MotionRequestCoordinatorTest, SubmitMoveAppendOccupiesRuntimeSlotUntilReset
   motion_options_state.setAvoidSingularity(true);
 
   rt::MotionRuntime runtime;
+  runtime.reset();
   rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, runtime);
 
   rokae_xmate3_ros2::action::MoveAppend::Goal goal;

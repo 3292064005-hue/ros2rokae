@@ -162,6 +162,33 @@ void ProgramState::saveRecordedPath(const std::string &name) {
   asset.toolset = recorded_toolset_;
   asset.source = record_source_;
   saved_paths_[name] = std::move(asset);
+  recorded_path_.clear();
+  record_time_origin_initialized_ = false;
+  record_time_origin_sec_ = 0.0;
+  record_created_at_sec_ = 0.0;
+}
+
+bool ProgramState::hasRecordedPathData() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return !recorded_path_.empty();
+}
+
+bool ProgramState::renameSavedPath(const std::string &name, const std::string &save_as) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (name.empty() || save_as.empty()) {
+    return false;
+  }
+  const auto it = saved_paths_.find(name);
+  if (it == saved_paths_.end()) {
+    return false;
+  }
+  if (name == save_as) {
+    return true;
+  }
+  auto asset = it->second;
+  saved_paths_.erase(it);
+  saved_paths_[save_as] = std::move(asset);
+  return true;
 }
 
 bool ProgramState::getSavedPath(const std::string &name,

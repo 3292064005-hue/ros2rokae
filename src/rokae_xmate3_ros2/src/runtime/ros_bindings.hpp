@@ -2,8 +2,11 @@
 #define ROKAE_XMATE3_ROS2_RUNTIME_ROS_BINDINGS_HPP
 
 #include <array>
+#include <atomic>
 #include <functional>
+#include <future>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -28,6 +31,7 @@ class RosBindings {
               TimeProvider time_provider,
               TrajectoryDtProvider trajectory_dt_provider,
               RequestIdGenerator request_id_generator);
+  ~RosBindings();
 
  public:
   [[nodiscard]] const rclcpp::Node::SharedPtr &node() const noexcept { return node_; }
@@ -58,6 +62,9 @@ class RosBindings {
   std::vector<rclcpp::ServiceBase::SharedPtr> services_;
   std::vector<rclcpp::ServiceBase::SharedPtr> compatibility_services_;
   rclcpp_action::Server<rokae_xmate3_ros2::action::MoveAppend>::SharedPtr move_append_action_server_;
+  std::atomic<bool> move_append_shutdown_requested_{false};
+  std::mutex move_append_workers_mutex_;
+  std::vector<std::future<void>> move_append_workers_;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

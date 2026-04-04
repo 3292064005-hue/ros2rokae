@@ -101,6 +101,14 @@ struct RuntimeDiagnosticsSnapshot {
   std::string profile_capability_summary{"unknown"};
   std::string planning_capability_summary{"unknown"};
   std::string runtime_option_summary{"unknown"};
+  std::string last_api_surface{"unknown"};
+  std::string last_result_source{"runtime"};
+  std::string rt_dispatch_mode{"idle"};
+  std::string rt_state_source{"unknown"};
+  std::string model_exactness_summary{"kinematics=simulation_grade;dynamics=approximate;jacobian=simulation_grade;wrench=approximate"};
+  std::string model_primary_backend{"unknown"};
+  bool model_fallback_used = false;
+  std::string catalog_provenance_summary{"runtime_authoritative"};
   std::uint32_t tool_catalog_size = 0;
   std::uint32_t wobj_catalog_size = 0;
   std::uint32_t project_catalog_size = 0;

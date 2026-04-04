@@ -1139,7 +1139,8 @@ std::string loadUrdfXml(std::string &origin) {
   std::vector<std::filesystem::path> candidates;
   if (const auto share_dir = resolvePackageShareDir(); !share_dir.empty()) {
     const auto share_path = std::filesystem::path(share_dir);
-    candidates.emplace_back(share_path / "generated" / "xMate3.urdf");
+    candidates.emplace_back(share_path / "generated" / "urdf" / "xMate3.urdf");
+    candidates.emplace_back(share_path / "generated" / "xMate3.urdf");  // backward-compatible installed layout
     candidates.emplace_back(share_path / "urdf" / "xMate3.urdf");
   }
 #ifdef ROKAE_XMATE3_GENERATED_URDF_PATH

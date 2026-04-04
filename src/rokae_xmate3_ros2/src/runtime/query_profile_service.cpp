@@ -3,6 +3,7 @@
 #include "runtime/runtime_catalog_service.hpp"
 #include "runtime/runtime_profile_service.hpp"
 #include "runtime/planning_capability_service.hpp"
+#include "runtime/rt_field_registry.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -12,7 +13,7 @@ void QueryFacade::handleGetProfileCapabilities(
   (void)req;
   const auto snapshot = diagnostics_state_.snapshot();
   const auto profiles = buildRuntimeProfileCatalog(snapshot.backend_mode, snapshot.active_profile, snapshot.capability_flags);
-  const auto options = buildRuntimeOptionCatalog(motion_options_state_, session_state_);
+  const auto options = buildRuntimeOptionCatalog(motion_options_state_, session_state_, data_store_state_);
 
   res.active_profile = snapshot.active_profile;
   res.profile_names.reserve(profiles.size());
@@ -72,7 +73,8 @@ void QueryFacade::handleGetProfileCapabilities(
 
   res.success = true;
   res.message = summarizeRuntimeProfileCatalog(profiles) + "; " +
-                summarizePlanningCapabilityCatalog(kinematics_backends, retimer_policies, planner_policies);
+                summarizePlanningCapabilityCatalog(kinematics_backends, retimer_policies, planner_policies) + "; " +
+                summarizeRtFieldPolicies(defaultRtFieldSet());
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

@@ -36,6 +36,8 @@ class ProgramState {
                         const std::array<double, 6> &joint_velocity);
   void recordPathSample(const std::array<double, 6> &joint_position);
   void saveRecordedPath(const std::string &name);
+  [[nodiscard]] bool hasRecordedPathData() const;
+  [[nodiscard]] bool renameSavedPath(const std::string &name, const std::string &save_as);
   [[nodiscard]] bool getSavedPath(const std::string &name,
                                   std::vector<std::vector<double>> &path) const;
   [[nodiscard]] bool getReplayAsset(const std::string &name, ReplayPathAsset &asset) const;

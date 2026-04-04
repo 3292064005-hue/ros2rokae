@@ -3,6 +3,7 @@
 namespace rokae::ros2 {
 
 std::array<double, 6> xMateRobot::jointPos(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     std::array<double, 6> pos = {0.0};
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -17,6 +18,13 @@ std::array<double, 6> xMateRobot::jointPos(std::error_code& ec) {
             ec.clear();
             return pos;
         }
+    }
+
+    if (impl_->refreshRuntimeStateSnapshot(ec)) {
+        std::lock_guard<std::mutex> lock(impl_->state_cache_mutex_);
+        pos = impl_->runtime_state_snapshot_.joint_position;
+        ec.clear();
+        return pos;
     }
 
     if (!impl_->wait_for_service(impl_->xmate3_robot_get_joint_pos_client_, ec)) {
@@ -42,6 +50,7 @@ std::array<double, 6> xMateRobot::jointPos(std::error_code& ec) {
 // 获取关节速度
 
 std::array<double, 6> xMateRobot::jointVel(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     std::array<double, 6> vel = {0.0};
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -56,6 +65,13 @@ std::array<double, 6> xMateRobot::jointVel(std::error_code& ec) {
             ec.clear();
             return vel;
         }
+    }
+
+    if (impl_->refreshRuntimeStateSnapshot(ec)) {
+        std::lock_guard<std::mutex> lock(impl_->state_cache_mutex_);
+        vel = impl_->runtime_state_snapshot_.joint_velocity;
+        ec.clear();
+        return vel;
     }
 
     if (!impl_->wait_for_service(impl_->xmate3_robot_get_joint_vel_client_, ec)) {
@@ -83,6 +99,7 @@ std::array<double, 6> xMateRobot::jointVel(std::error_code& ec) {
 // 获取关节扭矩
 
 std::array<double, 6> xMateRobot::jointTorques(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     std::array<double, 6> torque = {0.0};
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -97,6 +114,13 @@ std::array<double, 6> xMateRobot::jointTorques(std::error_code& ec) {
             ec.clear();
             return torque;
         }
+    }
+
+    if (impl_->refreshRuntimeStateSnapshot(ec)) {
+        std::lock_guard<std::mutex> lock(impl_->state_cache_mutex_);
+        torque = impl_->runtime_state_snapshot_.joint_torque;
+        ec.clear();
+        return torque;
     }
 
     if (!impl_->wait_for_service(impl_->xmate3_robot_get_joint_torque_client_, ec)) {
@@ -122,12 +146,14 @@ std::array<double, 6> xMateRobot::jointTorques(std::error_code& ec) {
 }
 
 std::array<double, 6> xMateRobot::jointTorque(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     return jointTorques(ec);
 }
 
 // 获取末端位姿
 
 std::array<double, 6> xMateRobot::posture(rokae::CoordinateType ct, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     std::array<double, 6> pose = {0.0};
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -165,6 +191,7 @@ std::array<double, 6> xMateRobot::posture(rokae::CoordinateType ct, std::error_c
 // 获取笛卡尔位姿结构体
 
 rokae::CartesianPosition xMateRobot::cartPosture(rokae::CoordinateType ct, std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     rokae::CartesianPosition cart_pose;
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -189,9 +216,17 @@ rokae::CartesianPosition xMateRobot::cartPosture(rokae::CoordinateType ct, std::
 // 获取基坐标系
 
 std::array<double, 6> xMateRobot::baseFrame(std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
     std::array<double, 6> frame = {0.0};
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
+        return frame;
+    }
+
+    if (impl_->refreshRuntimeStateSnapshot(ec)) {
+        std::lock_guard<std::mutex> lock(impl_->state_cache_mutex_);
+        frame = impl_->runtime_state_snapshot_.base_frame;
+        ec.clear();
         return frame;
     }
 

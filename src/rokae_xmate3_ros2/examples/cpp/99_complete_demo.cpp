@@ -152,9 +152,9 @@ int main() {
   }
 
   printSection("2 开启状态流");
-  robot.startReceiveRobotState(std::chrono::milliseconds(200),
+  robot.startReceiveRobotState(std::chrono::milliseconds(8),
                                {RtSupportedFields::jointPos_m, RtSupportedFields::tcpPose_m});
-  robot.updateRobotState(std::chrono::milliseconds(200));
+  robot.updateRobotState(std::chrono::milliseconds(8));
   std::array<double, 6> q_m{};
   std::array<double, 16> tcp_pose_m{};
   if (robot.getStateData(RtSupportedFields::jointPos_m, q_m) == 0) {
@@ -211,34 +211,40 @@ int main() {
 
   printSection("4 IO 与寄存器");
   robot.setSimulationMode(true, ec);
-  if (reportError("setSimulationMode(true)", ec)) {
-    cleanupRobot(robot);
-    return 1;
+  if (ec) {
+    if (isSimulationOnlyCapabilityError(ec)) {
+      printCapabilityStatus("public-lane", "IO/register workflow is internal/backend only on the install-facing xMate6 SDK lane");
+      ec.clear();
+    } else if (reportError("setSimulationMode(true)", ec)) {
+      cleanupRobot(robot);
+      return 1;
+    }
+  } else {
+    robot.setDO(0, 0, true, ec);
+    if (reportError("setDO", ec)) {
+      cleanupRobot(robot);
+      return 1;
+    }
+    os << "DO[0][0] = " << (robot.getDO(0, 0, ec) ? "ON" : "OFF") << std::endl;
+    if (reportError("getDO", ec)) {
+      cleanupRobot(robot);
+      return 1;
+    }
+    float demo_reg = 3.14F;
+    robot.writeRegister("demo_register", 0, demo_reg, ec);
+    if (reportError("writeRegister(demo_register)", ec)) {
+      cleanupRobot(robot);
+      return 1;
+    }
+    demo_reg = 0.0F;
+    robot.readRegister("demo_register", 0, demo_reg, ec);
+    if (reportError("readRegister(demo_register)", ec)) {
+      cleanupRobot(robot);
+      return 1;
+    }
+    os << "demo_register[0] = " << demo_reg << std::endl;
+    robot.setSimulationMode(false, ec);
   }
-  robot.setDO(0, 0, true, ec);
-  if (reportError("setDO", ec)) {
-    cleanupRobot(robot);
-    return 1;
-  }
-  os << "DO[0][0] = " << (robot.getDO(0, 0, ec) ? "ON" : "OFF") << std::endl;
-  if (reportError("getDO", ec)) {
-    cleanupRobot(robot);
-    return 1;
-  }
-  float demo_reg = 3.14F;
-  robot.writeRegister("demo_register", 0, demo_reg, ec);
-  if (reportError("writeRegister(demo_register)", ec)) {
-    cleanupRobot(robot);
-    return 1;
-  }
-  demo_reg = 0.0F;
-  robot.readRegister("demo_register", 0, demo_reg, ec);
-  if (reportError("readRegister(demo_register)", ec)) {
-    cleanupRobot(robot);
-    return 1;
-  }
-  os << "demo_register[0] = " << demo_reg << std::endl;
-  robot.setSimulationMode(false, ec);
 
   printSection("5 模型接口");
   auto model = robot.model();
