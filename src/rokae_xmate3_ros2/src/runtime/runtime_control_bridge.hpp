@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
+#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
 #include "runtime/rt_subscription_plan.hpp"
 #include "runtime/rt_watchdog.hpp"
 #include "runtime/runtime_context.hpp"
@@ -25,6 +26,13 @@ struct RuntimeControlBridgeConfig {
   double rt_command_timeout_sec = 0.25;
   std::array<double, 6> joint_position_gain{{220.0, 220.0, 180.0, 90.0, 60.0, 40.0}};
   std::array<double, 6> joint_damping_gain{{28.0, 28.0, 22.0, 12.0, 8.0, 6.0}};
+  bool authoritative_servo_clock = false;
+  double authoritative_servo_period_sec = rokae_xmate3_ros2::spec::xmate3::kServoTickSec;
+  int max_servo_substeps_per_update = 8;
+  bool allow_topic_rt_transport = true;
+  bool allow_legacy_rt_custom_data = true;
+  bool require_shm_rt_transport = false;
+  bool fail_on_rt_deadline_miss = false;
 };
 
 struct ControlTickResult {
@@ -40,12 +48,25 @@ class RuntimeControlBridge {
   explicit RuntimeControlBridge(RuntimeContext &runtime_context,
                                 RuntimeControlBridgeConfig config = {});
 
+  /**
+   * @brief Execute one runtime servo update against the active backend.
+   *
+   * The bridge is the only place where runtime ownership arbitration, RT ingress
+   * selection, watchdog updates, and backend control application are combined. The
+   * call is intentionally synchronous so the host thread can be the single owner of
+   * the authoritative servo clock.
+   *
+   * @param backend Active runtime backend that receives control commands.
+   * @param snapshot Latest robot state snapshot sampled by the host.
+   * @param dt Wall/sim time elapsed since the previous host tick, in seconds.
+   * @return Per-tick control outcome including brake/control side effects.
+   */
   [[nodiscard]] ControlTickResult tick(BackendInterface &backend,
                                        const RobotSnapshot &snapshot,
                                        double dt);
 
  private:
- RuntimeContext &runtime_context_;
+  RuntimeContext &runtime_context_;
   RuntimeControlBridgeConfig config_;
   gazebo::xMate3Kinematics kinematics_;
   double servo_accumulator_sec_ = 0.0;

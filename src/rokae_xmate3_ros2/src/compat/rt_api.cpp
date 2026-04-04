@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <sstream>
 #include <thread>
 
@@ -16,6 +17,9 @@
 
 namespace rokae {
 namespace {
+
+constexpr auto kStrictLoopPeriod = std::chrono::milliseconds(1);
+constexpr auto kStrictLoopLatenessTolerance = std::chrono::microseconds(600);
 
 std::string bool_text(bool value) { return value ? "1" : "0"; }
 
@@ -109,8 +113,12 @@ std::array<double, 6> read_joint_state(detail::CompatRobotHandle &handle, error_
     ec.clear();
     return joints;
   }
+  joints = handle.backend->jointPos(ec);
+  if (!ec) {
+    return joints;
+  }
   ec = std::make_error_code(std::errc::resource_unavailable_try_again);
-  return joints;
+  return {};
 }
 
 std::array<double, 16> read_pose_state(detail::CompatRobotHandle &handle, error_code &ec) {
@@ -120,8 +128,13 @@ std::array<double, 16> read_pose_state(detail::CompatRobotHandle &handle, error_
     ec.clear();
     return pose;
   }
+  const auto live_posture = handle.backend->cartPosture(CoordinateType::flangeInBase, ec);
+  if (!ec) {
+    Utils::postureToTransArray(live_posture, pose);
+    return pose;
+  }
   ec = std::make_error_code(std::errc::resource_unavailable_try_again);
-  return pose;
+  return {};
 }
 
 void publish_custom(detail::CompatRobotHandle &handle,
@@ -177,28 +190,6 @@ void publish_torque_command(detail::CompatRtControllerHandle6 &ctx,
       static_cast<int>(ctx.loop->current_mode));
 }
 
-void wait_joint_target(detail::CompatRobotHandle &handle,
-                       const std::array<double, 6> &target,
-                       std::chrono::milliseconds timeout,
-                       double tolerance,
-                       error_code &ec) {
-  const auto deadline = std::chrono::steady_clock::now() + timeout;
-  while (std::chrono::steady_clock::now() < deadline) {
-    const auto joints = read_joint_state(handle, ec);
-    if (ec) return;
-    double max_value = 0.0;
-    for (std::size_t i = 0; i < joints.size(); ++i) {
-      max_value = std::max(max_value, std::fabs(joints[i] - target[i]));
-    }
-    if (max_value <= tolerance) {
-      ec.clear();
-      return;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  ec = std::make_error_code(std::errc::timed_out);
-}
-
 void wait_cartesian_target(detail::CompatRobotHandle &handle,
                            const std::array<double, 6> &target,
                            std::chrono::milliseconds timeout,
@@ -218,6 +209,25 @@ void wait_cartesian_target(detail::CompatRobotHandle &handle,
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   ec = std::make_error_code(std::errc::timed_out);
+}
+
+void set_loop_exception(detail::CompatLoopState &loop, std::exception_ptr eptr) {
+  std::lock_guard<std::mutex> lock(loop.exception_mutex);
+  loop.loop_exception = std::move(eptr);
+}
+
+std::exception_ptr take_loop_exception(detail::CompatLoopState &loop) {
+  std::lock_guard<std::mutex> lock(loop.exception_mutex);
+  auto eptr = loop.loop_exception;
+  loop.loop_exception = nullptr;
+  return eptr;
+}
+
+void rethrow_stored_loop_exception(detail::CompatLoopState &loop) {
+  auto eptr = take_loop_exception(loop);
+  if (eptr) {
+    std::rethrow_exception(eptr);
+  }
 }
 
 
@@ -267,53 +277,79 @@ bool cartesian_target_within_limit(const std::array<double, 6> &target,
 
 }  // namespace
 
-RtMotionControlCobot<6>::RtMotionControlCobot(std::shared_ptr<detail::CompatRtControllerHandle6> impl)
+BaseMotionControl::BaseMotionControl(std::shared_ptr<detail::CompatRtControllerHandle6> impl) noexcept
     : impl_(std::move(impl)) {}
 
-RtMotionControlCobot<6>::RtMotionControlCobot(RtMotionControlCobot &&) noexcept = default;
-RtMotionControlCobot<6> &RtMotionControlCobot<6>::operator=(RtMotionControlCobot &&) noexcept = default;
-RtMotionControlCobot<6>::~RtMotionControlCobot() = default;
+BaseMotionControl::~BaseMotionControl() = default;
 
-void RtMotionControlCobot<6>::reconnectNetwork(error_code &ec) noexcept {
+MotionControl<MotionControlMode::RtCommand>::MotionControl(std::shared_ptr<detail::CompatRtControllerHandle6> impl) noexcept
+    : BaseMotionControl(std::move(impl)) {}
+
+RtMotionControl<WorkType::collaborative, 6>::RtMotionControl(
+    std::shared_ptr<detail::CompatRtControllerHandle6> impl) noexcept
+    : MotionControl<MotionControlMode::RtCommand>(std::move(impl)) {}
+
+RtMotionControlCobot<6>::RtMotionControlCobot(std::shared_ptr<detail::CompatRtControllerHandle6> impl) noexcept
+    : RtMotionControl<WorkType::collaborative, 6>(std::move(impl)) {}
+
+void MotionControl<MotionControlMode::RtCommand>::reconnectNetwork(error_code &ec) noexcept {
   rokae_xmate3_ros2::runtime::rt_command_bridge::publishMetadata(*impl_->robot->backend, "independent_rt", ec);
 }
 
-void RtMotionControlCobot<6>::disconnectNetwork() noexcept {
+void MotionControl<MotionControlMode::RtCommand>::disconnectNetwork() noexcept {
   if (!impl_) return;
   error_code ec;
   rokae_xmate3_ros2::runtime::rt_command_bridge::publishStop(*impl_->robot->backend, ec);
+  impl_->loop->move_started.store(false);
 }
 
-void RtMotionControlCobot<6>::setControlLoop(const std::function<JointPosition(void)> &callback,
-                                             int,
-                                             bool useStateDataInLoop) {
+template <class Command>
+void MotionControl<MotionControlMode::RtCommand>::setControlLoop(const std::function<Command(void)> &callback,
+                                                                 int,
+                                                                 bool useStateDataInLoop) noexcept {
+  if (!impl_) {
+    return;
+  }
   impl_->loop->callback = [callback]() { return std::any(callback()); };
   impl_->loop->use_state_data_in_loop = useStateDataInLoop;
 }
 
-void RtMotionControlCobot<6>::setControlLoop(const std::function<CartesianPosition(void)> &callback,
-                                             int,
-                                             bool useStateDataInLoop) {
-  impl_->loop->callback = [callback]() { return std::any(callback()); };
-  impl_->loop->use_state_data_in_loop = useStateDataInLoop;
-}
-
-void RtMotionControlCobot<6>::setControlLoop(const std::function<Torque(void)> &callback,
-                                             int,
-                                             bool useStateDataInLoop) {
-  impl_->loop->callback = [callback]() { return std::any(callback()); };
-  impl_->loop->use_state_data_in_loop = useStateDataInLoop;
-}
-
-void RtMotionControlCobot<6>::startLoop(bool blocking) {
+void MotionControl<MotionControlMode::RtCommand>::startLoop(bool blocking) {
+  rethrow_stored_loop_exception(*impl_->loop);
   if (!impl_->loop->callback) {
     throw RealtimeControlException("RtMotionControlCobot::startLoop requires a configured callback");
   }
-  stopLoop();
-  auto body = [ctx = impl_]() {
+  if (!impl_->loop->move_started.load()) {
+    throw RealtimeStateException("RtMotionControlCobot::startLoop requires startMove() before entering loop");
+  }
+  if (impl_->loop->running.load()) {
+    throw RealtimeStateException("RtMotionControlCobot::startLoop called while loop is already running");
+  }
+  bool strict_loop_timing = false;
+  {
+    std::string active_profile;
+    std::vector<RuntimeProfileCapability> profiles;
+    std::vector<RuntimeOptionDescriptor> options;
+    error_code profile_ec;
+    if (impl_->robot->backend->getProfileCapabilities(active_profile, profiles, options, profile_ec) &&
+        active_profile == "hard_1khz") {
+      strict_loop_timing = true;
+    }
+  }
+  auto body = [ctx = impl_, strict_loop_timing]() {
     auto next_tick = std::chrono::steady_clock::now();
+    int loop_cycle_count = 0;
     while (ctx->loop->running.load()) {
       try {
+        const auto now = std::chrono::steady_clock::now();
+        if (strict_loop_timing &&
+            loop_cycle_count > 10 &&
+            now > next_tick + kStrictLoopLatenessTolerance) {
+          error_code ec = std::make_error_code(std::errc::timed_out);
+          rokae_xmate3_ros2::runtime::rt_command_bridge::publishStop(*ctx->robot->backend, ec);
+          ctx->loop->running.store(false);
+          throw RealtimeControlException("RtMotionControlCobot::startLoop deadline miss (>1kHz strict window)", ec);
+        }
         if (ctx->loop->use_state_data_in_loop) {
           ctx->robot->backend->updateRobotState(std::chrono::milliseconds(1));
         }
@@ -342,11 +378,27 @@ void RtMotionControlCobot<6>::startLoop(bool blocking) {
         if (ec || finished) {
           rokae_xmate3_ros2::runtime::rt_command_bridge::publishStop(*ctx->robot->backend, ec);
           ctx->loop->running.store(false);
+          if (ec) {
+            throw RealtimeControlException("RtMotionControlCobot::startLoop command dispatch failed", ec);
+          }
           break;
         }
-        next_tick += std::chrono::milliseconds(1);
+        next_tick += kStrictLoopPeriod;
+        ++loop_cycle_count;
         std::this_thread::sleep_until(next_tick);
+      } catch (const RealtimeControlException &) {
+        set_loop_exception(*ctx->loop, std::current_exception());
+        ctx->loop->running.store(false);
+        break;
+      } catch (const Exception &) {
+        set_loop_exception(*ctx->loop, std::current_exception());
+        error_code ignore_ec;
+        rokae_xmate3_ros2::runtime::rt_command_bridge::publishStop(*ctx->robot->backend, ignore_ec);
+        ctx->loop->running.store(false);
+        break;
       } catch (...) {
+        set_loop_exception(*ctx->loop, std::make_exception_ptr(
+            RealtimeControlException("RtMotionControlCobot::startLoop unexpected runtime failure")));
         error_code ignore_ec;
         rokae_xmate3_ros2::runtime::rt_command_bridge::publishStop(*ctx->robot->backend, ignore_ec);
         ctx->loop->running.store(false);
@@ -357,39 +409,48 @@ void RtMotionControlCobot<6>::startLoop(bool blocking) {
   impl_->loop->running.store(true);
   if (blocking) {
     body();
+    rethrow_stored_loop_exception(*impl_->loop);
   } else {
     impl_->loop->worker = std::thread(body);
   }
 }
 
-void RtMotionControlCobot<6>::stopLoop() {
+void MotionControl<MotionControlMode::RtCommand>::stopLoop() {
   if (!impl_) return;
   impl_->loop->running.store(false);
   if (impl_->loop->worker.joinable()) {
     impl_->loop->worker.join();
   }
+  rethrow_stored_loop_exception(*impl_->loop);
 }
 
-void RtMotionControlCobot<6>::startMove(RtControllerMode rtMode) {
+void RtMotionControl<WorkType::collaborative, 6>::startMove(RtControllerMode rtMode) {
+  rethrow_stored_loop_exception(*impl_->loop);
+  if (impl_->loop->move_started.load()) {
+    throw RealtimeStateException("RtMotionControl::startMove repeated while a realtime move session is active");
+  }
   error_code ec;
   impl_->robot->backend->setRtControlMode(rtMode, ec);
-  throw_if_error<RealtimeControlException>(ec, "RtMotionControlCobot::startMove");
+  throw_if_error<RealtimeControlException>(ec, "RtMotionControl::startMove");
   impl_->loop->current_mode = rtMode;
+  impl_->loop->move_started.store(true);
 }
 
-void RtMotionControlCobot<6>::stopMove() {
+void MotionControl<MotionControlMode::RtCommand>::stopMove() {
   if (!impl_) return;
   error_code ec;
   rokae_xmate3_ros2::runtime::rt_command_bridge::publishStop(*impl_->robot->backend, ec);
+  impl_->loop->move_started.store(false);
 }
 
-void RtMotionControlCobot<6>::MoveJ(double speed,
-                                    const std::array<double, 6> &start,
-                                    const std::array<double, 6> &target) {
+void RtMotionControl<WorkType::collaborative, 6>::MoveJ(double speed,
+                                                        const std::array<double, 6> &start,
+                                                        const std::array<double, 6> &target) {
   if (!compat_rt::isSpeedFactorValid(speed)) {
     throw RealtimeParameterException("RtMotionControlCobot::MoveJ invalid speed",
                                      std::make_error_code(std::errc::invalid_argument));
   }
+  startMove(RtControllerMode::jointPosition);
   error_code ec;
   const auto live = read_joint_state(*impl_->robot, ec);
   throw_if_error<RealtimeParameterException>(ec, "RtMotionControlCobot::MoveJ read state");
@@ -401,23 +462,41 @@ void RtMotionControlCobot<6>::MoveJ(double speed,
     throw RealtimeParameterException("RtMotionControlCobot::MoveJ start validation failed",
                                      std::make_error_code(std::errc::invalid_argument));
   }
-  publish_joint_command(*impl_, target, false, ec);
-  throw_if_error<RealtimeMotionException>(ec, "RtMotionControlCobot::MoveJ publish");
-  wait_joint_target(*impl_->robot,
-                    target,
-                    std::chrono::milliseconds(static_cast<int>(std::clamp(30000.0 / std::max(speed, 0.05), 5000.0, 60000.0))),
-                    2e-2,
-                    ec);
-  throw_if_error<RealtimeMotionException>(ec, "RtMotionControlCobot::MoveJ");
+  const auto timeout = std::chrono::milliseconds(
+      static_cast<int>(std::clamp(30000.0 / std::max(speed, 0.05), 5000.0, 60000.0)));
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  auto next_tick = std::chrono::steady_clock::now();
+  bool reached = false;
+  while (std::chrono::steady_clock::now() < deadline) {
+    publish_joint_command(*impl_, target, false, ec);
+    throw_if_error<RealtimeMotionException>(ec, "RtMotionControlCobot::MoveJ publish");
+    const auto current = read_joint_state(*impl_->robot, ec);
+    throw_if_error<RealtimeMotionException>(ec, "RtMotionControlCobot::MoveJ read back state");
+    double current_error = 0.0;
+    for (std::size_t i = 0; i < current.size(); ++i) {
+      current_error = std::max(current_error, std::fabs(current[i] - target[i]));
+    }
+    if (current_error <= 2e-2) {
+      reached = true;
+      break;
+    }
+    next_tick += std::chrono::milliseconds(1);
+    std::this_thread::sleep_until(next_tick);
+  }
+  if (!reached) {
+    ec = std::make_error_code(std::errc::timed_out);
+    throw_if_error<RealtimeMotionException>(ec, "RtMotionControlCobot::MoveJ");
+  }
 }
 
-void RtMotionControlCobot<6>::MoveL(double speed,
-                                    CartesianPosition &start,
-                                    CartesianPosition &target) {
+void RtMotionControl<WorkType::collaborative, 6>::MoveL(double speed,
+                                                        CartesianPosition &start,
+                                                        CartesianPosition &target) {
   if (!compat_rt::isSpeedFactorValid(speed)) {
     throw RealtimeParameterException("RtMotionControlCobot::MoveL invalid speed",
                                      std::make_error_code(std::errc::invalid_argument));
   }
+  startMove(RtControllerMode::cartesianPosition);
   error_code ec;
   const auto live_pose = read_pose_state(*impl_->robot, ec);
   throw_if_error<RealtimeParameterException>(ec, "RtMotionControlCobot::MoveL read state");
@@ -440,14 +519,15 @@ void RtMotionControlCobot<6>::MoveL(double speed,
   throw_if_error<RealtimeMotionException>(ec, "RtMotionControlCobot::MoveL");
 }
 
-void RtMotionControlCobot<6>::MoveC(double speed,
-                                    CartesianPosition &start,
-                                    CartesianPosition &aux,
-                                    CartesianPosition &target) {
+void RtMotionControl<WorkType::collaborative, 6>::MoveC(double speed,
+                                                        CartesianPosition &start,
+                                                        CartesianPosition &aux,
+                                                        CartesianPosition &target) {
   if (!compat_rt::isSpeedFactorValid(speed)) {
     throw RealtimeParameterException("RtMotionControlCobot::MoveC invalid speed",
                                      std::make_error_code(std::errc::invalid_argument));
   }
+  startMove(RtControllerMode::cartesianPosition);
 
   error_code ec;
   const auto live_pose = read_pose_state(*impl_->robot, ec);
@@ -516,7 +596,7 @@ void RtMotionControlCobot<6>::MoveC(double speed,
   throw_if_error<RealtimeMotionException>(ec, "RtMotionControlCobot::MoveC");
 }
 
-bool RtMotionControlCobot<6>::setFilterLimit(bool limit_rate, double cutoff_frequency) noexcept {
+bool RtMotionControl<WorkType::collaborative, 6>::setFilterLimit(bool limit_rate, double cutoff_frequency) noexcept {
   if (!std::isfinite(cutoff_frequency) || cutoff_frequency < 0.0 || cutoff_frequency > 1000.0) {
     return false;
   }
@@ -528,9 +608,9 @@ bool RtMotionControlCobot<6>::setFilterLimit(bool limit_rate, double cutoff_freq
   return !ec;
 }
 
-void RtMotionControlCobot<6>::setCartesianLimit(const std::array<double, 3> &lengths,
-                                                const std::array<double, 16> &frame,
-                                                error_code &ec) noexcept {
+void RtMotionControl<WorkType::collaborative, 6>::setCartesianLimit(const std::array<double, 3> &lengths,
+                                                                    const std::array<double, 16> &frame,
+                                                                    error_code &ec) noexcept {
   if (!finite_array3_non_negative(lengths) || !finite_matrix16(frame)) {
     ec = std::make_error_code(std::errc::invalid_argument);
     return;
@@ -573,7 +653,7 @@ void RtMotionControlCobot<6>::setCollisionBehaviour(const std::array<double, 6> 
                  ec);
 }
 
-void RtMotionControlCobot<6>::setEndEffectorFrame(const std::array<double, 16> &frame, error_code &ec) noexcept {
+void RtMotionControl<WorkType::collaborative, 6>::setEndEffectorFrame(const std::array<double, 16> &frame, error_code &ec) noexcept {
   if (!finite_matrix16(frame)) {
     ec = std::make_error_code(std::errc::invalid_argument);
     return;
@@ -585,7 +665,7 @@ void RtMotionControlCobot<6>::setEndEffectorFrame(const std::array<double, 16> &
   publish_custom(*impl_->robot, rokae_xmate3_ros2::runtime::rt_topics::kConfigEndEffectorFrame, serialize_matrix16(frame), ec);
 }
 
-void RtMotionControlCobot<6>::setLoad(const Load &load, error_code &ec) noexcept {
+void RtMotionControl<WorkType::collaborative, 6>::setLoad(const Load &load, error_code &ec) noexcept {
   if (!std::isfinite(load.mass) || load.mass < 0.0 ||
       !std::isfinite(load.cog[0]) || !std::isfinite(load.cog[1]) || !std::isfinite(load.cog[2]) ||
       !std::isfinite(load.inertia[0]) || !std::isfinite(load.inertia[1]) || !std::isfinite(load.inertia[2]) ||
@@ -598,6 +678,24 @@ void RtMotionControlCobot<6>::setLoad(const Load &load, error_code &ec) noexcept
     impl_->robot->model_load_cache = load;
   }
   publish_custom(*impl_->robot, rokae_xmate3_ros2::runtime::rt_topics::kConfigLoad, serialize_load(load), ec);
+}
+
+void MotionControl<MotionControlMode::RtCommand>::startReceiveRobotState(const std::vector<std::string> &) {
+  throw RealtimeControlException(
+      "MotionControl<RtCommand>::startReceiveRobotState is not supported on xMate6 public lane",
+      make_error_code(SdkError::not_implemented));
+}
+
+void MotionControl<MotionControlMode::RtCommand>::stopReceiveRobotState() noexcept {}
+
+void MotionControl<MotionControlMode::RtCommand>::updateRobotState() {
+  throw RealtimeStateException(
+      "MotionControl<RtCommand>::updateRobotState is not supported on xMate6 public lane",
+      make_error_code(SdkError::not_implemented));
+}
+
+void MotionControl<MotionControlMode::RtCommand>::automaticErrorRecovery(error_code &ec) noexcept {
+  detail::setPublicLaneUnsupported(impl_->robot, ec, "rt.deprecated_recovery");
 }
 
 void RtMotionControlCobot<6>::setFilterFrequency(double jointFrequency,
@@ -659,21 +757,32 @@ void RtMotionControlCobot<6>::setFcCoor(const std::array<double, 16> &frame,
                  ec);
 }
 
-void RtMotionControlCobot<6>::automaticErrorRecovery(error_code &ec) noexcept {
-  impl_->robot->backend->clearServoAlarm(ec);
-  if (!ec) {
-    impl_->robot->backend->moveReset(ec);
-  }
-}
-
 std::weak_ptr<RtMotionControlCobot<6>> BaseCobot::getRtMotionController() {
   std::lock_guard<std::mutex> lock(handle_->mutex);
+  if (handle_->rt_controller_owner) {
+    return handle_->rt_controller_owner;
+  }
   if (auto existing = handle_->rt_controller.lock()) {
+    handle_->rt_controller_owner = existing;
     return existing;
   }
   auto controller = std::shared_ptr<RtMotionControlCobot<6>>(new RtMotionControlCobot<6>(std::make_shared<detail::CompatRtControllerHandle6>(handle_)));
+  handle_->rt_controller_owner = controller;
   handle_->rt_controller = controller;
   return controller;
 }
+
+template void MotionControl<MotionControlMode::RtCommand>::setControlLoop<JointPosition>(
+    const std::function<JointPosition(void)> &callback,
+    int priority,
+    bool useStateDataInLoop) noexcept;
+template void MotionControl<MotionControlMode::RtCommand>::setControlLoop<CartesianPosition>(
+    const std::function<CartesianPosition(void)> &callback,
+    int priority,
+    bool useStateDataInLoop) noexcept;
+template void MotionControl<MotionControlMode::RtCommand>::setControlLoop<Torque>(
+    const std::function<Torque(void)> &callback,
+    int priority,
+    bool useStateDataInLoop) noexcept;
 
 }  // namespace rokae

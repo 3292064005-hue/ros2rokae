@@ -1,15 +1,16 @@
 #include "gazebo/runtime_bootstrap.hpp"
 
 #include <algorithm>
-#include <pthread.h>
-#include <sched.h>
-#include <sys/mman.h>
+#include <cmath>
+#include <stdexcept>
 #include <utility>
 
 #include <rclcpp/executors/multi_threaded_executor.hpp>
+#include <rclcpp/executors/single_threaded_executor.hpp>
 
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
 #include "rokae_xmate3_ros2/types.hpp"
+#include "runtime/rt_scheduler.hpp"
 
 namespace gazebo {
 
@@ -27,71 +28,6 @@ rclcpp::Node::SharedPtr makeBootstrapNode(const RuntimeBootstrap::RosIntegration
     return std::make_shared<rclcpp::Node>("xcore_gazebo_controller", node_options);
   }
   return std::make_shared<rclcpp::Node>("xcore_gazebo_controller");
-}
-
-std::string applyBootstrapRealtimeProfile(rclcpp::Node &node,
-                                          const bool enable,
-                                          const std::string &policy,
-                                          const int priority,
-                                          const std::string &cpu_affinity,
-                                          const bool lock_all_memory) {
-  if (!enable) {
-    return "disabled";
-  }
-  std::string state = "active";
-  if (lock_all_memory) {
-    if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
-      state = "degraded_best_effort(memory_lock_failed)";
-    }
-  }
-  int sched_policy = SCHED_FIFO;
-  if (policy == "rr") {
-    sched_policy = SCHED_RR;
-  } else if (policy != "fifo") {
-    sched_policy = SCHED_OTHER;
-  }
-  sched_param sched{};
-  sched.sched_priority = std::clamp(priority, 1, 95);
-  if (sched_setscheduler(0, sched_policy, &sched) != 0) {
-    state = "degraded_best_effort(scheduler_failed)";
-  }
-  if (!cpu_affinity.empty()) {
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    bool any = false;
-    std::size_t start = 0;
-    while (start <= cpu_affinity.size()) {
-      const auto end = cpu_affinity.find(',', start);
-      const auto token = cpu_affinity.substr(start, end == std::string::npos ? std::string::npos : end - start);
-      if (!token.empty()) {
-        try {
-          const int cpu = std::stoi(token);
-          if (cpu >= 0 && cpu < CPU_SETSIZE) {
-            CPU_SET(cpu, &set);
-            any = true;
-          }
-        } catch (...) {
-        }
-      }
-      if (end == std::string::npos) {
-        break;
-      }
-      start = end + 1;
-    }
-    if (any && pthread_setaffinity_np(pthread_self(), sizeof(set), &set) != 0) {
-      state = "degraded_best_effort(affinity_failed)";
-    }
-  }
-  RCLCPP_INFO(
-      node.get_logger(),
-      "runtime bootstrap rt scheduler: enable=%s policy=%s priority=%d cpu_affinity=\"%s\" lock_all=%s state=%s",
-      enable ? "true" : "false",
-      policy.c_str(),
-      priority,
-      cpu_affinity.c_str(),
-      lock_all_memory ? "true" : "false",
-      state.c_str());
-  return state;
 }
 
 }  // namespace
@@ -300,24 +236,39 @@ void RuntimeBootstrap::start() {
   const std::string inferred_runtime_profile =
       backend_mode_ == BackendMode::effort ? std::string{"rt_sim_experimental_best_effort"} :
       std::string{"nrt_strict_parity"};
-  const std::string runtime_profile = node_->declare_parameter("runtime_profile", inferred_runtime_profile);
+  const std::string requested_runtime_profile = node_->declare_parameter("runtime_profile", inferred_runtime_profile);
+  rt_profile_config_ = runtime::resolveRuntimeRtProfile(requested_runtime_profile, runtime::RuntimeHostKind::gazebo_plugin);
+  if (!rt_profile_config_.supported) {
+    throw std::runtime_error(rt_profile_config_.startup_error);
+  }
   runtime_context_->diagnosticsState().configure(
       toString(backend_mode_),
       diagnosticCapabilityFlags(backend_mode_),
-      runtime_profile);
+      rt_profile_config_.effective_profile);
+  runtime_context_->diagnosticsState().setRuntimeOptionSummary(runtime::summarizeRuntimeRtProfile(rt_profile_config_));
   const bool rt_scheduler_enable = node_->declare_parameter<bool>("rt_scheduler.enable", true);
   const std::string rt_scheduler_policy = node_->declare_parameter<std::string>("rt_scheduler.policy", "fifo");
   const int rt_scheduler_priority = node_->declare_parameter<int>("rt_scheduler.priority", 80);
   const std::string rt_scheduler_cpu_affinity = node_->declare_parameter<std::string>("rt_scheduler.cpu_affinity", "");
   const bool rt_memory_lock_all = node_->declare_parameter<bool>("rt_memory.lock_all", true);
-  runtime_context_->diagnosticsState().setRtSchedulerState(
-      applyBootstrapRealtimeProfile(
-          *node_,
-          rt_scheduler_enable,
-          rt_scheduler_policy,
-          rt_scheduler_priority,
-          rt_scheduler_cpu_affinity,
-          rt_memory_lock_all));
+  if (rt_scheduler_enable) {
+    runtime_context_->diagnosticsState().setRtSchedulerState("host_managed(gazebo_update_thread)");
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "rt scheduler request is host-managed for Gazebo plugin runtime; policy=%s priority=%d cpu_affinity=\"%s\" lock_all=%s",
+        rt_scheduler_policy.c_str(),
+        rt_scheduler_priority,
+        rt_scheduler_cpu_affinity.c_str(),
+        rt_memory_lock_all ? "true" : "false");
+  } else {
+    runtime_context_->diagnosticsState().setRtSchedulerState("disabled");
+  }
+  control_bridge_config.authoritative_servo_clock = rt_profile_config_.authoritative_servo_clock;
+  control_bridge_config.authoritative_servo_period_sec = rt_profile_config_.servo_period_sec;
+  control_bridge_config.allow_topic_rt_transport = rt_profile_config_.allow_topic_rt_ingress;
+  control_bridge_config.allow_legacy_rt_custom_data = rt_profile_config_.allow_legacy_rt_custom_data;
+  control_bridge_config.require_shm_rt_transport = rt_profile_config_.require_shm_transport;
+  control_bridge_config.fail_on_rt_deadline_miss = rt_profile_config_.fail_on_rt_deadline_miss;
   runtime_context_->diagnosticsState().setSessionModes(
       runtime_context_->sessionState().motionMode(),
       runtime_context_->sessionState().rtControlMode());
@@ -328,10 +279,13 @@ void RuntimeBootstrap::start() {
 
   RCLCPP_INFO(
       node_->get_logger(),
-      "runtime diagnostics ready: backend=%s rt_level=best_effort_non_controller_grade aliases=[get_joint_torque,get_end_torque] "
+      "runtime diagnostics ready: backend=%s requested_profile=%s effective_profile=%s rt_level=best_effort_non_controller_grade aliases=[get_joint_torque,get_end_torque] "
       "services=[/xmate3/internal/validate_motion,/xmate3/internal/get_runtime_diagnostics] "
-      "topic=[/xmate3/internal/runtime_status]",
-      toString(backend_mode_));
+      "topic=[/xmate3/internal/runtime_status] profile_summary=%s",
+      toString(backend_mode_),
+      requested_runtime_profile.c_str(),
+      rt_profile_config_.effective_profile.c_str(),
+      runtime::summarizeRuntimeRtProfile(rt_profile_config_).c_str());
 }
 
 
@@ -351,7 +305,11 @@ void RuntimeBootstrap::attachExecutorNode() {
     executor_node_added_by_bootstrap_ = true;
     return;
   }
-  executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>(rclcpp::ExecutorOptions(), 4);
+  if (rt_profile_config_.executor_threads <= 1) {
+    executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+  } else {
+    executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>(rclcpp::ExecutorOptions(), rt_profile_config_.executor_threads);
+  }
   executor_->add_node(node_);
   executor_node_added_by_bootstrap_ = true;
 }
@@ -373,8 +331,59 @@ void RuntimeBootstrap::initRuntimeBindings(const runtime::RuntimeControlBridgeCo
       joint_state_fetcher_,
       time_provider,
       trajectory_dt_provider,
-      request_id_generator);
+      request_id_generator,
+      runtime::RosBindingsRtIngressOptions{rt_profile_config_.allow_topic_rt_ingress});
   control_bridge_ = std::make_unique<runtime::RuntimeControlBridge>(*runtime_context_, control_bridge_config);
+  initPublishTimer();
+}
+
+
+void RuntimeBootstrap::initPublishTimer() {
+  if (!node_ || !publish_bridge_) {
+    return;
+  }
+  const auto publish_period_ms = std::max<int>(
+      1,
+      static_cast<int>(std::lround(std::min({rt_profile_config_.publish_rates.joint_state_period_sec,
+                                             rt_profile_config_.publish_rates.operation_state_period_sec,
+                                             rt_profile_config_.publish_rates.diagnostics_period_sec}) *
+                                   1000.0)));
+  publish_timer_ = node_->create_wall_timer(std::chrono::milliseconds(publish_period_ms), [this]() {
+    if (shutting_down_.load() || !publish_bridge_ || !joint_state_pub_ || !operation_state_pub_) {
+      return;
+    }
+
+    static_cast<void>(collectShutdownContractState(false));
+    std::array<double, 6> position{};
+    std::array<double, 6> velocity{};
+    std::array<double, 6> torque{};
+    if (joint_state_fetcher_) {
+      joint_state_fetcher_(position, velocity, torque);
+    }
+
+    runtime::PublisherTickInput tick_input;
+    tick_input.stamp = node_->now();
+    tick_input.frame_id = "base_link";
+    tick_input.joint_names = joint_names_;
+    tick_input.position = position;
+    tick_input.velocity = velocity;
+    tick_input.torque = torque;
+    tick_input.min_publish_period_sec = 0.0;
+    tick_input.joint_state_publish_period_sec = rt_profile_config_.publish_rates.joint_state_period_sec;
+    tick_input.operation_state_publish_period_sec = rt_profile_config_.publish_rates.operation_state_period_sec;
+    tick_input.diagnostics_publish_period_sec = rt_profile_config_.publish_rates.diagnostics_period_sec;
+
+    const auto publish_tick = publish_bridge_->buildPublisherTick(tick_input);
+    if (publish_tick.publish_joint_state) {
+      joint_state_pub_->publish(publish_tick.joint_state);
+    }
+    if (publish_tick.publish_operation_state) {
+      operation_state_pub_->publish(publish_tick.operation_state);
+    }
+    if (publish_tick.publish_runtime_diagnostics && runtime_diagnostics_pub_ != nullptr) {
+      runtime_diagnostics_pub_->publish(publish_bridge_->buildRuntimeDiagnosticsMessage());
+    }
+  });
 }
 
 void RuntimeBootstrap::initPrepareShutdownService() {

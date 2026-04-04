@@ -40,6 +40,8 @@ add_library(${PROJECT_NAME}_runtime_state OBJECT
   src/runtime/runtime_state_utils.cpp
   src/runtime/runtime_catalog_service.cpp
   src/runtime/runtime_profile_service.cpp
+  src/runtime/rt_runtime_profile.cpp
+  src/runtime/rt_scheduler.cpp
   src/runtime/planning_capability_service.cpp
   src/runtime/controller_state.cpp
   src/runtime/runtime_context.cpp
@@ -181,8 +183,23 @@ target_link_libraries(rokae_sim_runtime
   ${OROCOS_KDL_LIBRARIES}
   ${GAZEBO_LIBRARIES}
 )
+target_link_options(rokae_sim_runtime PRIVATE "-Wl,--disable-new-dtags")
 target_compile_features(rokae_sim_runtime PUBLIC cxx_std_17)
 rokae_add_rosidl_dependency(rokae_sim_runtime)
+
+set(_rokae_runtime_ros_lib "/opt/ros/humble/lib")
+if(DEFINED ENV{ROS_DISTRO} AND NOT "$ENV{ROS_DISTRO}" STREQUAL "")
+  set(_rokae_runtime_ros_lib "/opt/ros/$ENV{ROS_DISTRO}/lib")
+endif()
+set(_rokae_runtime_install_lib "${CMAKE_INSTALL_PREFIX}/lib")
+set_target_properties(rokae_sim_runtime PROPERTIES
+  BUILD_RPATH_USE_ORIGIN ON
+  BUILD_RPATH "\$ORIGIN/../lib;${_rokae_runtime_install_lib}"
+  INSTALL_RPATH "\$ORIGIN/../lib;${_rokae_runtime_install_lib};${_rokae_runtime_ros_lib}"
+  INSTALL_RPATH_USE_LINK_PATH TRUE
+)
+unset(_rokae_runtime_ros_lib)
+unset(_rokae_runtime_install_lib)
 
 if(BUILD_TESTING)
   # Test-only static runtime aggregate. Unit/strict tests link this target instead of the

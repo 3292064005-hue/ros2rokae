@@ -30,6 +30,7 @@
 - `24_rt_follow_position.cpp`
 - `25_rt_s_line.cpp`
 - `26_rt_torque_control.cpp`
+- `27_rt_1khz_stress.cpp`
 - `99_complete_demo.cpp`
 
 ### Internal/backend examples
@@ -97,6 +98,17 @@ ros2 run rokae_xmate3_ros2 example_13_rl_project_workflow
 5. `24_rt_follow_position.cpp`
 6. `25_rt_s_line.cpp`
 7. `26_rt_torque_control.cpp`
+8. `27_rt_1khz_stress.cpp`
+
+压测脚本（默认 `daemon` + `hard_1khz`，600s）：
+```bash
+bash src/rokae_xmate3_ros2/tools/run_rt_1khz_stress.sh ~/ros2_ws0 600 5 daemon
+```
+
+如果当前主机没有实时调度权限（`CAP_SYS_NICE/CAP_IPC_LOCK`），可先用仿真通道验证链路：
+```bash
+bash src/rokae_xmate3_ros2/tools/run_rt_1khz_stress.sh ~/ros2_ws0 600 5 simulation
+```
 
 
 - `ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES=ON` 可显式安装 internal/backend example 二进制；默认 **OFF**，避免把源码树内部验证入口混入 public 安装面。

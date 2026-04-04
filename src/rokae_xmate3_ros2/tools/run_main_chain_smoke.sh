@@ -238,5 +238,60 @@ if ! grep -q "rt_queue_depth" "${RUNTIME_DIAG_LOG}"; then
   exit 1
 fi
 
+RUNTIME_STATUS_LOG="${WORKSPACE_ROOT}/build/rokae_xmate3_ros2/main_chain_runtime_status_topic.log"
+if ! timeout 20 ros2 topic echo /xmate3/internal/runtime_status --once >"${RUNTIME_STATUS_LOG}" 2>&1; then
+  cat "${RUNTIME_STATUS_LOG}"
+  echo "main_chain_smoke: failed to capture runtime status topic" >&2
+  exit 1
+fi
+
+resolve_limits_file() {
+  local candidate=""
+  if [[ -n "${ROKAE_RT_GATE_LIMITS_FILE:-}" ]]; then
+    candidate="${ROKAE_RT_GATE_LIMITS_FILE}"
+    if [[ -f "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+    echo "main_chain_smoke: configured ROKAE_RT_GATE_LIMITS_FILE not found: ${candidate}" >&2
+    exit 1
+  fi
+
+  local source_candidate="${WORKSPACE_ROOT}/src/rokae_xmate3_ros2/config/runtime_diag_gate.default.json"
+  if [[ -f "${source_candidate}" ]]; then
+    printf '%s\n' "${source_candidate}"
+    return 0
+  fi
+
+  local install_candidate="${WORKSPACE_ROOT}/install/rokae_xmate3_ros2/share/rokae_xmate3_ros2/config/runtime_diag_gate.default.json"
+  if [[ -f "${install_candidate}" ]]; then
+    printf '%s\n' "${install_candidate}"
+    return 0
+  fi
+
+  return 1
+}
+
+RUNTIME_DIAG_LIMITS_FILE="$(resolve_limits_file || true)"
+DIAG_GATE_ARGS=("${RUNTIME_STATUS_LOG}")
+if [[ -n "${RUNTIME_DIAG_LIMITS_FILE}" ]]; then
+  echo "[main_chain_smoke] runtime diagnostics limits file: ${RUNTIME_DIAG_LIMITS_FILE}"
+  DIAG_GATE_ARGS+=(--limits-file "${RUNTIME_DIAG_LIMITS_FILE}")
+else
+  echo "[main_chain_smoke] runtime diagnostics limits file not found; falling back to explicit defaults" >&2
+fi
+if [[ "${ROKAE_RT_GATE_REQUIRE_NO_DEADLINE_MISS:-0}" == "1" ]]; then
+  DIAG_GATE_ARGS+=(--require-no-deadline-miss)
+fi
+DIAG_GATE_ARGS+=(--max-gap-ms "${ROKAE_RT_GATE_MAX_GAP_MS:-50}")
+DIAG_GATE_ARGS+=(--max-rx-latency-us "${ROKAE_RT_GATE_MAX_RX_LATENCY_US:-50000}")
+DIAG_GATE_ARGS+=(--max-queue-depth "${ROKAE_RT_GATE_MAX_QUEUE_DEPTH:-8}")
+DIAG_GATE_ARGS+=(--print-effective-limits)
+
+if ! "${ROKAE_PYTHON_EXECUTABLE:-python3}"   "${WORKSPACE_ROOT}/src/rokae_xmate3_ros2/tools/check_runtime_diag_gate.py"   "${DIAG_GATE_ARGS[@]}"; then
+  echo "main_chain_smoke: runtime diagnostics threshold gate failed" >&2
+  exit 1
+fi
+
 echo "[main_chain_smoke] success"
 echo "[main_chain_smoke] launch log: ${LOG_FILE}"

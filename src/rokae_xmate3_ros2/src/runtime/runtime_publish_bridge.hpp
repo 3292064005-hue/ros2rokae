@@ -35,6 +35,9 @@ struct PublisherTickInput {
   std::array<double, 6> velocity{};
   std::array<double, 6> torque{};
   double min_publish_period_sec = 0.0;
+  double joint_state_publish_period_sec = 0.0;
+  double operation_state_publish_period_sec = 0.0;
+  double diagnostics_publish_period_sec = 0.0;
 };
 
 struct PublisherTickOutput {
@@ -42,6 +45,7 @@ struct PublisherTickOutput {
   sensor_msgs::msg::JointState joint_state;
   bool publish_operation_state = false;
   rokae_xmate3_ros2::msg::OperationState operation_state;
+  bool publish_runtime_diagnostics = false;
   bool recorded_path_sample = false;
 };
 
@@ -81,7 +85,9 @@ class RuntimePublishBridge {
  private:
   RuntimeContext &runtime_context_;
   std::uint64_t last_runtime_logged_revision_ = 0;
-  std::int64_t last_publisher_tick_ns_ = 0;
+  std::int64_t last_joint_state_publish_ns_ = 0;
+  std::int64_t last_operation_state_publish_ns_ = 0;
+  std::int64_t last_diagnostics_publish_ns_ = 0;
 };
 
 [[nodiscard]] FeedbackSnapshot buildMoveAppendFeedback(const RuntimeStatus &status,

@@ -21,7 +21,7 @@ It is kept in sync with the single-source manifest:
 | Flange pose alias | `flangePos(ec)` compatibility alias | Aligned (deprecated) |
 | NRT move API shape | `moveAppend/executeCommand/moveStart/stop` | Aligned |
 | RT API shape | `getRtMotionController()` and RT command/config surface | Aligned (simulation-grade backend) |
-| Runtime profile naming | explicit NRT/RT profile tags | `nrt_strict_parity`, `rt_sim_experimental_best_effort` |
+| Runtime profile naming | explicit NRT/RT profile tags | `nrt_strict_parity`, `hard_1khz` |
 | IO/register | symbols kept for source compatibility | Unsupported (`not_implemented`) |
 | RL project | symbols kept for source compatibility | Unsupported (`not_implemented`) |
 | Calibration | symbol kept for source compatibility | Unsupported (`not_implemented`) |

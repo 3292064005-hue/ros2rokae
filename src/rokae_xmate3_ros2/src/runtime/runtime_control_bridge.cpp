@@ -24,7 +24,6 @@ namespace rokae_xmate3_ros2::runtime {
 namespace {
 
 constexpr double kServoTickSec = rokae_xmate3_ros2::spec::xmate3::kServoTickSec;
-constexpr int kMaxServoSubstepsPerUpdate = 8;
 constexpr double kRtDeadlineWarnSec = 0.0012;
 constexpr std::array<double, 6> kCollisionRetreatEffort = {18.0, 18.0, 16.0, 8.0, 5.0, 3.0};
 constexpr double kDefaultCollisionRetreatDistance = 0.04;
@@ -291,8 +290,33 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   auto &motion_options = runtime_context_.motionOptionsState();
   auto &tooling_state = runtime_context_.toolingState();
   runtime_context_.diagnosticsState().setLastServoDt(dt);
-  if (std::isfinite(dt) && dt > kRtDeadlineWarnSec) {
+  const double effective_rt_deadline_warn_sec =
+      config_.authoritative_servo_clock
+          ? std::max(config_.authoritative_servo_period_sec * 1.20, config_.servo_lag_warning_sec)
+          : kRtDeadlineWarnSec;
+  if (std::isfinite(dt) && dt > effective_rt_deadline_warn_sec) {
     runtime_context_.diagnosticsState().incrementRtDeadlineMiss();
+    if (config_.fail_on_rt_deadline_miss) {
+      motion_runtime.stop("strict_rt_deadline_miss");
+      backend.setControlOwner(ControlOwner::none);
+      backend.clearControl();
+      result.control_cleared = true;
+      runtime_context_.diagnosticsState().setSemanticSurface(
+          "strict_rt",
+          "runtime_strict_deadline_miss",
+          "direct_rt_stopped");
+      runtime_context_.diagnosticsState().setRtWatchdogSummary(
+          "strict deadline miss fail-fast",
+          1,
+          std::max(dt, 0.0) * 1000.0,
+          std::max(dt, 0.0) * 1000.0,
+          1,
+          0,
+          0,
+          "deadline_miss");
+      result.status = motion_runtime.status();
+      return result;
+    }
   }
   const double loop_hz = (dt > 1e-9 && std::isfinite(dt)) ? 1.0 / dt : 0.0;
   runtime_context_.diagnosticsState().setLoopMetrics(loop_hz, loop_hz, std::max(dt, 0.0) * 1000.0);
@@ -543,9 +567,13 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
           return RtFastCommandKind::joint_position;
       }
     }();
+    const bool fast_transport_allowed =
+        rt_fast_snapshot.transport == RtFastTransport::shm_ring ||
+        (config_.allow_topic_rt_transport && rt_fast_snapshot.transport == RtFastTransport::ros_topic);
     if (rt_fast_snapshot.present &&
         rt_fast_snapshot.sequence > last_rt_sequence_ &&
-        rt_fast_snapshot.kind == expected_fast_kind) {
+        rt_fast_snapshot.kind == expected_fast_kind &&
+        fast_transport_allowed) {
       direct_command.present = true;
       direct_command.valid = true;
       direct_command.finished = rt_fast_snapshot.finished;
@@ -567,7 +595,7 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       return result;
     }
 
-    if (!direct_command.present) {
+    if (!direct_command.present && config_.allow_legacy_rt_custom_data) {
     switch (static_cast<rokae::RtControllerMode>(session_state.rtControlMode())) {
       case rokae::RtControllerMode::jointPosition:
       case rokae::RtControllerMode::jointImpedance:
@@ -590,6 +618,26 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
         : std::numeric_limits<double>::infinity();
     const bool direct_command_fresh =
         direct_command.valid && command_age_sec <= std::max(rt_command_timeout_sec, 1e-6);
+
+    if (config_.require_shm_rt_transport) {
+      const bool has_fresh_shm_command =
+          direct_command_fresh &&
+          rt_fast_snapshot.present &&
+          rt_fast_snapshot.transport == RtFastTransport::shm_ring &&
+          direct_command.sequence == rt_fast_snapshot.sequence;
+      if (!has_fresh_shm_command) {
+        backend.setControlOwner(ControlOwner::none);
+        backend.clearControl();
+        result.control_cleared = true;
+        result.status = motion_runtime.status();
+        runtime_context_.diagnosticsState().setSemanticSurface(
+            semantic_surface,
+            direct_command.present ? "runtime_rt_transport_contract_violation" : "runtime_rt_waiting_for_shm",
+            direct_command.present ? "direct_rt_shm_only_rejected" : "direct_rt_shm_only_waiting");
+        runtime_context_.diagnosticsState().setRtIngressMetrics("shm_only", rt_fast_snapshot.rx_latency_us, rt_fast_snapshot.queue_depth);
+        return result;
+      }
+    }
 
     if (direct_command_fresh) {
       if (runtime_context_.currentRuntimeView().busy()) {
@@ -758,8 +806,12 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
     return result;
   }
 
-  const double clamped_dt = std::clamp(dt, 0.0, kServoTickSec * static_cast<double>(kMaxServoSubstepsPerUpdate));
-  if (dt > config_.servo_lag_warning_sec) {
+  const int max_substeps = std::max(1, config_.max_servo_substeps_per_update);
+  const double servo_period_sec = std::max(1e-6, config_.authoritative_servo_period_sec);
+  const double lag_warning_threshold_sec =
+      config_.authoritative_servo_clock ? std::max(config_.servo_lag_warning_sec, servo_period_sec * 1.20)
+                                        : config_.servo_lag_warning_sec;
+  if (dt > lag_warning_threshold_sec) {
     ++servo_lag_warning_count_;
     RCLCPP_WARN_THROTTLE(
         rclcpp::get_logger("runtime_control_bridge"),
@@ -767,18 +819,27 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
         2000,
         "servo bridge dt=%.6f exceeds warning threshold %.6f (count=%zu)",
         dt,
-        config_.servo_lag_warning_sec,
+        lag_warning_threshold_sec,
         servo_lag_warning_count_);
   }
+
+  if (config_.authoritative_servo_clock) {
+    result.status = motion_runtime.tick(backend, servo_period_sec);
+    result.runtime_ticked = true;
+    servo_accumulator_sec_ = 0.0;
+    return result;
+  }
+
+  const double clamped_dt = std::clamp(dt, 0.0, servo_period_sec * static_cast<double>(max_substeps));
   servo_accumulator_sec_ = std::min(
       servo_accumulator_sec_ + clamped_dt,
-      kServoTickSec * static_cast<double>(kMaxServoSubstepsPerUpdate));
+      servo_period_sec * static_cast<double>(max_substeps));
 
   int substeps = 0;
-  while (servo_accumulator_sec_ + 1e-12 >= kServoTickSec && substeps < kMaxServoSubstepsPerUpdate) {
-    result.status = motion_runtime.tick(backend, kServoTickSec);
+  while (servo_accumulator_sec_ + 1e-12 >= servo_period_sec && substeps < max_substeps) {
+    result.status = motion_runtime.tick(backend, servo_period_sec);
     result.runtime_ticked = true;
-    servo_accumulator_sec_ -= kServoTickSec;
+    servo_accumulator_sec_ -= servo_period_sec;
     ++substeps;
   }
 

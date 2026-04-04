@@ -28,12 +28,14 @@ TEST(RuntimeProfileCapabilitiesContract, SummariesStayStructured) {
       buildRetimerPolicyCatalog("nominal"),
       buildPlannerSelectionCatalog("risk_weighted"));
   EXPECT_NE(summary.find("nrt_strict_parity=active"), std::string::npos);
+  EXPECT_NE(summary.find("rt_hardened"), std::string::npos);
+  EXPECT_NE(summary.find("hard_1khz"), std::string::npos);
   EXPECT_NE(option_summary.find("default_speed=250.000"), std::string::npos);
   EXPECT_NE(option_summary.find("simulation_mode=true"), std::string::npos);
   EXPECT_NE(planning_summary.find("kinematics[kdl=active"), std::string::npos);
   const auto field_policy_summary = summarizeRtFieldPolicies(defaultRtFieldSet());
   EXPECT_NE(field_policy_summary.find("policy_source=rt_field_registry"), std::string::npos);
-  EXPECT_NE(field_policy_summary.find("jointPos_m=strict_in_loop"), std::string::npos);
+  EXPECT_NE(field_policy_summary.find(std::string(rokae::RtSupportedFields::jointPos_m) + "=strict_in_loop"), std::string::npos);
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

@@ -4,6 +4,8 @@ if(BUILD_TESTING)
   option(ROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS "Enable Gazebo backend mode smoke harnesses" OFF)
   option(ROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS "Enable Gazebo teardown quality contract harness" OFF)
   option(ROKAE_ENABLE_RELEASE_GATE "Enable the heavier release gate bundle (backend modes + teardown + catalog/lifecycle tests)" OFF)
+  option(ROKAE_ENABLE_RT_1KHZ_STRESS_TEST "Enable 10-minute RT 1kHz stress gate (slow)" OFF)
+  set(ROKAE_RT_1KHZ_STRESS_DURATION_SEC 600 CACHE STRING "Duration (seconds) for rt_1khz_stress gate")
   if(ROKAE_ENABLE_RELEASE_GATE)
     set(ROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS ON)
     set(ROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS ON)
@@ -1032,6 +1034,10 @@ if(BUILD_TESTING)
     test/unit/test_runtime_profile_service.cpp
   )
 
+  ament_add_gtest(test_rt_runtime_profile
+    test/unit/test_rt_runtime_profile.cpp
+  )
+
   ament_add_gtest(test_runtime_profile_capabilities_contract
     test/unit/test_runtime_profile_capabilities_contract.cpp
   )
@@ -1049,6 +1055,18 @@ if(BUILD_TESTING)
     )
     target_compile_features(test_runtime_profile_capabilities_contract PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_profile_capabilities_contract)
+  endif()
+
+  if(TARGET test_rt_runtime_profile)
+    target_include_directories(test_rt_runtime_profile PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(test_rt_runtime_profile
+      ${PROJECT_NAME}_runtime_test
+    )
+    target_compile_features(test_rt_runtime_profile PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_rt_runtime_profile)
   endif()
 
   if(TARGET test_runtime_profile_service)
@@ -1079,6 +1097,32 @@ if(BUILD_TESTING)
   endif()
 endif()
 
+
+if(BUILD_TESTING)
+  add_test(
+    NAME runtime_diag_gate_tools
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_runtime_diag_gate_tools.py"
+  )
+  set_tests_properties(runtime_diag_gate_tools PROPERTIES LABELS "quick_gate;semantic_gate")
+
+  if(ROKAE_ENABLE_RT_1KHZ_STRESS_TEST AND TARGET example_27_rt_1khz_stress)
+    math(EXPR ROKAE_RT_1KHZ_STRESS_TIMEOUT "${ROKAE_RT_1KHZ_STRESS_DURATION_SEC} + 240")
+    add_test(
+      NAME rt_1khz_stress
+      COMMAND "${CMAKE_COMMAND}" -E env
+              ${ROKAE_TEST_RUNTIME_ENV}
+              bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/run_rt_1khz_stress.sh"
+              "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+              "${ROKAE_RT_1KHZ_STRESS_DURATION_SEC}"
+              "5"
+    )
+    set_tests_properties(rt_1khz_stress PROPERTIES
+      RUN_SERIAL TRUE
+      TIMEOUT "${ROKAE_RT_1KHZ_STRESS_TIMEOUT}"
+      LABELS "rt_stress;release_gate"
+    )
+  endif()
+endif()
 
 if(BUILD_TESTING AND ROKAE_BUILD_COMPAT_SDK)
   add_test(

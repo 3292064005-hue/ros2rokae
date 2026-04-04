@@ -24,6 +24,7 @@ set(ROKAE_PUBLIC_COMPAT_EXAMPLES
   24_rt_follow_position
   25_rt_s_line
   26_rt_torque_control
+  27_rt_1khz_stress
   99_complete_demo
 )
 

@@ -22,6 +22,10 @@ namespace rokae_xmate3_ros2::runtime {
 
 class RuntimePublishBridge;
 
+struct RosBindingsRtIngressOptions {
+  bool enable_topic_rt_ingress = true;
+};
+
 class RosBindings {
  public:
   RosBindings(rclcpp::Node::SharedPtr node,
@@ -31,7 +35,8 @@ class RosBindings {
               JointStateFetcher joint_state_fetcher,
               TimeProvider time_provider,
               TrajectoryDtProvider trajectory_dt_provider,
-              RequestIdGenerator request_id_generator);
+              RequestIdGenerator request_id_generator,
+              RosBindingsRtIngressOptions rt_ingress_options = {});
   ~RosBindings();
 
  public:
@@ -56,6 +61,7 @@ class RosBindings {
   JointStateFetcher joint_state_fetcher_;
   TrajectoryDtProvider trajectory_dt_provider_;
   RequestIdGenerator request_id_generator_;
+  RosBindingsRtIngressOptions rt_ingress_options_{};
 
   std::unique_ptr<ControlFacade> control_facade_;
   std::unique_ptr<QueryFacade> query_facade_;

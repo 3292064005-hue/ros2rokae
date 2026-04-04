@@ -1,18 +1,18 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <exception>
+#include <future>
 #include <memory>
 #include <string>
 #include <thread>
 #include <vector>
 
-#include <pthread.h>
-#include <sched.h>
-#include <sys/mman.h>
-
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
+#include <rclcpp/executors/single_threaded_executor.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
@@ -25,78 +25,12 @@
 #include "runtime/runtime_context.hpp"
 #include "runtime/runtime_control_bridge.hpp"
 #include "runtime/runtime_publish_bridge.hpp"
+#include "runtime/rt_runtime_profile.hpp"
+#include "runtime/rt_scheduler.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
 namespace {
-
-std::string applyRtScheduler(rclcpp::Node &node,
-                             const bool enable,
-                             const std::string &policy,
-                             const int priority,
-                             const std::string &cpu_affinity,
-                             const bool lock_all_memory) {
-  if (!enable) {
-    return "disabled";
-  }
-
-  std::string state = "active";
-  if (lock_all_memory) {
-    if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
-      state = "degraded_best_effort(memory_lock_failed)";
-    }
-  }
-
-  int sched_policy = SCHED_FIFO;
-  if (policy == "rr") {
-    sched_policy = SCHED_RR;
-  } else if (policy != "fifo") {
-    sched_policy = SCHED_OTHER;
-  }
-  sched_param sched{};
-  sched.sched_priority = std::clamp(priority, 1, 95);
-  if (sched_setscheduler(0, sched_policy, &sched) != 0) {
-    state = "degraded_best_effort(scheduler_failed)";
-  }
-
-  if (!cpu_affinity.empty()) {
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    bool any = false;
-    std::size_t start = 0;
-    while (start <= cpu_affinity.size()) {
-      const auto end = cpu_affinity.find(',', start);
-      const std::string token = cpu_affinity.substr(start, end == std::string::npos ? std::string::npos : end - start);
-      if (!token.empty()) {
-        try {
-          const int cpu = std::stoi(token);
-          if (cpu >= 0 && cpu < CPU_SETSIZE) {
-            CPU_SET(cpu, &set);
-            any = true;
-          }
-        } catch (...) {
-        }
-      }
-      if (end == std::string::npos) {
-        break;
-      }
-      start = end + 1;
-    }
-    if (any && pthread_setaffinity_np(pthread_self(), sizeof(set), &set) != 0) {
-      state = "degraded_best_effort(affinity_failed)";
-    }
-  }
-  RCLCPP_INFO(
-      node.get_logger(),
-      "rt scheduler setup: enable=%s policy=%s priority=%d cpu_affinity=\"%s\" lock_all=%s state=%s",
-      enable ? "true" : "false",
-      policy.c_str(),
-      priority,
-      cpu_affinity.c_str(),
-      lock_all_memory ? "true" : "false",
-      state.c_str());
-  return state;
-}
 
 }  // namespace
 
@@ -110,7 +44,13 @@ int run_sim_runtime_main() {
   HeadlessMockRuntimeBackend backend;
   runtime_context.attachBackend(&backend);
 
-  const auto runtime_profile = node->declare_parameter<std::string>("runtime_profile", "nrt_strict_parity");
+  const auto requested_runtime_profile = node->declare_parameter<std::string>("runtime_profile", "nrt_strict_parity");
+  const auto runtime_profile = resolveRuntimeRtProfile(requested_runtime_profile, RuntimeHostKind::daemonized_runtime);
+  if (!runtime_profile.supported) {
+    RCLCPP_ERROR(node->get_logger(), "requested runtime_profile=%s is not supported: %s", requested_runtime_profile.c_str(), runtime_profile.startup_error.c_str());
+    return 2;
+  }
+
   runtime_context.diagnosticsState().configure(
       "daemonized_headless_mock",
       {
@@ -122,11 +62,20 @@ int run_sim_runtime_main() {
           "rt.transport.ros_topic",
           "profile.nrt_strict_parity",
           "profile.rt_sim_experimental_best_effort",
+          "profile.rt_hardened",
+          "profile.hard_1khz",
       },
-      runtime_profile);
+      runtime_profile.effective_profile);
+  runtime_context.diagnosticsState().setRuntimeOptionSummary(summarizeRuntimeRtProfile(runtime_profile));
   runtime_context.sessionState().setSimulationMode(true);
 
   RuntimeControlBridgeConfig control_bridge_config;
+  control_bridge_config.authoritative_servo_clock = runtime_profile.authoritative_servo_clock;
+  control_bridge_config.authoritative_servo_period_sec = runtime_profile.servo_period_sec;
+  control_bridge_config.allow_topic_rt_transport = runtime_profile.allow_topic_rt_ingress;
+  control_bridge_config.allow_legacy_rt_custom_data = runtime_profile.allow_legacy_rt_custom_data;
+  control_bridge_config.require_shm_rt_transport = runtime_profile.require_shm_transport;
+  control_bridge_config.fail_on_rt_deadline_miss = runtime_profile.fail_on_rt_deadline_miss;
   RuntimeControlBridge control_bridge(runtime_context, control_bridge_config);
   RuntimePublishBridge publish_bridge(runtime_context);
   gazebo::xMate3Kinematics kinematics;
@@ -154,7 +103,8 @@ int run_sim_runtime_main() {
                        joint_state_fetcher,
                        time_provider,
                        trajectory_dt_provider,
-                       request_id_generator);
+                       request_id_generator,
+                       RosBindingsRtIngressOptions{runtime_profile.allow_topic_rt_ingress});
 
   auto joint_state_pub = node->create_publisher<sensor_msgs::msg::JointState>("/xmate3/joint_states", 10);
   auto operation_state_pub =
@@ -175,31 +125,70 @@ int run_sim_runtime_main() {
   }
 
   std::atomic<bool> running{true};
+  std::promise<bool> scheduler_ready_promise;
+  auto scheduler_ready_future = scheduler_ready_promise.get_future();
+  std::atomic<bool> scheduler_ready_announced{false};
   std::thread control_thread([&]() {
-    const auto scheduler_state = applyRtScheduler(
-        *node,
-        rt_scheduler_enable,
-        rt_scheduler_policy,
-        rt_scheduler_priority,
-        rt_scheduler_cpu_affinity,
-        rt_memory_lock_all);
-    runtime_context.diagnosticsState().setRtSchedulerState(scheduler_state);
-    auto last_tick = std::chrono::steady_clock::now();
-    auto next_tick = last_tick + 1ms;
-    while (rclcpp::ok() && running.load()) {
-      const auto now = std::chrono::steady_clock::now();
-      const double dt = std::chrono::duration<double>(now - last_tick).count();
-      last_tick = now;
-      backend.step(dt, runtime_context.sessionState().powerOn());
-      const auto snapshot = backend.readSnapshot();
-      const auto tick_result = control_bridge.tick(backend, snapshot, dt);
-      publish_bridge.emitRuntimeStatus(tick_result.status, node->now(), node->get_logger());
-      std::this_thread::sleep_until(next_tick);
-      next_tick += 1ms;
+    const auto announce_scheduler_ready = [&](bool ok) {
+      bool expected = false;
+      if (scheduler_ready_announced.compare_exchange_strong(expected, true)) {
+        scheduler_ready_promise.set_value(ok);
+      }
+    };
+
+    try {
+      const auto scheduler_result = applyRtScheduler(
+          node->get_logger(),
+          RtSchedulerRequest{rt_scheduler_enable,
+                             rt_scheduler_policy,
+                             rt_scheduler_priority,
+                             rt_scheduler_cpu_affinity,
+                             rt_memory_lock_all,
+                             runtime_profile.fail_on_degraded_scheduler});
+      runtime_context.diagnosticsState().setRtSchedulerState(scheduler_result.state);
+      announce_scheduler_ready(!scheduler_result.hard_failure);
+      if (scheduler_result.hard_failure) {
+        running.store(false);
+        return;
+      }
+      auto last_tick = std::chrono::steady_clock::now();
+      auto next_tick = last_tick + 1ms;
+      while (rclcpp::ok() && running.load()) {
+        const auto now = std::chrono::steady_clock::now();
+        const double dt = std::chrono::duration<double>(now - last_tick).count();
+        last_tick = now;
+        backend.step(dt, runtime_context.sessionState().powerOn());
+        const auto snapshot = backend.readSnapshot();
+        const auto tick_result = control_bridge.tick(backend, snapshot, dt);
+        publish_bridge.emitRuntimeStatus(tick_result.status, node->now(), node->get_logger());
+        std::this_thread::sleep_until(next_tick);
+        next_tick += 1ms;
+      }
+    } catch (const std::exception &e) {
+      announce_scheduler_ready(false);
+      runtime_context.diagnosticsState().setRtSchedulerState("thread_fault");
+      RCLCPP_ERROR(node->get_logger(), "rokae_sim_runtime control thread failed: %s", e.what());
+      running.store(false);
+    } catch (...) {
+      announce_scheduler_ready(false);
+      runtime_context.diagnosticsState().setRtSchedulerState("thread_fault");
+      RCLCPP_ERROR(node->get_logger(), "rokae_sim_runtime control thread failed with unknown exception");
+      running.store(false);
     }
   });
 
-  auto timer = node->create_wall_timer(1ms, [&]() {
+  if (!scheduler_ready_future.get()) {
+    running.store(false);
+    if (control_thread.joinable()) {
+      control_thread.join();
+    }
+    RCLCPP_ERROR(node->get_logger(),
+                 "rokae_sim_runtime failed to enter the requested strict RT scheduler contract");
+    return 2;
+  }
+
+  const auto publish_period_ms = std::max<int>(1, static_cast<int>(std::lround(std::min({runtime_profile.publish_rates.joint_state_period_sec, runtime_profile.publish_rates.operation_state_period_sec, runtime_profile.publish_rates.diagnostics_period_sec}) * 1000.0)));
+  auto timer = node->create_wall_timer(std::chrono::milliseconds(publish_period_ms), [&]() {
     const auto snapshot = backend.readSnapshot();
     PublisherTickInput tick_input;
     tick_input.stamp = node->now();
@@ -208,7 +197,10 @@ int run_sim_runtime_main() {
     tick_input.position = snapshot.joint_position;
     tick_input.velocity = snapshot.joint_velocity;
     tick_input.torque = snapshot.joint_torque;
-    tick_input.min_publish_period_sec = 0.001;
+    tick_input.min_publish_period_sec = 0.0;
+    tick_input.joint_state_publish_period_sec = runtime_profile.publish_rates.joint_state_period_sec;
+    tick_input.operation_state_publish_period_sec = runtime_profile.publish_rates.operation_state_period_sec;
+    tick_input.diagnostics_publish_period_sec = runtime_profile.publish_rates.diagnostics_period_sec;
 
     const auto publish_tick = publish_bridge.buildPublisherTick(tick_input);
     if (publish_tick.publish_joint_state) {
@@ -216,6 +208,8 @@ int run_sim_runtime_main() {
     }
     if (publish_tick.publish_operation_state) {
       operation_state_pub->publish(publish_tick.operation_state);
+    }
+    if (publish_tick.publish_runtime_diagnostics) {
       runtime_diagnostics_pub->publish(publish_bridge.buildRuntimeDiagnosticsMessage());
     }
   });
@@ -223,11 +217,18 @@ int run_sim_runtime_main() {
 
   RCLCPP_INFO(
       node->get_logger(),
-      "rokae_sim_runtime is running (authoritative runtime daemon). active_profile=%s, rt_policy=best_effort_non_controller_grade",
-      runtime_profile.c_str());
-  rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 4);
-  executor.add_node(node);
-  executor.spin();
+      "rokae_sim_runtime is running (authoritative runtime daemon). requested_profile=%s effective_profile=%s profile_summary=%s",
+      requested_runtime_profile.c_str(),
+      runtime_profile.effective_profile.c_str(),
+      summarizeRuntimeRtProfile(runtime_profile).c_str());
+  std::unique_ptr<rclcpp::Executor> executor;
+  if (runtime_profile.executor_threads <= 1) {
+    executor = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
+  } else {
+    executor = std::make_unique<rclcpp::executors::MultiThreadedExecutor>(rclcpp::ExecutorOptions(), runtime_profile.executor_threads);
+  }
+  executor->add_node(node);
+  executor->spin();
   running.store(false);
   if (control_thread.joinable()) {
     control_thread.join();

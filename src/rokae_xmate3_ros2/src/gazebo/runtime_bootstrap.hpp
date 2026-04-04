@@ -22,6 +22,7 @@
 #include "runtime/runtime_context.hpp"
 #include "runtime/runtime_control_bridge.hpp"
 #include "runtime/runtime_publish_bridge.hpp"
+#include "runtime/rt_runtime_profile.hpp"
 #include "runtime/ros_bindings.hpp"
 #include "rokae_xmate3_ros2/runtime/shutdown_coordinator.hpp"
 #include "rokae_xmate3_ros2/runtime/ros_context_owner.hpp"
@@ -83,9 +84,11 @@ class RuntimeBootstrap {
   }
   [[nodiscard]] double trajectorySampleDt() const { return trajectory_sample_dt_; }
   [[nodiscard]] bool isShuttingDown() const { return shutting_down_.load(); }
+  [[nodiscard]] const rokae_xmate3_ros2::runtime::RuntimeRtProfileConfig &rtProfileConfig() const { return rt_profile_config_; }
 
  private:
   void initPublishers();
+  void initPublishTimer();
   void attachExecutorNode();
   void initRuntimeBindings(const rokae_xmate3_ros2::runtime::RuntimeControlBridgeConfig &control_bridge_config);
   void initPrepareShutdownService();
@@ -113,6 +116,7 @@ class RuntimeBootstrap {
   std::unique_ptr<rokae_xmate3_ros2::runtime::RuntimePublishBridge> publish_bridge_;
   std::unique_ptr<GazeboRuntimeBackend> motion_backend_;
 
+  rokae_xmate3_ros2::runtime::RuntimeRtProfileConfig rt_profile_config_{};
   std::atomic<uint64_t> next_request_id_{1};
   double trajectory_sample_dt_ = kDefaultTrajectorySampleDt;
   std::atomic<bool> shutting_down_{false};
@@ -122,6 +126,7 @@ class RuntimeBootstrap {
   rclcpp::Service<rokae_xmate3_ros2::srv::PrepareShutdown>::SharedPtr prepare_shutdown_service_;
 
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
+  rclcpp::TimerBase::SharedPtr publish_timer_;
   rclcpp::Publisher<rokae_xmate3_ros2::msg::OperationState>::SharedPtr operation_state_pub_;
   rclcpp::Publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>::SharedPtr runtime_diagnostics_pub_;
 };

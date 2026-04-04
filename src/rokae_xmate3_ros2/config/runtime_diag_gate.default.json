@@ -1,0 +1,6 @@
+{
+  "require_no_deadline_miss": false,
+  "max_gap_ms": 50.0,
+  "max_rx_latency_us": 50000.0,
+  "max_queue_depth": 8
+}

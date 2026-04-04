@@ -41,10 +41,10 @@ else:
     profiles = manifest.get("profiles", {})
     if profiles.get("nrt") != "nrt_strict_parity":
         failures.append("manifest profiles.nrt must be nrt_strict_parity")
-    if profiles.get("rt") != "rt_sim_experimental_best_effort":
-        failures.append("manifest profiles.rt must be rt_sim_experimental_best_effort")
-    if profiles.get("rt_policy") != "best_effort_non_controller_grade":
-        failures.append("manifest profiles.rt_policy must be best_effort_non_controller_grade")
+    if profiles.get("rt") != "hard_1khz":
+        failures.append("manifest profiles.rt must be hard_1khz")
+    if profiles.get("rt_policy") != "strict_1khz_fail_fast":
+        failures.append("manifest profiles.rt_policy must be strict_1khz_fail_fast")
 
     checks = manifest.get("checks", {})
     for key in ("header_patterns", "compat_patterns", "runtime_patterns", "docs_patterns", "cmake_patterns"):

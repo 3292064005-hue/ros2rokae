@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cctype>
+#include <cstdlib>
 #include <functional>
 #include <iomanip>
 #include <iostream>
@@ -387,8 +388,12 @@ inline bool waitForCommandOrIdle(BaseRobot &robot,
 }
 
 inline bool connectRobot(xMateRobot &robot, error_code &ec) {
+  const char *remote_env = std::getenv("ROKAE_REMOTE_IP");
+  const char *local_env = std::getenv("ROKAE_LOCAL_IP");
+  const std::string remote_ip = (remote_env != nullptr && *remote_env != '\0') ? remote_env : "127.0.0.1";
+  const std::string local_ip = (local_env != nullptr && *local_env != '\0') ? local_env : "127.0.0.1";
   return retryRobotAction("connectToRobot", ec, [&](error_code &attempt_error) {
-    robot.connectToRobot(attempt_error);
+    robot.connectToRobot(remote_ip, local_ip, attempt_error);
   });
 }
 

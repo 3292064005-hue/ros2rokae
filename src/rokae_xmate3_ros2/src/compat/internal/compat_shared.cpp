@@ -15,6 +15,7 @@ void CompatRobotHandle::resetBackend(const std::string &remote, const std::strin
   local_ip = local;
   backend = std::make_shared<rokae::ros2::xMateRobot>(remote_ip, local_ip);
   rt_controller.reset();
+  rt_controller_owner.reset();
 }
 
 

@@ -32,8 +32,8 @@
   },
   "profiles": {
     "nrt": "nrt_strict_parity",
-    "rt": "rt_sim_experimental_best_effort",
-    "rt_policy": "best_effort_non_controller_grade"
+    "rt": "hard_1khz",
+    "rt_policy": "strict_1khz_fail_fast"
   },
   "checks": {
     "header_patterns": [
@@ -83,11 +83,11 @@
       },
       {
         "file": "src/runtime/runtime_profile_service.cpp",
-        "contains": "rt_sim_experimental_best_effort"
+        "contains": "hard_1khz"
       },
       {
         "file": "src/runtime/runtime_profile_service.cpp",
-        "contains": "best-effort simulation-grade RT"
+        "contains": "strict 1kHz"
       }
     ],
     "docs_patterns": [
@@ -97,7 +97,7 @@
       },
       {
         "file": "docs/XMATE6_OFFICIAL_ALIGNMENT_MATRIX.md",
-        "contains": "rt_sim_experimental_best_effort"
+        "contains": "hard_1khz"
       },
       {
         "file": "docs/COMPAT_ABI.md",
@@ -105,7 +105,7 @@
       },
       {
         "file": "docs/COMPAT_ABI.md",
-        "contains": "best-effort non-controller-grade RT profile"
+        "contains": "strict 1kHz fail-fast RT profile"
       }
     ],
     "cmake_patterns": [

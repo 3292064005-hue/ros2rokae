@@ -146,7 +146,8 @@ bool RtFastShmRingWriter::write(const RtFastCommandFrame &frame, std::uint32_t *
   }
 
   const auto pod = toPod(frame);
-  const std::uint64_t write_index = ring_->write_index.fetch_add(1, std::memory_order_acq_rel);
+  // SPSC contract: reserve slot from current write index, write payload, then publish index.
+  const std::uint64_t write_index = ring_->write_index.load(std::memory_order_relaxed);
   const std::uint64_t read_index = ring_->read_index.load(std::memory_order_acquire);
   const std::uint64_t backlog = write_index >= read_index ? (write_index - read_index) : 0;
   if (backlog >= kRtFastRingCapacity) {
@@ -154,10 +155,12 @@ bool RtFastShmRingWriter::write(const RtFastCommandFrame &frame, std::uint32_t *
     ring_->dropped_count.fetch_add(1, std::memory_order_relaxed);
   }
   ring_->slots[write_index % kRtFastRingCapacity] = pod;
+  ring_->write_index.store(write_index + 1, std::memory_order_release);
   if (queue_depth != nullptr) {
     const std::uint64_t post_read = ring_->read_index.load(std::memory_order_acquire);
     const std::uint64_t post_write = ring_->write_index.load(std::memory_order_acquire);
-    *queue_depth = static_cast<std::uint32_t>(std::min<std::uint64_t>(post_write - post_read, kRtFastRingCapacity));
+    const std::uint64_t depth = post_write >= post_read ? (post_write - post_read) : 0;
+    *queue_depth = static_cast<std::uint32_t>(std::min<std::uint64_t>(depth, kRtFastRingCapacity));
   }
   return true;
 }

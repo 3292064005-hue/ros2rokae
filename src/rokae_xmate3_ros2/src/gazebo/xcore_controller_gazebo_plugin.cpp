@@ -1,5 +1,6 @@
 #include "gazebo/xcore_controller_gazebo_plugin.hpp"
 
+#include <algorithm>
 #include <functional>
 
 #include <gazebo/common/Events.hh>
@@ -93,7 +94,18 @@ void XCoreControllerPlugin::OnUpdate(const common::UpdateInfo &info) {
       has_last_sim_time_ ? std::max(0.0, (info.simTime - last_sim_time_).Double()) : bootstrap_->trajectorySampleDt();
   last_sim_time_ = info.simTime;
   has_last_sim_time_ = true;
-  current_update_dt_ = inferred_dt > 0.0 ? inferred_dt : bootstrap_->trajectorySampleDt();
+  const double nominal_dt = bootstrap_->trajectorySampleDt();
+  double resolved_dt = inferred_dt;
+  if (resolved_dt <= 0.0 || resolved_dt > 0.01) {
+    resolved_dt = nominal_dt;
+  }
+  if (bootstrap_->rtProfileConfig().authoritative_servo_clock) {
+    // Keep servo clock deterministic under RT-oriented profiles.
+    resolved_dt = nominal_dt;
+  } else {
+    resolved_dt = std::clamp(resolved_dt, 0.0005, 0.005);
+  }
+  current_update_dt_ = resolved_dt;
   initial_pose_initializer_.applyOnce(joints_, joint_num_);
 
   if (initial_pose_initializer_.initialized()) {
@@ -102,39 +114,6 @@ void XCoreControllerPlugin::OnUpdate(const common::UpdateInfo &info) {
 
   joint_state_cache_.refresh(joints_, joint_num_);
 
-  auto now = bootstrap_->node()->now();
-  auto publish_bridge = bootstrap_->publishBridge();
-  auto joint_state_pub = bootstrap_->jointStatePublisher();
-  auto operation_state_pub = bootstrap_->operationStatePublisher();
-  auto runtime_diagnostics_pub = bootstrap_->runtimeDiagnosticsPublisher();
-
-  if (publish_bridge != nullptr && joint_state_pub != nullptr && operation_state_pub != nullptr) {
-    static_cast<void>(bootstrap_->collectShutdownContractState(false));
-    std::array<double, 6> cached_pos{};
-    std::array<double, 6> cached_vel{};
-    std::array<double, 6> cached_torque{};
-    joint_state_cache_.read(cached_pos, cached_vel, cached_torque);
-
-    runtime::PublisherTickInput tick_input;
-    tick_input.stamp = now;
-    tick_input.frame_id = "base_link";
-    tick_input.joint_names = &joint_names_;
-    tick_input.position = cached_pos;
-    tick_input.velocity = cached_vel;
-    tick_input.torque = cached_torque;
-    tick_input.min_publish_period_sec = 0.001;
-
-    const auto publish_tick = publish_bridge->buildPublisherTick(tick_input);
-    if (publish_tick.publish_joint_state) {
-      joint_state_pub->publish(publish_tick.joint_state);
-    }
-    if (publish_tick.publish_operation_state) {
-      operation_state_pub->publish(publish_tick.operation_state);
-    }
-    if (publish_tick.publish_operation_state && runtime_diagnostics_pub != nullptr) {
-      runtime_diagnostics_pub->publish(publish_bridge->buildRuntimeDiagnosticsMessage());
-    }
-  }
 }
 
 void XCoreControllerPlugin::ExecuteMotion() {

@@ -1,0 +1,7 @@
+rt_profile: hard_1khz
+rt_transport_source: rt_fast_shm
+rt_scheduler_state: fifo(priority=95 cpu=2 mlock=ok)
+rt_deadline_miss: false
+rt_max_gap_ms: 12.5
+rt_rx_latency_us: 2400
+rt_queue_depth: 1

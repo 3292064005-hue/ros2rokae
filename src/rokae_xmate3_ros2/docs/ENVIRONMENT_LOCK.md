@@ -17,6 +17,10 @@ validation bundle in a target-like Ubuntu 22.04 / ROS 2 Humble / Gazebo 11 envir
 already on the locked target environment, you can run the same bundle directly with
 `tools/run_target_env_acceptance.sh --local-target-env`.
 
+For release-gate execution from an arbitrary host, prefer `tools/run_release_gate_portable.sh`: it
+runs `tools/run_release_gate.sh` locally when the locked target environment is already available and
+otherwise falls back to the locked container acceptance bundle automatically.
+
 When `--launch-smoke` is enabled, the acceptance bundle runs `tools/run_launch_smoke.sh` inside the locked image. That smoke step validates installed-package discovery, xacro expansion, and `ros2 launch --show-args` resolution against the built workspace rather than only syntax-compiling the launch files. Each acceptance run, including failed environment checks or failed gates, emits a machine-readable report through `tools/write_target_env_report.py`; by default `tools/run_target_env_acceptance.sh` stores it under `artifacts/target_env_acceptance/`, and the GitHub workflow uploads the same directory as an artifact.
 
 

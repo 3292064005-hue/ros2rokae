@@ -120,22 +120,39 @@ PublisherTickOutput RuntimePublishBridge::buildPublisherTick(const PublisherTick
   PublisherTickOutput output;
   const auto view = runtime_context_.readView();
 
-  bool publish_due = true;
-  if (input.min_publish_period_sec > 0.0 && last_publisher_tick_ns_ > 0) {
+  const double legacy_period_sec = input.min_publish_period_sec > 0.0 ? input.min_publish_period_sec : 0.0;
+  const double joint_state_period_sec =
+      input.joint_state_publish_period_sec > 0.0 ? input.joint_state_publish_period_sec : legacy_period_sec;
+  const double operation_state_period_sec =
+      input.operation_state_publish_period_sec > 0.0 ? input.operation_state_publish_period_sec : legacy_period_sec;
+  const double diagnostics_period_sec =
+      input.diagnostics_publish_period_sec > 0.0 ? input.diagnostics_publish_period_sec : operation_state_period_sec;
+
+  const auto period_due = [&](const double period_sec, std::int64_t last_tick_ns) {
+    if (period_sec <= 0.0 || last_tick_ns <= 0) {
+      return true;
+    }
     const auto publish_period_ns =
-        static_cast<std::int64_t>(input.min_publish_period_sec * static_cast<double>(kNanosecondsPerSecond));
-    publish_due = (input.stamp.nanoseconds() - last_publisher_tick_ns_) >= publish_period_ns;
+        static_cast<std::int64_t>(period_sec * static_cast<double>(kNanosecondsPerSecond));
+    return (input.stamp.nanoseconds() - last_tick_ns) >= publish_period_ns;
+  };
+
+  if (input.joint_names != nullptr && period_due(joint_state_period_sec, last_joint_state_publish_ns_)) {
+    output.publish_joint_state = true;
+    output.joint_state = buildJointStateMessage(
+        input.stamp, input.frame_id, *input.joint_names, input.position, input.velocity, input.torque);
+    last_joint_state_publish_ns_ = input.stamp.nanoseconds();
   }
 
-  if (publish_due) {
+  if (period_due(operation_state_period_sec, last_operation_state_publish_ns_)) {
     output.publish_operation_state = true;
     output.operation_state.state = resolve_operation_state(view.runtime, view.operation_state);
-    if (input.joint_names != nullptr) {
-      output.publish_joint_state = true;
-      output.joint_state = buildJointStateMessage(
-          input.stamp, input.frame_id, *input.joint_names, input.position, input.velocity, input.torque);
-    }
-    last_publisher_tick_ns_ = input.stamp.nanoseconds();
+    last_operation_state_publish_ns_ = input.stamp.nanoseconds();
+  }
+
+  if (period_due(diagnostics_period_sec, last_diagnostics_publish_ns_)) {
+    output.publish_runtime_diagnostics = true;
+    last_diagnostics_publish_ns_ = input.stamp.nanoseconds();
   }
 
   if (view.program.recording_path) {

@@ -23,3 +23,5 @@ cd "${WS_ROOT}/build/${PKG_NAME}"
 "${WS_ROOT}/src/${PKG_NAME}/tools/clean_build_env.sh" ctest -L quick_gate --output-on-failure
 "${WS_ROOT}/src/${PKG_NAME}/tools/clean_build_env.sh" ctest -L semantic_gate --output-on-failure
 "${WS_ROOT}/src/${PKG_NAME}/tools/clean_build_env.sh" ctest -L release_gate --output-on-failure
+
+"${WS_ROOT}/src/${PKG_NAME}/tools/run_main_chain_smoke.sh" "${WS_ROOT}"

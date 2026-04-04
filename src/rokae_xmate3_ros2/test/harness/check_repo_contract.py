@@ -304,14 +304,20 @@ assert "getStateDataMatrix16" in robot_h
 
 quick_gate = (ROOT / "tools" / "run_quick_gate.sh").read_text(encoding="utf-8")
 release_gate = (ROOT / "tools" / "run_release_gate.sh").read_text(encoding="utf-8")
+portable_release_gate = (ROOT / "tools" / "run_release_gate_portable.sh").read_text(encoding="utf-8")
 target_acceptance = (ROOT / "tools" / "run_target_env_acceptance.sh").read_text(encoding="utf-8")
 env_lock = (ROOT / "docs" / "ENVIRONMENT_LOCK.md").read_text(encoding="utf-8")
+gates_workflow = (ROOT / ".github" / "workflows" / "gates.yml").read_text(encoding="utf-8")
 if 'check_target_environment.sh" --quiet' not in quick_gate:
     raise SystemExit('quick gate must run target environment preflight')
 if 'check_target_environment.sh" --quiet' not in release_gate:
     raise SystemExit('release gate must run target environment preflight')
+if 'run_target_env_acceptance.sh' not in portable_release_gate or 'run_release_gate.sh' not in portable_release_gate:
+    raise SystemExit('portable release gate must bridge local target-env runs and locked-container acceptance runs')
 if 'check_target_environment.sh --quiet' not in target_acceptance and 'check_target_environment.sh" --quiet' not in target_acceptance:
     raise SystemExit('target acceptance must run target environment preflight inside container')
+if 'run_target_env_acceptance.sh --release-gate --launch-smoke' not in gates_workflow:
+    raise SystemExit('workflow dispatch release gate must execute the locked target-environment acceptance bundle')
 if 'tools/check_target_environment.sh' not in env_lock:
     raise SystemExit('environment lock doc must mention the preflight script')
 if 'write_target_env_report.py' not in env_lock or 'artifacts/target_env_acceptance/' not in env_lock:

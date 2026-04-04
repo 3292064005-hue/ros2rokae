@@ -124,12 +124,16 @@ ros2 service call /xmate3/internal/get_runtime_diagnostics rokae_xmate3_ros2/srv
 ros2 topic echo /xmate3/internal/runtime_status --once
 ```
 
-### RT 1kHz 逼近建议（xMate6 仿真）
-- 传输链路默认优先级：`shm_ring > ros_rt_topic > legacy_custom_data`。
-- SDK 侧可用 `ROKAE_RT_TRANSPORT_MODE` 覆盖策略：`shm_topic`（默认）、`shm_only`、`topic_only`、`legacy_only`。
-- runtime 默认启用实时化参数：`rt_scheduler.enable=true`、`rt_scheduler.policy=fifo`、`rt_scheduler.priority=80`、`rt_memory.lock_all=true`。
-- 若宿主机权限不足，runtime 会降级并在诊断中标记 `rt_scheduler_state=degraded_best_effort(...)`。
-- 主链验收建议同时观察：`rt_transport_source`、`rt_scheduler_state`、`rt_deadline_miss`、`rt_rx_latency_us`、`rt_queue_depth`。
+### RT profile 与 1kHz 运行约束（xMate6 仿真 / daemon runtime）
+- `runtime_profile=nrt_strict_parity`：NRT 严格兼容 lane，发布频率低于 servo 主链，不用于 1 kHz 验收。
+- `runtime_profile=rt_sim_experimental_best_effort`：默认仿真级 RT lane；servo 主链由 runtime 持有，观测面独立降频发布。
+- `runtime_profile=rt_hardened`：authoritative servo + decoupled observability，同时关闭 legacy custom-data RT fallback。
+- `runtime_profile=hard_1khz`：**仅 daemonized runtime 支持**；要求 SHM-only RT ingress，并在 `rt_scheduler` 契约降级时直接启动失败。
+- `hard_1khz` 不是控制柜级 UDP/硬实时声明；它表示当前工程提供了一个单一 runtime servo 时基、单入口传输与 fail-fast 调度契约的严格 profile。
+- 默认观测节拍已与 servo 主链拆开：joint state ≈ 250 Hz，operation state ≈ 50 Hz，runtime diagnostics ≈ 50 Hz；不要再把 topic 频率等同于 RT 控制频率。
+- SDK 侧可用 `ROKAE_RT_TRANSPORT_MODE` 覆盖策略：`shm_topic`（默认）、`shm_only`、`topic_only`、`legacy_only`；但 `hard_1khz` profile 下 runtime 仅接受 SHM ingress。
+- 主链验收建议同时观察：`active_profile`、`rt_transport_source`、`rt_scheduler_state`、`rt_deadline_miss`、`rt_rx_latency_us`、`rt_queue_depth`、`rt_max_gap_ms`。
+- Gazebo plugin host 下看到 `rt_scheduler_state=host_managed(gazebo_update_thread)` 属于预期；严格 fail-fast scheduler 只在 daemonized runtime host 下执行。
 
 兼容别名仍可使用：
 ```bash
@@ -159,9 +163,26 @@ ros2 interface show rokae_xmate3_ros2/srv/GetEndEffectorTorque
 - `example_24_rt_follow_position`
 - `example_25_rt_s_line`
 - `example_26_rt_torque_control`
+- `example_27_rt_1khz_stress`
 
-> 说明：`example_20` 到 `example_26` 在 Gazebo 中是 simulated RT facade，用于仿真工作流验证，不承诺真机级 1kHz。
+> 说明：`example_20` 到 `example_27` 在 Gazebo 中是 simulated RT facade，用于仿真工作流验证，不承诺真机级 1kHz。
 - `example_99_complete_demo`
+
+RT 1kHz 压测脚本（默认 `daemon` + `hard_1khz`，可传入时长）：
+```bash
+bash src/rokae_xmate3_ros2/tools/run_rt_1khz_stress.sh ~/ros2_ws0 600 5 daemon
+```
+
+若主机缺少实时调度权限（`CAP_SYS_NICE/CAP_IPC_LOCK`），脚本会 fail-fast 提示；可先跑仿真通道：
+```bash
+bash src/rokae_xmate3_ros2/tools/run_rt_1khz_stress.sh ~/ros2_ws0 600 5 simulation
+```
+
+为 `hard_1khz` 推荐给 runtime 二进制授予能力：
+```bash
+sudo setcap cap_sys_nice,cap_ipc_lock+ep ~/ros2_ws0/install/rokae_xmate3_ros2/bin/rokae_sim_runtime
+getcap ~/ros2_ws0/install/rokae_xmate3_ros2/bin/rokae_sim_runtime
+```
 
 ## 5. 常见问题
 
@@ -222,3 +243,20 @@ cd ~/ros2_ws0/build/rokae_xmate3_ros2
 - `ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES=ON` 可显式安装 internal/backend example 二进制；默认 **OFF**，避免把源码树内部验证入口混入 public 安装面。
 
 > IO / registers / RL / calibration 已移出安装态 public xMate6 contract。对应符号仍保留用于源码兼容，但 install-facing public SDK lane 将返回确定性的 `not_implemented` 错误。
+
+
+RT diagnostics threshold gate knobs for release smoke:
+- default file: `config/runtime_diag_gate.default.json`
+- override file: `ROKAE_RT_GATE_LIMITS_FILE=/path/to/runtime_diag_gate.local.json`
+- CLI/env overrides still supported for one-off experiments:
+  - `ROKAE_RT_GATE_MAX_GAP_MS` (default `50`)
+  - `ROKAE_RT_GATE_MAX_RX_LATENCY_US` (default `50000`)
+  - `ROKAE_RT_GATE_MAX_QUEUE_DEPTH` (default `8`)
+
+To calibrate a target-specific limits file from one or more successful runtime diagnostics logs:
+
+```bash
+python3 tools/derive_runtime_diag_gate.py   build/rokae_xmate3_ros2/main_chain_runtime_diagnostics.log   --output config/runtime_diag_gate.local.json
+
+ROKAE_RT_GATE_LIMITS_FILE=$PWD/config/runtime_diag_gate.local.json   tools/run_release_gate_portable.sh
+```

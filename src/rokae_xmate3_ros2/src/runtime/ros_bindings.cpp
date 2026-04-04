@@ -16,13 +16,15 @@ RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
                          JointStateFetcher joint_state_fetcher,
                          TimeProvider time_provider,
                          TrajectoryDtProvider trajectory_dt_provider,
-                         RequestIdGenerator request_id_generator)
+                         RequestIdGenerator request_id_generator,
+                         RosBindingsRtIngressOptions rt_ingress_options)
     : node_(std::move(node)),
       runtime_context_(runtime_context),
       publish_bridge_(publish_bridge),
       joint_state_fetcher_(std::move(joint_state_fetcher)),
       trajectory_dt_provider_(std::move(trajectory_dt_provider)),
       request_id_generator_(std::move(request_id_generator)),
+      rt_ingress_options_(rt_ingress_options),
       control_facade_(std::make_unique<ControlFacade>(runtime_context_.sessionState(),
                                                       runtime_context_.motionOptionsState(),
                                                       runtime_context_.toolingState(),
@@ -71,6 +73,9 @@ RosBindings::~RosBindings() {
 }
 
 void RosBindings::initRtIngress() {
+  if (!rt_ingress_options_.enable_topic_rt_ingress) {
+    return;
+  }
   rt_ingress_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   auto options = rclcpp::SubscriptionOptions();
   options.callback_group = rt_ingress_group_;

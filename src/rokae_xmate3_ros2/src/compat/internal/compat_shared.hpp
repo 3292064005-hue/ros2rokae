@@ -10,6 +10,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <exception>
 #include <vector>
 
 #include "rokae/data_types.h"
@@ -42,11 +43,14 @@ struct CompatLoopState {
   std::function<std::any(void)> callback;
   std::thread worker;
   std::atomic<bool> running{false};
+  std::atomic<bool> move_started{false};
   bool use_state_data_in_loop = false;
   std::atomic<std::uint64_t> sequence{1};
   RtControllerMode current_mode = RtControllerMode::jointPosition;
   std::array<double, 3> cartesian_limit_lengths{};
   std::array<double, 16> cartesian_limit_frame{identity_matrix16()};
+  mutable std::mutex exception_mutex;
+  std::exception_ptr loop_exception;
 };
 
 struct CompatRobotHandle {
@@ -61,6 +65,7 @@ struct CompatRobotHandle {
   std::vector<RLProjectInfo> projects_cache{};
   RLProjectInfo current_project{};
   std::weak_ptr<RtMotionControlCobot<6>> rt_controller;
+  std::shared_ptr<RtMotionControlCobot<6>> rt_controller_owner;
   CompatSdkCapabilities capabilities{};
 
   [[nodiscard]] const CompatSdkCapabilities &sdkCapabilities() const noexcept { return capabilities; }

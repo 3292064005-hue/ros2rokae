@@ -38,7 +38,7 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const std::stri
                                                                  const std::string &active_profile,
                                                                  const std::vector<std::string> &capability_flags) {
   std::vector<RuntimeProfileDescriptor> profiles;
-  profiles.reserve(5);
+  profiles.reserve(7);
 
   profiles.push_back(make_profile("nrt_strict_parity",
                                   "runtime",
@@ -53,11 +53,29 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const std::stri
                                   "runtime",
                                   "simulated_rt_bridge",
                                   "rt_sim_experimental_best_effort",
-                                  "best-effort simulation-grade RT; non-controller-grade equivalent; rt prearm + watchdog + loop stats",
+                                  "best-effort simulation-grade RT; authoritative servo + decoupled observability",
                                   {"JointPosition", "CartesianPosition", "Torque"},
                                   true,
                                   true,
                                   true));
+  profiles.push_back(make_profile("rt_hardened",
+                                  "runtime",
+                                  "simulated_rt_bridge",
+                                  "rt_hardened",
+                                  "authoritative servo tick + decoupled observability + no legacy RT custom-data fallback",
+                                  {"JointPosition", "CartesianPosition", "Torque"},
+                                  true,
+                                  true,
+                                  false));
+  profiles.push_back(make_profile("hard_1khz",
+                                  "runtime",
+                                  "daemonized_shm_rt_bridge",
+                                  "hard_1khz",
+                                  "strict 1kHz fail-fast; single authoritative 1ms servo + shm-only ingress + fail-fast scheduler contract",
+                                  {"JointPosition", "CartesianPosition", "Torque"},
+                                  true,
+                                  true,
+                                  false));
   profiles.push_back(make_profile("hybrid_bridge",
                                   "runtime",
                                   "trajectory+effort",
@@ -91,8 +109,8 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const std::stri
     if (profile.name == "nrt_strict_parity" &&
         (backend_mode == "hybrid" || backend_mode == "jtc")) {
       profile.active = true;
-    } else if (profile.name == "rt_sim_experimental_best_effort" && backend_mode == "effort") {
-      profile.active = true;
+    } else if ((profile.name == "rt_sim_experimental_best_effort" || profile.name == "rt_hardened" || profile.name == "hard_1khz") && backend_mode == "effort") {
+      profile.active = profile.name == active_profile;
     } else if (profile.name == "hybrid_bridge" && backend_mode == "hybrid") {
       profile.active = true;
     } else if (profile.name == "effort_direct" && backend_mode == "effort") {

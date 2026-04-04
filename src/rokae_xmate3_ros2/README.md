@@ -420,7 +420,7 @@ teardown 质量与 full examples 业务回归已经拆成两个质量信号：
 | 17 | 4.3/4.5 | 状态缓存与异步轮询 |
 | 18 | 4.8 | 工具、工件与工具组管理（不含标定） |
 | 19 | 4.8 | 末端力矩、奇异规避与诊断 |
-| 20-26 | 4.5 | RT 控制系列示例（Gazebo simulated RT facade） |
+| 20-27 | 4.5 | RT 控制系列示例（Gazebo simulated RT facade，含 1kHz 压测） |
 | 99 | - | 综合演示 |
 
 更多说明请参考 [examples/README.md](examples/README.md)。
@@ -449,6 +449,8 @@ auto joints = robot.jointPos(ec);
 - `GenerateSTrajectory(cartesian)`：近似实现，基于路径弧长与 seeded IK 的笛卡尔近似轨迹
 - 碰撞检测：近似实现，residual-based 仿真监督，不等价于真机安全功能
 - 实时控制：实验性，simulated RT facade，不承诺真机 1kHz/硬实时语义
+- runtime profile 现分层为 `nrt_strict_parity` / `rt_sim_experimental_best_effort` / `rt_hardened` / `hard_1khz`；其中 `hard_1khz` 仅允许 daemonized runtime host，要求 SHM-only RT ingress 与 fail-fast scheduler contract。Gazebo plugin host 的调度状态会明确报告为 `host_managed(gazebo_update_thread)`，而不会伪装成已对 world-update 线程成功施加 RT 调度。
+- joint state / operation state / runtime diagnostics 已与 servo 主链解耦，默认不再按 1 ms 频率对外发布。
 - 模型库 / 力矩 / 无摩擦力矩：近似实现，基于统一仿真代理项，不是完整刚体动力学库
 
 ```cpp
@@ -664,3 +666,7 @@ SDK-compatible wrappers (`rokae::Robot_T`, `rokae::Cobot`, `rokae::xMateRobot`) 
 
 
 - RT compatibility hardening: `MoveJ/MoveL/MoveC` now validate official-style speed factors in `(0, 1]`; Cartesian start/target checks use translation + quaternion angular tolerance; and install-facing/source-tree RT commands share one semantic command bridge. `MoveC` interpolation density now scales with both sweep angle and radius.
+
+- release gate 现在会通过 `tools/check_runtime_diag_gate.py` 对 `rt_deadline_miss` / `rt_max_gap_ms` / `rt_rx_latency_us` / `rt_queue_depth` 执行阈值校验，而不再只检查字段是否存在。
+- runtime diagnostics 阈值不再只靠命令行环境变量硬编码；`tools/run_main_chain_smoke.sh` 会优先读取 `config/runtime_diag_gate.default.json`，可通过 `ROKAE_RT_GATE_LIMITS_FILE=/path/to/custom.json` 覆盖。若要用目标机实测日志反推阈值，可运行 `tools/derive_runtime_diag_gate.py <runtime_diagnostics.log> --output config/runtime_diag_gate.local.json`。
+- 若当前主机不在锁定的 Ubuntu 22.04 / Humble / Gazebo11 环境上，可直接运行 `tools/run_release_gate_portable.sh`；它会优先使用本地目标环境，缺失时自动回退到 `tools/run_target_env_acceptance.sh --release-gate --launch-smoke`。

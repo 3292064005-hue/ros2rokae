@@ -36,11 +36,15 @@ TEST(RuntimePublishBridgeTest, PublisherTickBuildsMessagesLogsAndPathSamplesFrom
   tick_input.position = {0.0, 0.1, 0.2, 0.3, 0.4, 0.5};
   tick_input.velocity = {0.5, 0.4, 0.3, 0.2, 0.1, 0.0};
   tick_input.torque = {1.0, 1.1, 1.2, 1.3, 1.4, 1.5};
-  tick_input.min_publish_period_sec = 0.001;
+  tick_input.min_publish_period_sec = 0.0;
+  tick_input.joint_state_publish_period_sec = 0.001;
+  tick_input.operation_state_publish_period_sec = 0.001;
+  tick_input.diagnostics_publish_period_sec = 0.001;
 
   const auto first_tick = bridge.buildPublisherTick(tick_input);
   EXPECT_TRUE(first_tick.publish_operation_state);
   EXPECT_TRUE(first_tick.publish_joint_state);
+  EXPECT_TRUE(first_tick.publish_runtime_diagnostics);
   EXPECT_FALSE(first_tick.recorded_path_sample);
   EXPECT_EQ(first_tick.operation_state.state, rokae_xmate3_ros2::msg::OperationState::MOVING);
   ASSERT_EQ(first_tick.joint_state.name.size(), 6u);
@@ -52,12 +56,14 @@ TEST(RuntimePublishBridgeTest, PublisherTickBuildsMessagesLogsAndPathSamplesFrom
   const auto throttled_tick = bridge.buildPublisherTick(tick_input);
   EXPECT_FALSE(throttled_tick.publish_operation_state);
   EXPECT_FALSE(throttled_tick.publish_joint_state);
+  EXPECT_FALSE(throttled_tick.publish_runtime_diagnostics);
 
   context.programState().startRecordingPath();
   tick_input.stamp = rclcpp::Time(123456789 + 2000000);
   const auto recording_tick = bridge.buildPublisherTick(tick_input);
   EXPECT_TRUE(recording_tick.publish_operation_state);
   EXPECT_TRUE(recording_tick.publish_joint_state);
+  EXPECT_TRUE(recording_tick.publish_runtime_diagnostics);
   EXPECT_TRUE(recording_tick.recorded_path_sample);
   context.programState().stopRecordingPath();
   context.programState().saveRecordedPath("capture");

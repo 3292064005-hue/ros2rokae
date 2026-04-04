@@ -15,6 +15,8 @@ TEST(RuntimeProfileServiceTest, ActiveProfileAndSummaryAreStable) {
   EXPECT_NE(summary.find("nrt_strict_parity=active"), std::string::npos);
   EXPECT_NE(summary.find("hybrid_bridge"), std::string::npos);
   EXPECT_NE(summary.find("rt_sim_experimental_best_effort"), std::string::npos);
+  EXPECT_NE(summary.find("rt_hardened"), std::string::npos);
+  EXPECT_NE(summary.find("hard_1khz"), std::string::npos);
   EXPECT_FALSE(profiles.front().owner_rule.empty());
   EXPECT_FALSE(profiles.front().preferred_contract.empty());
 }

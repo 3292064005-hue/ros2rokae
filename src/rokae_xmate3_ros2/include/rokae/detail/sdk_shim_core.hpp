@@ -23,6 +23,9 @@
 #include <utility>
 #include <vector>
 
+#include <pthread.h>
+#include <sched.h>
+
 #include <Eigen/Core>
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
@@ -78,6 +81,22 @@ inline std::array<double, 16> identity_matrix_16() {
           0.0, 1.0, 0.0, 0.0,
           0.0, 0.0, 1.0, 0.0,
           0.0, 0.0, 0.0, 1.0};
+}
+
+
+/**
+ * @brief Best-effort RT loop priority application for the SDK compatibility loop.
+ * @param priority Requested OS scheduler priority. Non-positive values disable the request.
+ * @throws No exception. Scheduler failures are intentionally ignored to preserve the official-style no-throw RT API surface.
+ * @note This helper only applies to the thread that owns the compatibility loop body.
+ */
+inline void try_apply_loop_priority(int priority) noexcept {
+  if (priority <= 0) {
+    return;
+  }
+  sched_param sched{};
+  sched.sched_priority = std::clamp(priority, 1, 95);
+  (void)::sched_setscheduler(0, SCHED_FIFO, &sched);
 }
 
 template <typename T>
@@ -874,7 +893,7 @@ public:
   // explicit runtime-owned RT command channel instead of reusing the NRT move queue.
   template <class Command>
   void setControlLoop(const std::function<Command(void)> &callback, int priority = 0, bool useStateDataInLoop = false) noexcept {
-    (void)priority;
+    loop_priority_ = priority;
     has_last_joint_command_ = false;
     has_last_cartesian_command_ = false;
     last_dispatch_time_ = std::chrono::steady_clock::time_point{};
@@ -940,6 +959,7 @@ public:
       return;
     }
     auto body = [this]() {
+      detail::try_apply_loop_priority(loop_priority_);
       auto next_tick = std::chrono::steady_clock::now();
       while (loop_running_) {
         if (use_state_data_in_loop_ && session_) {
@@ -1015,6 +1035,7 @@ protected:
   std::thread loop_thread_;
   std::atomic<bool> loop_running_{false};
   bool use_state_data_in_loop_ = false;
+  int loop_priority_ = 0;
   std::chrono::steady_clock::time_point last_dispatch_time_{};
   std::chrono::milliseconds dispatch_interval_{1};
   bool has_last_joint_command_ = false;

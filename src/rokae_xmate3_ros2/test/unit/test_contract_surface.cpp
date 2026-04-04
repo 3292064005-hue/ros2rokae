@@ -301,10 +301,15 @@ TEST(ContractSurface, ExportedSymbolHarnessChecksDynamicTableOnly) {
 TEST(ContractSurface, EnvironmentLockPreflightScriptIsWired) {
   const auto quick_gate = readText(kProjectRoot / "tools" / "run_quick_gate.sh");
   const auto release_gate = readText(kProjectRoot / "tools" / "run_release_gate.sh");
+  const auto portable_release_gate = readText(kProjectRoot / "tools" / "run_release_gate_portable.sh");
   const auto target_acceptance = readText(kProjectRoot / "tools" / "run_target_env_acceptance.sh");
   const auto env_lock = readText(kProjectRoot / "docs" / "ENVIRONMENT_LOCK.md");
-  EXPECT_NE(quick_gate.find("check_target_environment.sh\" --quiet"), std::string::npos);
-  EXPECT_NE(release_gate.find("check_target_environment.sh\" --quiet"), std::string::npos);
+  EXPECT_NE(quick_gate.find("check_target_environment.sh"), std::string::npos);
+  EXPECT_NE(quick_gate.find("--quiet"), std::string::npos);
+  EXPECT_NE(release_gate.find("check_target_environment.sh"), std::string::npos);
+  EXPECT_NE(release_gate.find("--quiet"), std::string::npos);
+  EXPECT_NE(portable_release_gate.find("run_target_env_acceptance.sh"), std::string::npos);
+  EXPECT_NE(portable_release_gate.find("run_release_gate.sh"), std::string::npos);
   EXPECT_NE(target_acceptance.find("check_target_environment.sh --quiet"), std::string::npos);
   EXPECT_NE(target_acceptance.find("write_target_env_report.py"), std::string::npos);
   EXPECT_NE(target_acceptance.find("acceptance_report_container.json"), std::string::npos);
@@ -313,13 +318,27 @@ TEST(ContractSurface, EnvironmentLockPreflightScriptIsWired) {
   EXPECT_NE(env_lock.find("artifacts/target_env_acceptance/"), std::string::npos);
 }
 
-
+TEST(ContractSurface, RuntimeDiagGateIsExternalizedAndCalibratable) {
+  const auto smoke = readText(kProjectRoot / "tools" / "run_main_chain_smoke.sh");
+  const auto gate = readText(kProjectRoot / "tools" / "check_runtime_diag_gate.py");
+  const auto derive = readText(kProjectRoot / "tools" / "derive_runtime_diag_gate.py");
+  const auto quickstart = readText(kProjectRoot / "docs" / "QUICKSTART.md");
+  EXPECT_NE(smoke.find("runtime_diag_gate.default.json"), std::string::npos);
+  EXPECT_NE(smoke.find("ROKAE_RT_GATE_LIMITS_FILE"), std::string::npos);
+  EXPECT_NE(gate.find("--limits-file"), std::string::npos);
+  EXPECT_NE(gate.find("--print-effective-limits"), std::string::npos);
+  EXPECT_NE(derive.find("Derive a reusable runtime-diagnostics gate profile"), std::string::npos);
+  EXPECT_NE(quickstart.find("derive_runtime_diag_gate.py"), std::string::npos);
+}
 
 TEST(ContractSurface, AcceptanceWorkflowUploadsReportArtifact) {
   const auto workflow = readText(kProjectRoot / ".github" / "workflows" / "acceptance-humble-gazebo11.yml");
+  const auto gates_workflow = readText(kProjectRoot / ".github" / "workflows" / "gates.yml");
   EXPECT_NE(workflow.find("upload-artifact@v4"), std::string::npos);
   EXPECT_NE(workflow.find("acceptance-humble-gazebo11-report"), std::string::npos);
   EXPECT_NE(workflow.find("--report-dir"), std::string::npos);
+  EXPECT_NE(gates_workflow.find("run_target_env_acceptance.sh --release-gate --launch-smoke"), std::string::npos);
+  EXPECT_NE(gates_workflow.find("release-gate-report"), std::string::npos);
 }
 
 TEST(ContractSurface, ServiceContractManifestCentralizesPrimaryAndCompatibilitySurfaces) {

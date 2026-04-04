@@ -60,7 +60,7 @@ The install-facing headers now also retain the official-shaped convenience surfa
 - The current lane intentionally targets **xMate 6-axis only**.
 - The current install package remains **ROS2/Gazebo-backed**; the public config now resolves the required ROS2/Gazebo dependency set before loading the exported targets, and `xCoreSDK::xCoreSDK_static` is a native static library rather than a compatibility alias.
 - The compatibility ABI split does **not** claim controller-grade RT fidelity; it only hardens the install/build/consumption boundary.
-- RT public profile is explicitly best-effort non-controller-grade RT profile (`rt_sim_experimental_best_effort`) and must not be interpreted as controller-grade parity.
+- RT public profile is explicitly strict 1kHz fail-fast RT profile (`hard_1khz`) for compatibility acceptance; unmet realtime contract conditions fail fast instead of silently degrading.
 
 
 - `ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES=ON` 可显式安装 internal/backend example 二进制；默认 **OFF**，避免把源码树内部验证入口混入 public 安装面。
