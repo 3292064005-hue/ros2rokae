@@ -47,19 +47,25 @@ if(ROKAE_BUILD_COMPAT_SDK)
     kdl_parser
   )
   target_link_libraries(xCoreSDK_static
-    PUBLIC
-      Eigen3::Eigen
-    PRIVATE
-      "${cpp_typesupport_target}"
-      ${EIGEN3_LIBRARIES}
-      ${OROCOS_KDL_LIBRARIES}
-      ${GAZEBO_LIBRARIES}
+    Eigen3::Eigen
+    "${cpp_typesupport_target}"
+    ${EIGEN3_LIBRARIES}
+    ${OROCOS_KDL_LIBRARIES}
+    ${GAZEBO_LIBRARIES}
   )
   target_compile_features(xCoreSDK_static PUBLIC cxx_std_17)
   set_target_properties(xCoreSDK_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
   rokae_add_rosidl_dependency(xCoreSDK_static)
 
-  add_library(xCoreSDK_shared SHARED ${ROKAE_COMPAT_SOURCES})
+  add_library(xCoreSDK_shared SHARED
+    ${ROKAE_COMPAT_SOURCES}
+    $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_motion_core>
+    $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_state>
+    $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_facade>
+    $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_ros_bridge>
+    $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_control_bridge>
+    $<TARGET_OBJECTS:${PROJECT_NAME}_sdk_backend_objects>
+  )
   add_library(xCoreSDK::xCoreSDK_shared ALIAS xCoreSDK_shared)
   target_include_directories(xCoreSDK_shared
     PUBLIC
@@ -68,11 +74,27 @@ if(ROKAE_BUILD_COMPAT_SDK)
     PRIVATE
       ${ROKAE_COMPAT_PRIVATE_INCLUDE_DIRS}
   )
+  ament_target_dependencies(xCoreSDK_shared
+    ament_index_cpp
+    rclcpp
+    rclcpp_action
+    std_msgs
+    sensor_msgs
+    geometry_msgs
+    control_msgs
+    trajectory_msgs
+    rosidl_runtime_cpp
+    unique_identifier_msgs
+    action_msgs
+    gazebo_ros
+    kdl_parser
+  )
   target_link_libraries(xCoreSDK_shared
-    PUBLIC
-      Eigen3::Eigen
-    PRIVATE
-      ${PROJECT_NAME}_sdk_backend
+    Eigen3::Eigen
+    "${cpp_typesupport_target}"
+    ${EIGEN3_LIBRARIES}
+    ${OROCOS_KDL_LIBRARIES}
+    ${GAZEBO_LIBRARIES}
   )
   target_compile_features(xCoreSDK_shared PUBLIC cxx_std_17)
   rokae_add_rosidl_dependency(xCoreSDK_shared)

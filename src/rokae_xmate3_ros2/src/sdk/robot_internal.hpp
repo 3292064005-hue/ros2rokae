@@ -6,6 +6,7 @@
 #include "rokae_xmate3_ros2/runtime/ros_context_owner.hpp"
 #include "rokae_xmate3_ros2/sdk_catalog_policy.hpp"
 #include "rokae_xmate3_ros2/utils.hpp"
+#include "rokae/error_category.hpp"
 #include "../runtime/pose_utils.hpp"
 
 #include <Eigen/Geometry>
@@ -348,13 +349,14 @@ private:
     void loadSdkPoliciesFromEnvironment();
 };
 
+template <typename ImplLike>
 class ScopedLastError final {
 public:
-    ScopedLastError(xMateRobot::Impl* impl, std::error_code& ec) noexcept
-        : impl_(impl), ec_(ec) {}
+    ScopedLastError(ImplLike impl, std::error_code& ec) noexcept
+        : impl_(std::move(impl)), ec_(ec) {}
 
     ~ScopedLastError() {
-        if (impl_ != nullptr) {
+        if (impl_) {
             impl_->remember_last_error(ec_);
         }
     }
@@ -363,16 +365,13 @@ public:
     ScopedLastError& operator=(const ScopedLastError&) = delete;
 
 private:
-    xMateRobot::Impl* impl_;
+    ImplLike impl_;
     std::error_code& ec_;
 };
 
-inline ScopedLastError track_last_error(xMateRobot::Impl* impl, std::error_code& ec) noexcept {
-    return ScopedLastError(impl, ec);
-}
-
-inline ScopedLastError track_last_error(const std::unique_ptr<xMateRobot::Impl>& impl, std::error_code& ec) noexcept {
-    return ScopedLastError(impl.get(), ec);
+template <typename ImplLike>
+inline ScopedLastError<ImplLike> track_last_error(ImplLike impl, std::error_code& ec) noexcept {
+    return ScopedLastError<ImplLike>(std::move(impl), ec);
 }
 
 } // namespace rokae::ros2

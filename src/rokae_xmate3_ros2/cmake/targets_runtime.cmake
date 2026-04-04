@@ -142,3 +142,48 @@ target_link_libraries(${PROJECT_NAME}_runtime_core
 )
 target_compile_features(${PROJECT_NAME}_runtime_core PUBLIC cxx_std_17)
 rokae_add_rosidl_dependency(${PROJECT_NAME}_runtime_core)
+
+if(BUILD_TESTING)
+  # Test-only static runtime aggregate. Unit/strict tests link this target instead of the
+  # shared runtime_core so they can resolve internal runtime symbols without expanding
+  # the public shared-library export surface.
+  add_library(${PROJECT_NAME}_runtime_test STATIC
+    $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_motion_core>
+    $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_state>
+    $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_facade>
+    $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_ros_bridge>
+    $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_control_bridge>
+  )
+  target_include_directories(${PROJECT_NAME}_runtime_test
+    PUBLIC
+      include
+      ${CMAKE_CURRENT_BINARY_DIR}
+      ${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      ${EIGEN3_INCLUDE_DIRS}
+  )
+  ament_target_dependencies(${PROJECT_NAME}_runtime_test
+    ament_index_cpp
+    rclcpp
+    rclcpp_action
+    std_msgs
+    sensor_msgs
+    geometry_msgs
+    control_msgs
+    trajectory_msgs
+    rosidl_runtime_cpp
+    unique_identifier_msgs
+    action_msgs
+    gazebo_ros
+    kdl_parser
+  )
+  target_link_libraries(${PROJECT_NAME}_runtime_test
+    "${cpp_typesupport_target}"
+    ${EIGEN3_LIBRARIES}
+    ${OROCOS_KDL_LIBRARIES}
+    ${GAZEBO_LIBRARIES}
+  )
+  target_compile_features(${PROJECT_NAME}_runtime_test PUBLIC cxx_std_17)
+  rokae_add_rosidl_dependency(${PROJECT_NAME}_runtime_test)
+endif()

@@ -9,6 +9,7 @@
 
 #include "compat/rt_motion_primitives.hpp"
 #include "rokae/motion_control_rt.h"
+#include "rokae/robot.h"
 #include "rokae/utility.h"
 #include "runtime/rt_command_bridge.hpp"
 #include "rokae_xmate3_ros2/runtime/rt_semantic_topics.hpp"

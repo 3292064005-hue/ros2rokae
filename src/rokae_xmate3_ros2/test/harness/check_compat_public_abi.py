@@ -22,6 +22,14 @@ for path in public_headers:
         if needle in text:
             failures.append(f"forbidden token '{needle}' found in {path}")
 
+robot_header = (ROOT / "include" / "rokae" / "robot.h").read_text(encoding="utf-8")
+if "Toolset setToolset(const std::string &toolName, const std::string &wobjName, error_code &ec) noexcept;" not in robot_header:
+    failures.append("rokae/robot.h must expose Toolset-returning setToolset(toolName, wobjName, ec)")
+if "std::array<double, 6> flangePos(error_code &ec) const noexcept;" not in robot_header:
+    failures.append("rokae/robot.h must keep deprecated flangePos(ec) compatibility alias")
+if "[[deprecated(\"Use jointTorque() instead\")]]" not in robot_header:
+    failures.append("rokae/robot.h must mark jointTorques() as deprecated compatibility alias")
+
 cmake_root = ROOT / 'CMakeLists.txt'
 cmake_text = cmake_root.read_text(encoding='utf-8')
 if 'ROKAE_STRICT_PUBLIC_INSTALL' not in cmake_text:
@@ -67,7 +75,18 @@ if compat_targets.exists():
         failures.append('missing internal backend example grouping in cmake/targets_examples.cmake')
 
 install_tree = ROOT / 'test' / 'compat' / 'install_tree'
-for required in ['minimal_state_and_motion.cpp', 'minimal_static_link_only.cpp', 'minimal_shared_link_only.cpp']:
+for required in [
+    'minimal_state_and_motion.cpp',
+    'minimal_static_link_only.cpp',
+    'minimal_shared_link_only.cpp',
+    'minimal_toolset_by_name.cpp',
+    'minimal_flange_pos.cpp',
+    'minimal_connect_noec_exception.cpp',
+    'official_sdk_example_xmate6.cpp',
+    'official_move_example_xmate6.cpp',
+    'official_read_robot_state_xmate6.cpp',
+    'official_path_record_xmate6.cpp',
+]:
     if not (install_tree / required).is_file():
         failures.append(f'missing install-tree consumer coverage source: {required}')
 

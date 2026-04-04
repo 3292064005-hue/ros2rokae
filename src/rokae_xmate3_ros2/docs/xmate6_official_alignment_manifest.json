@@ -1,0 +1,38 @@
+{
+  "target_family": "xmate6",
+  "alignment_scope": "call_build_only",
+  "baseline": {
+    "headers": [
+      "librokae/include/rokae/base.h",
+      "librokae/include/rokae/data_types.h",
+      "librokae/include/rokae/exception.h",
+      "librokae/include/rokae/model.h",
+      "librokae/include/rokae/motion_control_rt.h",
+      "librokae/include/rokae/planner.h",
+      "librokae/include/rokae/robot.h",
+      "librokae/include/rokae/utility.h"
+    ],
+    "examples": [
+      "librokae/example/sdk_example.cpp",
+      "librokae/example/move_example.cpp",
+      "librokae/example/read_robot_state.cpp",
+      "librokae/example/path_record.cpp"
+    ]
+  },
+  "unsupported_public_modules": [
+    "io",
+    "rl",
+    "calibration"
+  ],
+  "signature_contract": {
+    "toolset_by_name_returns_toolset": true,
+    "flange_pos_alias_present": true,
+    "joint_torque_primary": true,
+    "joint_torques_deprecated_alias": true
+  },
+  "connect_contract": {
+    "constructor_remote_autoconnect": true,
+    "no_error_code_connect_throws": true,
+    "explicit_remote_required": true
+  }
+}

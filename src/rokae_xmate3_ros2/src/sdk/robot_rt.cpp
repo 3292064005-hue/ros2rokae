@@ -208,9 +208,9 @@ unsigned xMateRobot::updateRobotState(std::chrono::steady_clock::duration timeou
     const auto request_started = std::chrono::steady_clock::now();
     const bool enforce_timeout = timeout > std::chrono::steady_clock::duration::zero();
     const auto deadline = request_started + timeout;
-    const auto remaining_time = [&]() {
+    const auto remaining_time = [&]() -> std::chrono::nanoseconds {
         if (!enforce_timeout) {
-            return std::chrono::seconds(30);
+            return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(30));
         }
         const auto now = std::chrono::steady_clock::now();
         if (now >= deadline) {

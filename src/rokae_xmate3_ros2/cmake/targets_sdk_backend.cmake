@@ -32,12 +32,11 @@ target_include_directories(${PROJECT_NAME}_sdk_backend_objects
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(${PROJECT_NAME}_sdk_backend_objects
-  PRIVATE
-    ${PROJECT_NAME}_runtime_core
-    "${cpp_typesupport_target}"
-    ${EIGEN3_LIBRARIES}
-    ${OROCOS_KDL_LIBRARIES}
-    ${GAZEBO_LIBRARIES}
+  ${PROJECT_NAME}_runtime_core
+  "${cpp_typesupport_target}"
+  ${EIGEN3_LIBRARIES}
+  ${OROCOS_KDL_LIBRARIES}
+  ${GAZEBO_LIBRARIES}
 )
 target_compile_features(${PROJECT_NAME}_sdk_backend_objects PUBLIC cxx_std_17)
 set_target_properties(${PROJECT_NAME}_sdk_backend_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -45,6 +44,11 @@ rokae_add_rosidl_dependency(${PROJECT_NAME}_sdk_backend_objects)
 
 add_library(${PROJECT_NAME}_sdk_backend SHARED
   $<TARGET_OBJECTS:${PROJECT_NAME}_sdk_backend_objects>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_motion_core>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_state>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_facade>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_ros_bridge>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_control_bridge>
 )
 add_library(${PROJECT_NAME}_sdk ALIAS ${PROJECT_NAME}_sdk_backend)
 ament_target_dependencies(${PROJECT_NAME}_sdk_backend
@@ -59,7 +63,6 @@ target_include_directories(${PROJECT_NAME}_sdk_backend
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(${PROJECT_NAME}_sdk_backend
-  ${PROJECT_NAME}_runtime_core
   "${cpp_typesupport_target}"
   ${EIGEN3_LIBRARIES}
   ${OROCOS_KDL_LIBRARIES}

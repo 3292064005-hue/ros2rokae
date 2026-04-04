@@ -35,7 +35,7 @@ if(BUILD_TESTING)
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_motion_planner_core
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_motion_planner_core PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_motion_planner_core)
@@ -55,7 +55,7 @@ if(BUILD_TESTING)
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_motion_runtime_state
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_motion_runtime_state PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_motion_runtime_state)
@@ -79,8 +79,17 @@ if(BUILD_TESTING)
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_runtime_adapters
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
+    if(TARGET xCoreSDK::xCoreSDK_static)
+      target_link_libraries(test_runtime_adapters
+        xCoreSDK::xCoreSDK_static
+      )
+    elseif(TARGET xCoreSDK_static)
+      target_link_libraries(test_runtime_adapters
+        xCoreSDK_static
+      )
+    endif()
     target_compile_definitions(test_runtime_adapters
       PRIVATE
         ROKAE_TEST_VERIFY_SOURCE_ARCHIVE_PY="${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_source_archive.py"
@@ -100,7 +109,7 @@ if(BUILD_TESTING)
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_runtime_publish_bridge
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_runtime_publish_bridge PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_publish_bridge)
@@ -117,7 +126,7 @@ if(BUILD_TESTING)
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_runtime_control_bridge
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_runtime_control_bridge PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_control_bridge)
@@ -206,7 +215,7 @@ if(BUILD_TESTING)
           ${EIGEN3_INCLUDE_DIRS}
       )
       target_link_libraries(${target_name}
-        ${PROJECT_NAME}_runtime_core
+        ${PROJECT_NAME}_runtime_test
       )
       target_compile_features(${target_name} PUBLIC cxx_std_17)
       rokae_add_rosidl_dependency(${target_name})
@@ -228,7 +237,7 @@ if(BUILD_TESTING)
       target_compile_features(${target_name} PUBLIC cxx_std_17)
       if("${target_name}" STREQUAL "test_service_registry_descriptors")
         target_link_libraries(${target_name}
-          ${PROJECT_NAME}_runtime_core
+          ${PROJECT_NAME}_runtime_test
         )
       endif()
     endif()
@@ -277,7 +286,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_controller_state
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_controller_state PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_controller_state)
@@ -294,7 +303,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_request_coordinator
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_request_coordinator PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_request_coordinator)
@@ -311,7 +320,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_runtime_diagnostics
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_runtime_diagnostics PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_diagnostics)
@@ -329,7 +338,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
       target_compile_features(${target_name} PUBLIC cxx_std_17)
       if("${target_name}" STREQUAL "test_compat_state_data")
         target_link_libraries(${target_name}
-          ${PROJECT_NAME}_runtime_core
+          ${PROJECT_NAME}_runtime_test
         )
         rokae_add_rosidl_dependency(${target_name})
       else()
@@ -382,7 +391,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_runtime_state_machine
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_runtime_state_machine PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_state_machine)
@@ -399,7 +408,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_planner_preflight
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_planner_preflight PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_planner_preflight)
@@ -416,7 +425,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_runtime_catalog_service
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_runtime_catalog_service PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_catalog_service)
@@ -433,7 +442,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_rt_hardening
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_rt_hardening PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_rt_hardening)
@@ -450,7 +459,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_runtime_state
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_runtime_state PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_state)
@@ -467,7 +476,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_service_facade
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_service_facade PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_service_facade)
@@ -515,10 +524,15 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
   )
   target_link_libraries(gazebo_sdk_regression_helper
     ${PROJECT_NAME}_sdk
-    ${PROJECT_NAME}_runtime_core
+    ${PROJECT_NAME}_runtime_test
     "${cpp_typesupport_target}"
     ${EIGEN3_LIBRARIES}
   )
+  if(TARGET xCoreSDK::xCoreSDK_static)
+    target_link_libraries(gazebo_sdk_regression_helper xCoreSDK::xCoreSDK_static)
+  elseif(TARGET xCoreSDK_static)
+    target_link_libraries(gazebo_sdk_regression_helper xCoreSDK_static)
+  endif()
   target_compile_features(gazebo_sdk_regression_helper PUBLIC cxx_std_17)
   rokae_add_rosidl_dependency(gazebo_sdk_regression_helper)
 
@@ -1031,7 +1045,7 @@ if(BUILD_TESTING)
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(test_runtime_profile_capabilities_contract
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_runtime_profile_capabilities_contract PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_profile_capabilities_contract)
@@ -1043,7 +1057,7 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
     target_link_libraries(test_runtime_profile_service
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_runtime_profile_service PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_profile_service)
@@ -1058,7 +1072,7 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
     target_link_libraries(test_runtime_option_catalog
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(test_runtime_option_catalog PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_option_catalog)
@@ -1072,6 +1086,12 @@ if(BUILD_TESTING AND ROKAE_BUILD_COMPAT_SDK)
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_compat_public_abi.py"
   )
   set_tests_properties(compat_public_abi PROPERTIES LABELS "quick_gate;abi_gate")
+
+  add_test(
+    NAME xmate6_official_alignment
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_xmate6_official_alignment.py"
+  )
+  set_tests_properties(xmate6_official_alignment PROPERTIES LABELS "quick_gate;abi_gate")
 
   add_test(
     NAME compat_install_tree_consumer

@@ -14,6 +14,7 @@
 #include "rokae_xmate3_ros2/types.hpp"
 #include "runtime/rt_field_registry.hpp"
 #include "runtime/rt_prearm_checks.hpp"
+#include "runtime/pose_utils.hpp"
 #include "runtime/runtime_catalog_service.hpp"
 #include "runtime/runtime_profile_service.hpp"
 #include "runtime/planning_capability_service.hpp"
@@ -292,7 +293,7 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   const double loop_hz = (dt > 1e-9 && std::isfinite(dt)) ? 1.0 / dt : 0.0;
   runtime_context_.diagnosticsState().setLoopMetrics(loop_hz, loop_hz, std::max(dt, 0.0) * 1000.0);
   runtime_context_.diagnosticsState().setSessionModes(session_state.motionMode(), session_state.rtControlMode());
-  const auto rt_field_policy_summary = summarizeRtFieldPolicies(default_rt_plan_.fields());
+  const auto rt_field_policy_summary = summarizeRtFieldPolicies(default_rt_plan_.accepted_fields);
   runtime_context_.diagnosticsState().setRtSubscriptionPlan(default_rt_plan_.summary() + "; " + rt_field_policy_summary);
   const auto active_profile = runtime_context_.diagnosticsState().snapshot().active_profile;
   const auto diagnostics_snapshot = runtime_context_.diagnosticsState().snapshot();
@@ -336,8 +337,8 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   const auto options = buildRuntimeOptionCatalog(motion_options, session_state, rt_snapshot, semantic_snapshot);
   runtime_context_.diagnosticsState().setRuntimeOptionSummary(summarizeRuntimeOptionCatalog(options));
   const auto semantic_surface = semantic_snapshot.control_surface.empty() ? std::string{"sdk_shim"} : semantic_snapshot.control_surface;
-  const auto rt_state_source = default_rt_plan_.use_state_data_in_loop() ? std::string{"rt_stream_in_loop"}
-                                                                         : std::string{"rt_stream_polled"};
+  const auto rt_state_source = default_rt_plan_.use_state_data_in_loop ? std::string{"rt_stream_in_loop"}
+                                                                        : std::string{"rt_stream_polled"};
   runtime_context_.diagnosticsState().setSemanticSurface(
       semantic_surface,
       "runtime",

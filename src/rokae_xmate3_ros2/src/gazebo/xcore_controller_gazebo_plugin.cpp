@@ -18,62 +18,68 @@ XCoreControllerPlugin::~XCoreControllerPlugin() {
 }
 
 void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
-  gzmsg << "[xCore Controller] Loading plugin for model: " << model->GetName() << std::endl;
+  try {
+    gzmsg << "[xCore Controller] Loading plugin for model: " << model->GetName() << std::endl;
 
-  model_ = model;
-  sdf_ = sdf;
-  std::string backend_mode_value = "hybrid";
-  if (sdf_ && sdf_->HasElement("backend_mode")) {
-    backend_mode_value = sdf_->Get<std::string>("backend_mode");
-  }
-  const auto backend_mode = parseBackendMode(backend_mode_value);
-  gzmsg << "[xCore Controller] backend_mode=" << toString(backend_mode) << std::endl;
-
-  joint_names_ = {"xmate_joint_1", "xmate_joint_2", "xmate_joint_3",
-                  "xmate_joint_4", "xmate_joint_5", "xmate_joint_6"};
-  for (const auto &name : joint_names_) {
-    auto joint = model_->GetJoint(name);
-    if (joint) {
-      joints_.push_back(joint);
-    } else {
-      gzerr << "[xCore] Joint not found: " << name << std::endl;
+    model_ = model;
+    sdf_ = sdf;
+    std::string backend_mode_value = "hybrid";
+    if (sdf_ && sdf_->HasElement("backend_mode")) {
+      backend_mode_value = sdf_->Get<std::string>("backend_mode");
     }
+    const auto backend_mode = parseBackendMode(backend_mode_value);
+    gzmsg << "[xCore Controller] backend_mode=" << toString(backend_mode) << std::endl;
+
+    joint_names_ = {"xmate_joint_1", "xmate_joint_2", "xmate_joint_3",
+                    "xmate_joint_4", "xmate_joint_5", "xmate_joint_6"};
+    for (const auto &name : joint_names_) {
+      auto joint = model_->GetJoint(name);
+      if (joint) {
+        joints_.push_back(joint);
+      } else {
+        gzerr << "[xCore] Joint not found: " << name << std::endl;
+      }
+    }
+    joint_num_ = static_cast<int>(joints_.size());
+
+    const std::array<std::pair<double, double>, 6> default_limits = {{
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[0], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[0]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[1], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[1]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[2], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[2]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[3], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[3]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[4], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[4]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[5], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[5])}};
+    for (int i = 0; i < 6 && i < joint_num_; ++i) {
+      original_joint_limits_[i] = default_limits[i];
+    }
+
+    auto joint_state_fetcher = [this](std::array<double, 6> &position,
+                                      std::array<double, 6> &velocity,
+                                      std::array<double, 6> &torque) {
+      joint_state_cache_.read(position, velocity, torque);
+    };
+
+    bootstrap_ = std::make_unique<RuntimeBootstrap>(backend_mode,
+                                                    &joints_,
+                                                    &original_joint_limits_,
+                                                    &joint_names_,
+                                                    joint_state_fetcher);
+    bootstrap_->start();
+
+    if (backend_mode == BackendMode::jtc) {
+      gzerr << "[xCore Controller] plugin loaded while backend_mode=jtc; "
+            << "effort commands will remain disabled and JTC ownership is expected to stay external."
+            << std::endl;
+    }
+
+    update_conn_ = event::Events::ConnectWorldUpdateBegin(
+        std::bind(&XCoreControllerPlugin::OnUpdate, this, std::placeholders::_1));
+    gzmsg << "[xCore Controller] Plugin loaded successfully, joints: " << joint_num_ << std::endl;
+  } catch (const std::exception &ex) {
+    gzerr << "[xCore Controller] Load failed with std::exception: " << ex.what() << std::endl;
+  } catch (...) {
+    gzerr << "[xCore Controller] Load failed with unknown exception" << std::endl;
   }
-  joint_num_ = static_cast<int>(joints_.size());
-
-  const std::array<std::pair<double, double>, 6> default_limits = {{
-      std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[0], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[0]),
-      std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[1], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[1]),
-      std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[2], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[2]),
-      std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[3], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[3]),
-      std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[4], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[4]),
-      std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[5], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[5])}};
-  for (int i = 0; i < 6 && i < joint_num_; ++i) {
-    original_joint_limits_[i] = default_limits[i];
-  }
-
-  auto joint_state_fetcher = [this](std::array<double, 6> &position,
-                                    std::array<double, 6> &velocity,
-                                    std::array<double, 6> &torque) {
-    joint_state_cache_.read(position, velocity, torque);
-  };
-
-  bootstrap_ = std::make_unique<RuntimeBootstrap>(backend_mode,
-                                                  &joints_,
-                                                  &original_joint_limits_,
-                                                  &joint_names_,
-                                                  joint_state_fetcher);
-  bootstrap_->start();
-
-  if (backend_mode == BackendMode::jtc) {
-    gzerr << "[xCore Controller] plugin loaded while backend_mode=jtc; "
-          << "effort commands will remain disabled and JTC ownership is expected to stay external."
-          << std::endl;
-  }
-
-  update_conn_ = event::Events::ConnectWorldUpdateBegin(
-      std::bind(&XCoreControllerPlugin::OnUpdate, this, std::placeholders::_1));
-  gzmsg << "[xCore Controller] Plugin loaded successfully, joints: " << joint_num_ << std::endl;
 }
 
 void XCoreControllerPlugin::OnUpdate(const common::UpdateInfo &info) {

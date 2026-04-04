@@ -64,6 +64,18 @@ add_executable(minimal_execute_movec minimal_execute_movec.cpp)
 target_link_libraries(minimal_execute_movec PRIVATE xCoreSDK::xCoreSDK_static)
 target_compile_features(minimal_execute_movec PRIVATE cxx_std_17)
 
+add_executable(minimal_toolset_by_name minimal_toolset_by_name.cpp)
+target_link_libraries(minimal_toolset_by_name PRIVATE xCoreSDK::xCoreSDK_static)
+target_compile_features(minimal_toolset_by_name PRIVATE cxx_std_17)
+
+add_executable(minimal_flange_pos minimal_flange_pos.cpp)
+target_link_libraries(minimal_flange_pos PRIVATE xCoreSDK::xCoreSDK_static)
+target_compile_features(minimal_flange_pos PRIVATE cxx_std_17)
+
+add_executable(minimal_connect_noec_exception minimal_connect_noec_exception.cpp)
+target_link_libraries(minimal_connect_noec_exception PRIVATE xCoreSDK::xCoreSDK_static)
+target_compile_features(minimal_connect_noec_exception PRIVATE cxx_std_17)
+
 add_executable(minimal_rt_header minimal_rt_header.cpp)
 target_link_libraries(minimal_rt_header PRIVATE xCoreSDK::xCoreSDK_static)
 target_compile_features(minimal_rt_header PRIVATE cxx_std_17)
@@ -84,3 +96,20 @@ target_compile_features(minimal_static_link_only PRIVATE cxx_std_17)
 add_executable(minimal_shared_link_only minimal_shared_link_only.cpp)
 target_link_libraries(minimal_shared_link_only PRIVATE xCoreSDK::xCoreSDK_shared)
 target_compile_features(minimal_shared_link_only PRIVATE cxx_std_17)
+
+# Official-SDK-style xMate6 subset examples (compile/link contract only).
+add_executable(official_sdk_example_xmate6 official_sdk_example_xmate6.cpp)
+target_link_libraries(official_sdk_example_xmate6 PRIVATE xCoreSDK::xCoreSDK_static)
+target_compile_features(official_sdk_example_xmate6 PRIVATE cxx_std_17)
+
+add_executable(official_move_example_xmate6 official_move_example_xmate6.cpp)
+target_link_libraries(official_move_example_xmate6 PRIVATE xCoreSDK::xCoreSDK_static)
+target_compile_features(official_move_example_xmate6 PRIVATE cxx_std_17)
+
+add_executable(official_read_robot_state_xmate6 official_read_robot_state_xmate6.cpp)
+target_link_libraries(official_read_robot_state_xmate6 PRIVATE xCoreSDK::xCoreSDK_static)
+target_compile_features(official_read_robot_state_xmate6 PRIVATE cxx_std_17)
+
+add_executable(official_path_record_xmate6 official_path_record_xmate6.cpp)
+target_link_libraries(official_path_record_xmate6 PRIVATE xCoreSDK::xCoreSDK_static)
+target_compile_features(official_path_record_xmate6 PRIVATE cxx_std_17)

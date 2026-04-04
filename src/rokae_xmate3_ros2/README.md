@@ -93,7 +93,7 @@ P0-1 之后，安装态对外 ABI 被收口到单独的 xCoreSDK compatibility l
 - 公共头：`rokae/robot.h`、`rokae/model.h`、`rokae/motion_control_rt.h`、`rokae/planner.h`、`rokae/data_types.h`、`rokae/utility.h`
 - 范围：**仅 xMate 六轴 compatibility lane**
 - 目标：让外部工程可以按官方 SDK 的安装/链接方式消费，而不是直接依赖源码树里的 `sdk_shim` 或 `rokae_xmate3_ros2/*` 实现头
-- 当前 install-facing 兼容面额外保证：`rokae::Robot_T<rokae::WorkType::collaborative, 6>` 可直接实例化；`connectToRobot(remoteIP, localIP="")`、`std::array<double[2], 6>` 软限位接口、`executeCommand(std::vector<MoveCCommand>, ec)` 都已在公共 ABI 头中保留。开启软限位时若省略 limit 数组，将沿用当前控制侧已保存的软限位数值，不会把区间清零。
+- 当前 install-facing 兼容面额外保证：`rokae::Robot_T<rokae::WorkType::collaborative, 6>` 可直接实例化；`xMateRobot(remoteIP, localIP)` 按官方风格在构造后立即尝试连接；`connectToRobot(remoteIP, localIP="")`（无 `ec`）失败会抛异常；`connectToRobot(ec)` 仅走 `error_code` 通道；默认构造不再隐式使用固定 IP（必须显式提供 remoteIP）；`setToolset(toolName, wobjName, ec)` 返回 `Toolset`；`jointTorque(ec)` 为主入口、`jointTorques(ec)` 为兼容别名；`flangePos(ec)` 以 deprecated 兼容别名保留；`std::array<double[2], 6>` 软限位接口、`executeCommand(std::vector<MoveCCommand>, ec)` 都已在公共 ABI 头中保留。开启软限位时若省略 limit 数组，将沿用当前控制侧已保存的软限位数值，不会把区间清零。
 
 说明：当前 compatibility lane 仍然是 **ROS2/Gazebo-backed** 的安装包；`xCoreSDK::xCoreSDK_static` 与 `xCoreSDK::xCoreSDK_shared` 都是可直接消费的 install-facing 目标。为了让真实静态目标具备完整链接闭环，配置期同样需要系统可见的 ROS2/Gazebo 依赖；运行时则仍需要相同的 ROS2/Gazebo 动态库与插件环境。private 实现依赖不属于 public C++ ABI 头文件面。
 

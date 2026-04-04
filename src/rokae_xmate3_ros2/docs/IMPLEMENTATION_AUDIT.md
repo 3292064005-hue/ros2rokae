@@ -196,6 +196,7 @@ SDK-compatible wrappers (`rokae::Robot_T`, `rokae::Cobot`, `rokae::xMateRobot`) 
 
 - SDK RT state cache updates now enforce strict RT state semantics: rejected subscription downgrades and no silent fallback to `GetJointPos/GetJointVel/GetJointTorques` during `updateRobotState()`.
 - Install-facing compatibility headers now expose `rokae::Robot_T<collaborative, 6>`, the official `connectToRobot(remoteIP, localIP="")` overload, the official soft-limit array type, and direct `executeCommand(MoveC)` in the public ABI lane.
+- xMate6 public wrapper now requires an explicit remote endpoint before `connectToRobot(error_code&)`; the no-`ec` overload throws on failure and `xMateRobot(remoteIP, localIP)` follows the official constructor-initiated connect workflow.
 - RT compatibility semantics were hardened so `MoveC` now executes a geometric circular interpolation path with explicit start validation, degenerate-circle rejection, spherical orientation interpolation, and timeout-backed target wait; `setFilterLimit()` publishes a dedicated runtime config topic, collision thresholds no longer reuse the Cartesian desired-wrench channel, and the affected RT config setters now reject NaN/range-invalid inputs before publishing.
 
 

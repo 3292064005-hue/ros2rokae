@@ -1,7 +1,7 @@
 # rokae_test_utils.cmake
 # Extracted common test target configuration to eliminate CMakeLists.txt boilerplate.
 
-# Standard unit test: gtest + runtime_core link + common include paths.
+# Standard unit test: gtest + runtime_test link + common include paths.
 # Usage:
 #   rokae_add_unit_test(test_my_module test/unit/test_my_module.cpp)
 #
@@ -22,7 +22,7 @@ function(rokae_add_unit_test test_name test_source)
         ${EIGEN3_INCLUDE_DIRS}
     )
     target_link_libraries(${test_name}
-      ${PROJECT_NAME}_runtime_core
+      ${PROJECT_NAME}_runtime_test
     )
     target_compile_features(${test_name} PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(${test_name})

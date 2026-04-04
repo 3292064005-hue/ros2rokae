@@ -65,6 +65,11 @@ target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_static)
 
 `rokae/sdk_shim*.hpp`、`rokae/detail/*` 与 `rokae_xmate3_ros2/*` 不属于官方兼容安装面。
 
+调用语义补充（xMate6 public lane）：
+- `xMateRobot(remoteIP, localIP)` 构造后会立即尝试连接。
+- `connectToRobot(remoteIP, localIP)`（无 `error_code`）失败会抛异常。
+- `connectToRobot(error_code&)` 保持 no-throw；默认构造后若未显式提供 remoteIP，连接会返回明确参数错误。
+
 注意：当前 `xCoreSDK` 兼容安装面仍然是 **ROS2/Gazebo-backed** 的。`xCoreSDK::xCoreSDK_static` 与 `xCoreSDK::xCoreSDK_shared` 都会在配置期解析 ROS2/Gazebo 依赖，并在运行期继续依赖相同的 ROS2/Gazebo 动态库与插件环境。解决的是 ABI/安装边界问题，而不是把实现层从 ROS2/Gazebo 完全剥离。
 
 ## 3. 启动仿真

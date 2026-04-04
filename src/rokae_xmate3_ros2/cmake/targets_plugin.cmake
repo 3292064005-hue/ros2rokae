@@ -2,6 +2,11 @@
 add_library(xcore_controller_gazebo_plugin SHARED
   src/gazebo/runtime_bootstrap.cpp
   src/gazebo/xcore_controller_gazebo_plugin.cpp
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_motion_core>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_state>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_facade>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_ros_bridge>
+  $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_control_bridge>
 )
 ament_target_dependencies(xcore_controller_gazebo_plugin
   ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs std_srvs tf2_ros gazebo_ros kdl_parser
@@ -14,7 +19,6 @@ target_link_libraries(xcore_controller_gazebo_plugin
   ${GAZEBO_LIBRARIES}
   ${EIGEN3_LIBRARIES}
   ${OROCOS_KDL_LIBRARIES}
-  ${PROJECT_NAME}_runtime_core
   ${PROJECT_NAME}_sdk
   "${cpp_typesupport_target}"
 )

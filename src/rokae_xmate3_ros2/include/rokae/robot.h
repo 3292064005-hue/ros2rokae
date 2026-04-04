@@ -65,6 +65,7 @@ class XCORE_API BaseRobot : public Base<BaseRobot> {
    * @param localIP Local interface address used by realtime transports. Empty keeps backend default selection.
    * @throws No exception.
    * @note This is the primary compatibility entry used by the explicit-error-code lane.
+   *       Empty @p remoteIP is rejected with `std::errc::invalid_argument`.
    */
   void connectToRobot(const std::string &remoteIP,
                       const std::string &localIP,
@@ -73,9 +74,9 @@ class XCORE_API BaseRobot : public Base<BaseRobot> {
    * @brief Official-SDK-shaped convenience overload without an explicit error-code out parameter.
    * @param remoteIP Remote robot/controller address.
    * @param localIP Local interface address used by realtime transports. Empty keeps backend default selection.
-   * @throws No exception.
-   * @note Errors are still recorded through the backend `lastErrorCode()` path; callers that need direct
-   *       branching should continue to use the `error_code&` overload.
+   * @throws ExecutionException when endpoint binding or connection fails.
+   * @note This overload follows official SDK style and throws on failure. For no-throw control flow, use
+   *       the `error_code&` overload.
    */
   void connectToRobot(const std::string &remoteIP, const std::string &localIP = "");
   void disconnectFromRobot(error_code &ec) noexcept;
@@ -88,15 +89,17 @@ class XCORE_API BaseRobot : public Base<BaseRobot> {
   OperationState operationState(error_code &ec) const noexcept;
   std::array<double, 6> jointPos(error_code &ec) const noexcept;
   std::array<double, 6> jointVel(error_code &ec) const noexcept;
-  std::array<double, 6> jointTorques(error_code &ec) const noexcept;
-  [[deprecated("Use jointTorques() instead")]]
   std::array<double, 6> jointTorque(error_code &ec) const noexcept;
+  [[deprecated("Use jointTorque() instead")]]
+  std::array<double, 6> jointTorques(error_code &ec) const noexcept;
   std::array<double, 6> posture(CoordinateType ct, error_code &ec) const noexcept;
   CartesianPosition cartPosture(CoordinateType ct, error_code &ec) const noexcept;
+  [[deprecated("Use posture(CoordinateType::flangeInBase) instead")]]
+  std::array<double, 6> flangePos(error_code &ec) const noexcept;
   std::array<double, 6> baseFrame(error_code &ec) const noexcept;
   Toolset toolset(error_code &ec) const noexcept;
   void setToolset(const Toolset &toolset, error_code &ec) noexcept;
-  void setToolset(const std::string &toolName, const std::string &wobjName, error_code &ec) noexcept;
+  Toolset setToolset(const std::string &toolName, const std::string &wobjName, error_code &ec) noexcept;
   void clearServoAlarm(error_code &ec) noexcept;
   std::vector<LogInfo> queryControllerLog(unsigned count,
                                           const std::set<LogInfo::Level> &level,

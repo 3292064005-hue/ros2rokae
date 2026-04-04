@@ -17,7 +17,7 @@ Runtime service registration and compatibility aliases are now derived from `src
 
 | Manual surface | Package surface | Preferred / Legacy | Status | Notes |
 |---|---|---|---|---|
-| connect / disconnect | `Connect`, `Disconnect`, wrapper connect APIs | Preferred | StrictAligned | Runtime and wrapper surfaces share one session state; repeated SDK calls are treated as idempotent success so teardown/setup code can mirror official-style call flows. |
+| connect / disconnect | `Connect`, `Disconnect`, wrapper connect APIs | Preferred | StrictAligned | Runtime and wrapper surfaces share one session state; repeated SDK calls are treated as idempotent success so teardown/setup code can mirror official-style call flows. The no-`ec` connect overload now throws on failures, and default-constructed wrappers require an explicit remote endpoint before connect. |
 | power / operate mode | `GetPowerState`, `SetPowerState`, `GetOperateMode`, `SetOperateMode` | Preferred | StrictAligned | Runtime truth is authoritative and the native SDK wrapper now prefers the aggregated runtime snapshot before falling back to dedicated legacy query services. |
 | joint / posture / toolset reads | `GetJointPos`, `GetJointVel`, `GetPosture`, `GetCartPosture`, `GetToolset`, `GetRuntimeStateSnapshot` | Preferred | StrictAligned | Simulation-grade state values, stable interface shape. Native SDK now prefers one runtime-owned aggregated snapshot before falling back to individual legacy query services. |
 | soft limit | `GetSoftLimit`, `SetSoftLimit` | Preferred | StrictAligned | Runtime-backed defaults, mechanical-limit validation, manual-mode/off-power preconditions, current-joint range checks, and authoritative backend-snapshot validation are enforced before enable. |

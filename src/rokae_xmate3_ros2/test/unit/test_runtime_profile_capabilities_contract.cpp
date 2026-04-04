@@ -5,6 +5,7 @@
 #include "runtime/planning_capability_service.hpp"
 #include "runtime/session_state.hpp"
 #include "runtime/motion_options_state.hpp"
+#include "runtime/rt_field_registry.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 

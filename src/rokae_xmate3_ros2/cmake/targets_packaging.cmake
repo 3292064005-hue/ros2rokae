@@ -131,6 +131,51 @@ if(ROKAE_BUILD_COMPAT_SDK)
     ${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/xCoreSDK
   )
+  # The symlink-based install override used by this package does not always
+  # materialize FILE installs into staged prefixes (for example in install-tree
+  # consumer tests using `cmake --install --prefix ...`). Mirror the config
+  # installation through install(CODE) so staged prefixes always contain
+  # find_package(xCoreSDK) entry points.
+  install(CODE
+    "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/cmake/xCoreSDK\")\n\
+file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/cmake/xCoreSDK\" TYPE FILE FILES \"${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKConfig.cmake\" \"${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKConfigVersion.cmake\")"
+  )
+  # Likewise mirror public headers so install-tree consumers can resolve the
+  # exported include directories even when symlink-install does not materialize
+  # FILE installs into staged prefixes.
+  install(CODE
+    "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\")\n\
+file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/include/rokae\")\n\
+if(EXISTS \"${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp/${PROJECT_NAME}\")\n\
+  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp/${PROJECT_NAME}\")\n\
+endif()"
+  )
+  # Mirror runtime share resources required by simulation smoke in staged install prefixes.
+  install(CODE
+    "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\")\n\
+if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/models\")\n\
+  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/models\")\n\
+endif()\n\
+if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/worlds\")\n\
+  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/worlds\")\n\
+endif()\n\
+if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/urdf\")\n\
+  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/urdf\")\n\
+endif()\n\
+if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/launch\")\n\
+  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/launch\")\n\
+endif()\n\
+if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/config\")\n\
+  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/config\")\n\
+endif()\n\
+if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/tools\")\n\
+  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/tools\")\n\
+endif()\n\
+if(EXISTS \"${CMAKE_CURRENT_BINARY_DIR}/generated/urdf\")\n\
+  file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/generated\")\n\
+  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/generated\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_BINARY_DIR}/generated/urdf\")\n\
+endif()"
+  )
 endif()
 
 ament_export_dependencies(

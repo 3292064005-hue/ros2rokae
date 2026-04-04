@@ -4,6 +4,8 @@
 #include <chrono>
 #include <string>
 
+#include <rclcpp/time.hpp>
+
 #include "runtime/data_store_state.hpp"
 #include "runtime/service_facade.hpp"
 #include "rokae_xmate3_ros2/runtime/rt_semantic_topics.hpp"
@@ -25,11 +27,11 @@ TEST(RegisterSemantics, RegisterBankPreservesScalarValuesAndEnumerationOrder) {
 
 TEST(RegisterSemantics, SemanticTopicsUpdateTypedRtSnapshotWithoutReparsingAtReadTime) {
   rt::DataStoreState data_store;
-  data_store.setCustomData(rokae_xmate3_ros2::runtime::kRtJointImpedanceTopic, "100,200,300,40,50,60");
-  data_store.setCustomData(rokae_xmate3_ros2::runtime::kRtFilterLimitTopic,
+  data_store.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kConfigJointImpedance, "100,200,300,40,50,60");
+  data_store.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kConfigFilterLimit,
                            "limit_rate=true;cutoff_frequency=55");
-  data_store.setCustomData(rokae_xmate3_ros2::runtime::kRtSemanticStateTopic,
-                           "dispatch_mode=rt_loop;catalog_provenance=runtime_authoritative");
+  data_store.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlDispatchMode, "rt_loop");
+  data_store.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kCatalogProvenance, "runtime_authoritative");
 
   const auto control = data_store.rtControlSnapshot();
   EXPECT_TRUE(control.joint_impedance_configured);
@@ -48,7 +50,7 @@ TEST(RegisterSemantics, IoProgramFacadeRejectsEmptyRegisterKeysAndNames) {
   rt::DataStoreState data_store;
   rt::ProgramState program_state;
   rt::ToolingState tooling_state;
-  rt::IoProgramFacade facade(session_state, data_store, program_state, tooling_state, [] { return std::chrono::steady_clock::now(); });
+  rt::IoProgramFacade facade(session_state, data_store, program_state, tooling_state, [] { return rclcpp::Time(0); });
 
   rokae_xmate3_ros2::srv::ReadRegister::Request read_req;
   rokae_xmate3_ros2::srv::ReadRegister::Response read_res;
@@ -84,7 +86,7 @@ TEST(RegisterSemantics, IoProgramFacadeRejectsEmptyCustomTopicAndInvalidXPanelMo
   rt::DataStoreState data_store;
   rt::ProgramState program_state;
   rt::ToolingState tooling_state;
-  rt::IoProgramFacade facade(session_state, data_store, program_state, tooling_state, [] { return std::chrono::steady_clock::now(); });
+  rt::IoProgramFacade facade(session_state, data_store, program_state, tooling_state, [] { return rclcpp::Time(0); });
 
   rokae_xmate3_ros2::srv::SendCustomData::Request custom_req;
   rokae_xmate3_ros2::srv::SendCustomData::Response custom_res;
@@ -109,7 +111,7 @@ TEST(RegisterSemantics, IoProgramFacadeRejectsDisconnectedRequestsAndInvalidIndi
   rt::DataStoreState data_store;
   rt::ProgramState program_state;
   rt::ToolingState tooling_state;
-  rt::IoProgramFacade facade(session_state, data_store, program_state, tooling_state, [] { return std::chrono::steady_clock::now(); });
+  rt::IoProgramFacade facade(session_state, data_store, program_state, tooling_state, [] { return rclcpp::Time(0); });
 
   rokae_xmate3_ros2::srv::ReadRegister::Request read_req;
   rokae_xmate3_ros2::srv::ReadRegister::Response read_res;

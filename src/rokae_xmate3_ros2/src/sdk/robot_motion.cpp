@@ -6,7 +6,8 @@ namespace {
 constexpr size_t kMoveAppendMaxCount = 100;
 constexpr size_t kExecuteCommandMaxCount = 1000;
 
-bool try_snapshot_motion_mode(xMateRobot::Impl &impl, std::error_code &ec, rokae::MotionControlMode &mode);
+template <typename ImplLike>
+bool try_snapshot_motion_mode(ImplLike &impl, std::error_code &ec, rokae::MotionControlMode &mode);
 
 
 /**
@@ -21,7 +22,8 @@ bool try_snapshot_motion_mode(xMateRobot::Impl &impl, std::error_code &ec, rokae
  * @note Boundary behavior: the xMate6 public lane requires moveReset() before queued NRT
  *       appends and rejects mixed command families to preserve a single deterministic request lane.
  */
-bool validate_nrt_queue_preconditions(xMateRobot::Impl &impl,
+template <typename ImplLike>
+bool validate_nrt_queue_preconditions(ImplLike &impl,
                                       std::size_t command_count,
                                       std::size_t max_count,
                                       const char *command_family,
@@ -36,7 +38,7 @@ bool validate_nrt_queue_preconditions(xMateRobot::Impl &impl,
             return false;
         }
     } else if (current_mode != rokae::MotionControlMode::NrtCommand) {
-        ec = rokae::make_error_code(rokae::SdkError::control_mode_mismatch);
+        ec = rokae::make_error_code(rokae::SdkError::runtime_not_idle);
         return false;
     }
     if (command_count == 0 || command_count > max_count) {
@@ -51,17 +53,17 @@ bool validate_nrt_queue_preconditions(xMateRobot::Impl &impl,
                 return false;
             }
             if (impl.runtime_state_snapshot_.drag_mode) {
-                ec = rokae::make_error_code(rokae::SdkError::invalid_operation);
+                ec = rokae::make_error_code(rokae::SdkError::runtime_not_idle);
                 return false;
             }
         }
     }
     if (!impl.nrt_queue_initialized_) {
-        ec = rokae::make_error_code(rokae::SdkError::invalid_operation);
+        ec = rokae::make_error_code(rokae::SdkError::runtime_not_idle);
         return false;
     }
     if (!impl.current_cached_command_family_.empty() && impl.current_cached_command_family_ != command_family) {
-        ec = rokae::make_error_code(rokae::SdkError::invalid_operation);
+        ec = rokae::make_error_code(rokae::SdkError::runtime_not_idle);
         return false;
     }
     impl.current_cached_command_family_ = command_family;
@@ -69,7 +71,7 @@ bool validate_nrt_queue_preconditions(xMateRobot::Impl &impl,
     return true;
 }
 
-bool map_public_motion_mode(rokae::MotionControlMode mode, int32_t &request_mode) {
+bool map_public_motion_mode(rokae::MotionControlMode mode, std::uint8_t &request_mode) {
     switch (mode) {
         case rokae::MotionControlMode::NrtCommand:
             request_mode = 0;
@@ -94,7 +96,8 @@ bool map_public_motion_mode(rokae::MotionControlMode mode, int32_t &request_mode
  * @return true when the snapshot is available and authoritative.
  * @throws None.
  */
-bool try_snapshot_motion_mode(xMateRobot::Impl &impl, std::error_code &ec, rokae::MotionControlMode &mode) {
+template <typename ImplLike>
+bool try_snapshot_motion_mode(ImplLike &impl, std::error_code &ec, rokae::MotionControlMode &mode) {
     if (!impl.refreshRuntimeStateSnapshot(ec)) {
         return false;
     }
@@ -194,13 +197,13 @@ void xMateRobot::moveReset(std::error_code& ec) {
 
     rokae::MotionControlMode current_mode = rokae::MotionControlMode::Idle;
     if (try_snapshot_motion_mode(*impl_, ec, current_mode) && current_mode != rokae::MotionControlMode::NrtCommand) {
-        ec = rokae::make_error_code(rokae::SdkError::control_mode_mismatch);
+        ec = rokae::make_error_code(rokae::SdkError::runtime_not_idle);
         return;
     }
     {
         std::lock_guard<std::mutex> snapshot_lock(impl_->state_cache_mutex_);
         if (impl_->runtime_state_snapshot_valid_ && impl_->runtime_state_snapshot_.drag_mode) {
-            ec = rokae::make_error_code(rokae::SdkError::invalid_operation);
+            ec = rokae::make_error_code(rokae::SdkError::runtime_not_idle);
             return;
         }
     }
@@ -267,14 +270,14 @@ void xMateRobot::moveStart(std::error_code& ec) {
                 return;
             }
             if (impl_->runtime_state_snapshot_.drag_mode) {
-                ec = rokae::make_error_code(rokae::SdkError::invalid_operation);
+                ec = rokae::make_error_code(rokae::SdkError::runtime_not_idle);
                 return;
             }
         }
     }
 
     if (!impl_->nrt_queue_initialized_ && !impl_->nrt_queue_remote_request_known_) {
-        ec = rokae::make_error_code(rokae::SdkError::invalid_operation);
+        ec = rokae::make_error_code(rokae::SdkError::runtime_not_idle);
         RCLCPP_ERROR(impl_->node_->get_logger(), "moveStart requires a successful moveReset() before the first queued NRT request");
         return;
     }

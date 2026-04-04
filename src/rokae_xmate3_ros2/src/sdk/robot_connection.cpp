@@ -12,7 +12,8 @@ namespace {
  * @throws None.
  * @note Boundary behavior: snapshot refresh failures do not overwrite the caller's fallback path.
  */
-bool try_snapshot_power_state(xMateRobot::Impl &impl, std::error_code &ec, rokae::PowerState &state) {
+template <typename ImplLike>
+bool try_snapshot_power_state(ImplLike &impl, std::error_code &ec, rokae::PowerState &state) {
     if (!impl.refreshRuntimeStateSnapshot(ec)) {
         return false;
     }
@@ -32,12 +33,13 @@ bool try_snapshot_power_state(xMateRobot::Impl &impl, std::error_code &ec, rokae
  * @note Snapshot failures are intentionally non-terminal so the caller may fall back to the
  *       dedicated legacy compatibility service.
  */
-bool try_snapshot_operate_mode(xMateRobot::Impl &impl, std::error_code &ec, rokae::OperateMode &mode) {
+template <typename ImplLike>
+bool try_snapshot_operate_mode(ImplLike &impl, std::error_code &ec, rokae::OperateMode &mode) {
     if (!impl.refreshRuntimeStateSnapshot(ec)) {
         return false;
     }
     std::lock_guard<std::mutex> lock(impl.state_cache_mutex_);
-    mode = static_cast<rokae::OperateMode>(impl.runtime_state_snapshot_.operate_mode.mode);
+    mode = static_cast<rokae::OperateMode>(impl.runtime_state_snapshot_.operate_mode);
     ec.clear();
     return true;
 }

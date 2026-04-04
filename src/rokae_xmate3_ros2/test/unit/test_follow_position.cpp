@@ -4,6 +4,7 @@
 
 #include <Eigen/Geometry>
 
+#include "rokae/exception.h"
 #include "rokae/planner.h"
 
 TEST(FollowPositionTest, StartRequiresInitializationAndStopIsIdempotent) {

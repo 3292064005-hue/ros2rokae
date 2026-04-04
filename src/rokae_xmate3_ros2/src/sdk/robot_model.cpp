@@ -10,7 +10,7 @@ void xMateRobot::setAvoidSingularity(bool enable, std::error_code& ec) {
         ec = std::make_error_code(std::errc::not_connected);
         return;
     }
-    ec = rokae::make_error_code(rokae::SdkError::operation_not_supported);
+    ec = rokae::make_error_code(rokae::SdkError::not_implemented);
 }
 
 bool xMateRobot::getAvoidSingularity(std::error_code& ec) {
@@ -19,7 +19,7 @@ bool xMateRobot::getAvoidSingularity(std::error_code& ec) {
         ec = std::make_error_code(std::errc::not_connected);
         return false;
     }
-    ec = rokae::make_error_code(rokae::SdkError::operation_not_supported);
+    ec = rokae::make_error_code(rokae::SdkError::not_implemented);
     return false;
 }
 

@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "rokae/data_types.h"
+#include "rokae/error_category.hpp"
 #include "rokae_xmate3_ros2/robot.hpp"
 
 namespace rokae {
@@ -51,7 +52,7 @@ struct CompatLoopState {
 struct CompatRobotHandle {
   std::shared_ptr<rokae::ros2::xMateRobot> backend;
   mutable std::mutex mutex;
-  std::string remote_ip{"192.168.0.160"};
+  std::string remote_ip;
   std::string local_ip;
   Toolset toolset_cache{};
   Load model_load_cache{};

@@ -56,8 +56,10 @@ source_ros_environment() {
   fi
 
   if [ -n "${ros_setup}" ]; then
+    set +u
     # shellcheck disable=SC1090
     . "${ros_setup}"
+    set -u
   fi
 }
 

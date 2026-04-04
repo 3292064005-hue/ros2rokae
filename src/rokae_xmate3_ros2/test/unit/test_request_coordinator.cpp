@@ -12,13 +12,14 @@ namespace rt = rokae_xmate3_ros2::runtime;
 TEST(MotionRequestCoordinatorTest, SubmitMoveAppendOccupiesRuntimeSlotUntilReset) {
   rt::MotionOptionsState motion_options_state;
   rt::ToolingState tooling_state;
+  rt::SessionState session_state;
   motion_options_state.setDefaultSpeed(35);
   motion_options_state.setDefaultZone(4);
   motion_options_state.setAvoidSingularity(true);
 
   rt::MotionRuntime runtime;
   runtime.reset();
-  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, runtime);
+  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, session_state, runtime);
 
   rokae_xmate3_ros2::action::MoveAppend::Goal goal;
   goal.absj_cmds.resize(1);

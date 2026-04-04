@@ -51,7 +51,7 @@ TEST(ServiceFacadeTest, ControlFacadeCoordinatesPowerDragAndStopWithRuntime) {
   rt::MotionOptionsState motion_options_state;
   rt::ToolingState tooling_state;
   rt::MotionRuntime motion_runtime;
-  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, motion_runtime);
+  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, session_state, motion_runtime);
   FakeBackend backend;
   rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, &motion_runtime, &coordinator);
 
@@ -244,7 +244,7 @@ TEST(ServiceFacadeTest, PathFacadeSubmitsReplayRequestsThroughCoordinator) {
   rt::SessionState session_state;
   session_state.setPowerOn(true);
   rt::MotionRuntime motion_runtime;
-  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, motion_runtime);
+  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, session_state, motion_runtime);
 
   auto joint_state_fetcher = [](std::array<double, 6> &position,
                                 std::array<double, 6> &velocity,
@@ -598,7 +598,7 @@ TEST(ServiceFacadeTest, PathFacadeSaveRequiresRecordedDataAndSupportsRenameOnlyW
   ASSERT_TRUE(save_as_res.success);
   EXPECT_EQ(save_as_res.message, "path saved");
 
-  ReplayPathAsset pending_asset;
+  rt::ReplayPathAsset pending_asset;
   EXPECT_FALSE(program_state.getReplayAsset("ignored_pending_name", pending_asset));
   EXPECT_TRUE(program_state.getReplayAsset("saved_with_save_as", pending_asset));
 
@@ -610,7 +610,7 @@ TEST(ServiceFacadeTest, PathFacadeSaveRequiresRecordedDataAndSupportsRenameOnlyW
   ASSERT_TRUE(rename_res.success);
   EXPECT_EQ(rename_res.message, "path renamed");
 
-  ReplayPathAsset asset;
+  rt::ReplayPathAsset asset;
   EXPECT_FALSE(program_state.getReplayAsset("demo_path", asset));
   EXPECT_TRUE(program_state.getReplayAsset("renamed_path", asset));
 }

@@ -52,6 +52,14 @@ std::string serialize_load(const Load &load) {
   return oss.str();
 }
 
+bool has_remote_endpoint(const std::shared_ptr<detail::CompatRobotHandle> &handle) {
+  if (!handle) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  return !handle->remote_ip.empty();
+}
+
 
 }  // namespace
 
@@ -99,7 +107,11 @@ Robot_T<WorkType::collaborative, 6>::Robot_T()
     : Cobot<6>() {}
 
 Robot_T<WorkType::collaborative, 6>::Robot_T(const std::string &remoteIP, const std::string &localIP)
-    : Cobot<6>(remoteIP, localIP) {}
+    : Cobot<6>(remoteIP, localIP) {
+  error_code ec;
+  connectToRobot(ec);
+  throw_if_error<ExecutionException>(ec, "Robot_T::Robot_T(connectToRobot)");
+}
 
 xMateRobot::xMateRobot() = default;
 
@@ -115,12 +127,24 @@ void BaseRobot::connectToRobot(error_code &ec) noexcept {
     ec = std::make_error_code(std::errc::not_connected);
     return;
   }
+  if (!has_remote_endpoint(handle_)) {
+    ec = std::make_error_code(std::errc::invalid_argument);
+    handle_->backend->rememberCompatError(ec);
+    return;
+  }
   handle_->backend->connectToRobot(ec);
 }
 
 void BaseRobot::connectToRobot(const std::string &remoteIP,
                                const std::string &localIP,
                                error_code &ec) noexcept {
+  if (remoteIP.empty()) {
+    ec = std::make_error_code(std::errc::invalid_argument);
+    if (handle_ && handle_->backend) {
+      handle_->backend->rememberCompatError(ec);
+    }
+    return;
+  }
   if (!handle_) {
     handle_ = make_handle(remoteIP, localIP);
   } else {
@@ -132,6 +156,7 @@ void BaseRobot::connectToRobot(const std::string &remoteIP,
 void BaseRobot::connectToRobot(const std::string &remoteIP, const std::string &localIP) {
   error_code ec;
   connectToRobot(remoteIP, localIP, ec);
+  throw_if_error<ExecutionException>(ec, "connectToRobot");
 }
 
 void BaseRobot::disconnectFromRobot(error_code &ec) noexcept {
@@ -150,10 +175,11 @@ void BaseRobot::setOperateMode(OperateMode mode, error_code &ec) noexcept { hand
 OperationState BaseRobot::operationState(error_code &ec) const noexcept { return handle_->backend->operationState(ec); }
 std::array<double, 6> BaseRobot::jointPos(error_code &ec) const noexcept { return handle_->backend->jointPos(ec); }
 std::array<double, 6> BaseRobot::jointVel(error_code &ec) const noexcept { return handle_->backend->jointVel(ec); }
-std::array<double, 6> BaseRobot::jointTorques(error_code &ec) const noexcept { return handle_->backend->jointTorques(ec); }
-std::array<double, 6> BaseRobot::jointTorque(error_code &ec) const noexcept { return jointTorques(ec); }
+std::array<double, 6> BaseRobot::jointTorque(error_code &ec) const noexcept { return handle_->backend->jointTorques(ec); }
+std::array<double, 6> BaseRobot::jointTorques(error_code &ec) const noexcept { return jointTorque(ec); }
 std::array<double, 6> BaseRobot::posture(CoordinateType ct, error_code &ec) const noexcept { return handle_->backend->posture(ct, ec); }
 CartesianPosition BaseRobot::cartPosture(CoordinateType ct, error_code &ec) const noexcept { return handle_->backend->cartPosture(ct, ec); }
+std::array<double, 6> BaseRobot::flangePos(error_code &ec) const noexcept { return posture(CoordinateType::flangeInBase, ec); }
 std::array<double, 6> BaseRobot::baseFrame(error_code &ec) const noexcept { return handle_->backend->baseFrame(ec); }
 
 Toolset BaseRobot::toolset(error_code &ec) const noexcept {
@@ -177,11 +203,12 @@ void BaseRobot::setToolset(const Toolset &toolset_value, error_code &ec) noexcep
   }
 }
 
-void BaseRobot::setToolset(const std::string &toolName, const std::string &wobjName, error_code &ec) noexcept {
+Toolset BaseRobot::setToolset(const std::string &toolName, const std::string &wobjName, error_code &ec) noexcept {
   handle_->backend->setToolset(toolName, wobjName, ec);
   if (!ec) {
-    (void)toolset(ec);
+    return toolset(ec);
   }
+  return {};
 }
 
 void BaseRobot::clearServoAlarm(error_code &ec) noexcept { handle_->backend->clearServoAlarm(ec); }

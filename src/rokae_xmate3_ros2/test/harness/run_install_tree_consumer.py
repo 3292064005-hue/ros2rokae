@@ -15,6 +15,17 @@ def run(cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None =
     subprocess.run(cmd, cwd=str(cwd) if cwd else None, env=env, check=True)
 
 
+def _rmtree_onerror(_func, _path, exc_info):
+    if isinstance(exc_info[1], FileNotFoundError):
+        return
+    raise exc_info[1]
+
+
+def rmtree_idempotent(path: Path) -> None:
+    if path.exists() or path.is_symlink():
+        shutil.rmtree(path, onerror=_rmtree_onerror)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--build-dir', required=True)
@@ -28,8 +39,7 @@ def main() -> int:
     staging_prefix = Path(args.staging_prefix).resolve()
     consumer_build_dir = staging_prefix / 'consumer_build'
 
-    if staging_prefix.exists():
-        shutil.rmtree(staging_prefix)
+    rmtree_idempotent(staging_prefix)
     staging_prefix.mkdir(parents=True, exist_ok=True)
 
     run(['cmake', '--install', str(build_dir), '--prefix', str(staging_prefix)])
@@ -51,8 +61,7 @@ def main() -> int:
         prefix_path = prefix_path + os.pathsep + env['CMAKE_PREFIX_PATH']
     env['CMAKE_PREFIX_PATH'] = prefix_path
 
-    if consumer_build_dir.exists():
-        shutil.rmtree(consumer_build_dir)
+    rmtree_idempotent(consumer_build_dir)
     consumer_build_dir.mkdir(parents=True, exist_ok=True)
 
     run([
@@ -71,11 +80,18 @@ def main() -> int:
         'minimal_robot_t',
         'minimal_soft_limit',
         'minimal_execute_movec',
+        'minimal_toolset_by_name',
+        'minimal_flange_pos',
+        'minimal_connect_noec_exception',
         'minimal_rt_header',
         'minimal_planner',
         'minimal_state_and_motion',
         'minimal_static_link_only',
         'minimal_shared_link_only',
+        'official_sdk_example_xmate6',
+        'official_move_example_xmate6',
+        'official_read_robot_state_xmate6',
+        'official_path_record_xmate6',
     ):
         exe_path = consumer_build_dir / exe_name
         if os.name == 'nt' and not exe_path.exists():

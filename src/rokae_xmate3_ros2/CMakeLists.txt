@@ -71,6 +71,7 @@ add_custom_command(
   COMMAND ${XACRO_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
           -o "${ROKAE_GENERATED_XMATE3_URDF}"
+          mesh_root:=model://rokae_xmate3_ros2/meshes/
           enable_ros2_control:=true
           enable_xcore_plugin:=true
           backend_mode:=hybrid

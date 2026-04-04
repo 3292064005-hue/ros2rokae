@@ -35,9 +35,13 @@ And a source file should only need the installed public headers, for example:
 The install-facing headers now also retain the official-shaped convenience surface for the xMate6 lane:
 
 - `rokae::Robot_T<rokae::WorkType::collaborative, 6>` is publicly instantiable from `rokae/robot.h`
+- `xMateRobot(remoteIP, localIP)` now follows the official constructor workflow and attempts connection immediately
 - `connectToRobot(remoteIP, localIP = "")` is available on the public wrapper without exposing ROS-backed types
+- `connectToRobot(remoteIP, localIP = "")` without `error_code` now throws on failures; `connectToRobot(error_code&)` remains the no-throw lane
+- default-constructed wrappers no longer rely on an implicit fixed remote IP; a remote endpoint must be provided explicitly before connecting
 - soft-limit reads/writes accept the official `std::array<double[2], 6>` contract, while the older nested-array overload remains available for in-tree compatibility; omitting the limit array on enable keeps the current numeric soft-limit values instead of zeroing them
 - non-realtime `executeCommand(std::vector<MoveCCommand>, ec)` is part of the install-facing ABI
+- `setToolset(toolName, wobjName, ec)` returns `Toolset`, `jointTorque(ec)` is the primary entry, `jointTorques(ec)` and `flangePos(ec)` are preserved as compatibility aliases
 - compat-only RT metadata fields `rokae::RtCompatFields::samplePeriod_s` / `rokae::RtCompatFields::sampleFresh` are additive ABI extensions for the ROS2/Gazebo-backed lane so `getStateData<double/bool>()` has real six-axis field sources; they are not part of the official xCore RT field set
 
 ## Verification assets
@@ -47,6 +51,7 @@ The install-facing headers now also retain the official-shaped convenience surfa
 - staged install/build harness: `test/harness/run_install_tree_consumer.py`
 - install-tree consumer coverage now includes `minimal_state_and_motion.cpp`, `minimal_static_link_only.cpp`, and `minimal_shared_link_only.cpp`
 - shared-library symbol leak check: `test/harness/check_exported_symbols.py`
+- official-alignment contract manifest and checker: `docs/xmate6_official_alignment_manifest.json`, `docs/XMATE6_OFFICIAL_ALIGNMENT_MATRIX.md`, `test/harness/check_xmate6_official_alignment.py`
 
 ## Notes
 

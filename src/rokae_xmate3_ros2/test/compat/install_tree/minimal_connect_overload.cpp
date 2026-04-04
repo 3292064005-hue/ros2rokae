@@ -1,8 +1,21 @@
+#include "rokae/exception.h"
 #include "rokae/robot.h"
 
 int main() {
   rokae::xMateRobot robot;
-  robot.connectToRobot("192.168.0.160");
-  robot.connectToRobot("192.168.0.160", "192.168.0.22");
-  return 0;
+  bool caught_single_arg = false;
+  try {
+    robot.connectToRobot("");
+  } catch (const rokae::Exception &) {
+    caught_single_arg = true;
+  }
+
+  bool caught_two_args = false;
+  try {
+    robot.connectToRobot("", "192.168.0.22");
+  } catch (const rokae::Exception &) {
+    caught_two_args = true;
+  }
+
+  return (caught_single_arg && caught_two_args) ? 0 : 1;
 }

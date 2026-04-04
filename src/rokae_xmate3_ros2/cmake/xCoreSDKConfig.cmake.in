@@ -21,6 +21,24 @@ find_dependency(action_msgs REQUIRED CONFIG)
 find_dependency(gazebo_ros REQUIRED CONFIG)
 find_dependency(kdl_parser REQUIRED CONFIG)
 
+# The install-facing compatibility targets currently link against this package's generated
+# ROSIDL typesupport target. In staged-install consumer tests the parent package config is not
+# always discoverable, so load the generated export files directly when available.
+if(NOT TARGET rokae_xmate3_ros2::rokae_xmate3_ros2__rosidl_typesupport_cpp)
+  get_filename_component(_xcoresdk_pkg_prefix "${CMAKE_CURRENT_LIST_DIR}" DIRECTORY)
+  get_filename_component(_xcoresdk_pkg_prefix "${_xcoresdk_pkg_prefix}" DIRECTORY)
+  get_filename_component(_xcoresdk_pkg_prefix "${_xcoresdk_pkg_prefix}" DIRECTORY)
+  set(_xcoresdk_rosidl_export_dir "${_xcoresdk_pkg_prefix}/share/rokae_xmate3_ros2/cmake")
+  if(EXISTS "${_xcoresdk_rosidl_export_dir}/export_rokae_xmate3_ros2__rosidl_generator_cppExport.cmake")
+    include("${_xcoresdk_rosidl_export_dir}/export_rokae_xmate3_ros2__rosidl_generator_cppExport.cmake")
+  endif()
+  if(EXISTS "${_xcoresdk_rosidl_export_dir}/rokae_xmate3_ros2__rosidl_typesupport_cppExport.cmake")
+    include("${_xcoresdk_rosidl_export_dir}/rokae_xmate3_ros2__rosidl_typesupport_cppExport.cmake")
+  endif()
+  unset(_xcoresdk_rosidl_export_dir)
+  unset(_xcoresdk_pkg_prefix)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/xCoreSDKTargets.cmake")
 
 set(xCoreSDK_TARGET_FAMILY "xmate6")
