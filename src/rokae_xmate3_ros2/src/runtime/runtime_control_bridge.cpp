@@ -25,6 +25,7 @@ namespace {
 
 constexpr double kServoTickSec = rokae_xmate3_ros2::spec::xmate3::kServoTickSec;
 constexpr int kMaxServoSubstepsPerUpdate = 8;
+constexpr double kRtDeadlineWarnSec = 0.0012;
 constexpr std::array<double, 6> kCollisionRetreatEffort = {18.0, 18.0, 16.0, 8.0, 5.0, 3.0};
 constexpr double kDefaultCollisionRetreatDistance = 0.04;
 constexpr double kPi = 3.14159265358979323846;
@@ -290,6 +291,9 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   auto &motion_options = runtime_context_.motionOptionsState();
   auto &tooling_state = runtime_context_.toolingState();
   runtime_context_.diagnosticsState().setLastServoDt(dt);
+  if (std::isfinite(dt) && dt > kRtDeadlineWarnSec) {
+    runtime_context_.diagnosticsState().incrementRtDeadlineMiss();
+  }
   const double loop_hz = (dt > 1e-9 && std::isfinite(dt)) ? 1.0 / dt : 0.0;
   runtime_context_.diagnosticsState().setLoopMetrics(loop_hz, loop_hz, std::max(dt, 0.0) * 1000.0);
   runtime_context_.diagnosticsState().setSessionModes(session_state.motionMode(), session_state.rtControlMode());
@@ -297,7 +301,13 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   runtime_context_.diagnosticsState().setRtSubscriptionPlan(default_rt_plan_.summary() + "; " + rt_field_policy_summary);
   const auto active_profile = runtime_context_.diagnosticsState().snapshot().active_profile;
   const auto diagnostics_snapshot = runtime_context_.diagnosticsState().snapshot();
+  runtime_context_.dataStoreState().pollRtFastShm();
   const auto rt_snapshot = runtime_context_.dataStoreState().rtControlSnapshot();
+  const auto rt_fast_snapshot = runtime_context_.dataStoreState().rtFastIngressSnapshot();
+  runtime_context_.diagnosticsState().setRtIngressMetrics(
+      rt_fast_snapshot.present ? std::string{toString(rt_fast_snapshot.transport)} : std::string{"unknown"},
+      rt_fast_snapshot.rx_latency_us,
+      rt_fast_snapshot.queue_depth);
   const auto semantic_snapshot = runtime_context_.dataStoreState().rtSemanticSnapshot();
   const bool rt_network_tolerance_configured =
       rt_snapshot.rt_network_tolerance_configured || config_.rt_network_tolerance_configured;
@@ -513,7 +523,51 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
     }
 
     DataStoreState::RtDirectCommandSnapshot direct_command;
-    const double rt_command_timeout_sec = std::max(rt_snapshot.rt_command_timeout_sec, config_.rt_command_timeout_sec);
+    std::string rt_transport_source = "legacy_custom_data";
+    double rt_command_timeout_sec = config_.rt_command_timeout_sec;
+    if (rt_snapshot.rt_network_tolerance_configured) {
+      rt_command_timeout_sec = std::min(rt_snapshot.rt_command_timeout_sec, config_.rt_command_timeout_sec);
+    }
+    const auto rt_mode = static_cast<rokae::RtControllerMode>(session_state.rtControlMode());
+    const auto expected_fast_kind = [&]() {
+      switch (rt_mode) {
+        case rokae::RtControllerMode::jointPosition:
+        case rokae::RtControllerMode::jointImpedance:
+          return RtFastCommandKind::joint_position;
+        case rokae::RtControllerMode::cartesianPosition:
+        case rokae::RtControllerMode::cartesianImpedance:
+          return RtFastCommandKind::cartesian_position;
+        case rokae::RtControllerMode::torque:
+          return RtFastCommandKind::torque;
+        default:
+          return RtFastCommandKind::joint_position;
+      }
+    }();
+    if (rt_fast_snapshot.present &&
+        rt_fast_snapshot.sequence > last_rt_sequence_ &&
+        rt_fast_snapshot.kind == expected_fast_kind) {
+      direct_command.present = true;
+      direct_command.valid = true;
+      direct_command.finished = rt_fast_snapshot.finished;
+      direct_command.sequence = rt_fast_snapshot.sequence;
+      direct_command.values = rt_fast_snapshot.values;
+      direct_command.updated_at = rt_fast_snapshot.received_at;
+      rt_transport_source = toString(rt_fast_snapshot.transport);
+    }
+    if (rt_fast_snapshot.present &&
+        rt_fast_snapshot.received_at > last_rt_fast_received_at_ &&
+        rt_fast_snapshot.sequence <= last_rt_sequence_) {
+      backend.setControlOwner(ControlOwner::none);
+      backend.clearControl();
+      result.control_cleared = true;
+      result.status = motion_runtime.status();
+      runtime_context_.diagnosticsState().setSemanticSurface(
+          semantic_surface, "runtime_rt_sequence_rollback", "direct_rt_sequence_rollback");
+      last_rt_fast_received_at_ = rt_fast_snapshot.received_at;
+      return result;
+    }
+
+    if (!direct_command.present) {
     switch (static_cast<rokae::RtControllerMode>(session_state.rtControlMode())) {
       case rokae::RtControllerMode::jointPosition:
       case rokae::RtControllerMode::jointImpedance:
@@ -528,6 +582,7 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
         break;
       default:
         break;
+    }
     }
 
     const double command_age_sec = direct_command.present
@@ -556,7 +611,6 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       const auto fc_frame = rt_snapshot.force_control_frame;
       const auto load_context = toLoadContext(rt_snapshot.load);
       const auto gravity_comp = rokae_xmate3_ros2::gazebo_model::makeModelFacade(kinematics_, {}, load_context).gravity(snapshot.joint_position);
-      const auto rt_mode = static_cast<rokae::RtControllerMode>(session_state.rtControlMode());
       if (rt_mode == rokae::RtControllerMode::jointPosition ||
           rt_mode == rokae::RtControllerMode::jointImpedance) {
         auto filtered_target = direct_command.values;
@@ -677,12 +731,17 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       backend.applyControl(direct_effort);
       result.status = motion_runtime.status();
       runtime_context_.diagnosticsState().setSemanticSurface(semantic_surface, "runtime_direct_rt", "independent_rt");
+      runtime_context_.diagnosticsState().setRtIngressMetrics(
+          rt_transport_source,
+          rt_fast_snapshot.rx_latency_us,
+          rt_fast_snapshot.queue_depth);
       if (direct_command.finished) {
         backend.setControlOwner(ControlOwner::none);
         backend.clearControl();
         result.control_cleared = true;
       }
       last_rt_sequence_ = std::max(last_rt_sequence_, direct_command.sequence);
+      last_rt_fast_received_at_ = std::max(last_rt_fast_received_at_, rt_fast_snapshot.received_at);
       return result;
     }
 

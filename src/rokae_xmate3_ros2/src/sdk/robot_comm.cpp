@@ -2,6 +2,25 @@
 
 namespace rokae::ros2 {
 
+namespace {
+
+std::uint8_t toRtFastKind(const rokae_xmate3_ros2::runtime::RtFastCommandKind kind) {
+    switch (kind) {
+        case rokae_xmate3_ros2::runtime::RtFastCommandKind::joint_position:
+            return rokae_xmate3_ros2::msg::RtFastCommand::COMMAND_JOINT_POSITION;
+        case rokae_xmate3_ros2::runtime::RtFastCommandKind::cartesian_position:
+            return rokae_xmate3_ros2::msg::RtFastCommand::COMMAND_CARTESIAN_POSITION;
+        case rokae_xmate3_ros2::runtime::RtFastCommandKind::torque:
+            return rokae_xmate3_ros2::msg::RtFastCommand::COMMAND_TORQUE;
+        case rokae_xmate3_ros2::runtime::RtFastCommandKind::stop:
+            return rokae_xmate3_ros2::msg::RtFastCommand::COMMAND_STOP;
+        default:
+            return rokae_xmate3_ros2::msg::RtFastCommand::COMMAND_JOINT_POSITION;
+    }
+}
+
+}  // namespace
+
 std::string xMateRobot::sendCustomData(const std::string& topic,
                                        const std::string& payload,
                                        std::error_code& ec) {
@@ -29,6 +48,48 @@ std::string xMateRobot::sendCustomData(const std::string& topic,
     }
     ec.clear();
     return result->response_data;
+}
+
+bool xMateRobot::publishRtFastCommand(const rokae_xmate3_ros2::runtime::RtFastCommandFrame& frame,
+                                      std::uint32_t& queue_depth,
+                                      std::error_code& ec) {
+    auto _last_error_scope = track_last_error(impl_, ec);
+    queue_depth = 0;
+    if (!impl_->connected_) {
+        ec = std::make_error_code(std::errc::not_connected);
+        return false;
+    }
+
+    bool sent = false;
+    if (impl_->rt_fast_shm_enabled_ && impl_->rt_fast_shm_writer_ && impl_->rt_fast_shm_writer_->ready()) {
+        auto shm_frame = frame;
+        shm_frame.transport = rokae_xmate3_ros2::runtime::RtFastTransport::shm_ring;
+        sent = impl_->rt_fast_shm_writer_->write(shm_frame, &queue_depth) || sent;
+    }
+
+    if (impl_->rt_fast_topic_enabled_ && impl_->xmate3_rt_fast_command_pub_) {
+        rokae_xmate3_ros2::msg::RtFastCommand msg;
+        msg.seq = frame.sequence;
+        msg.rt_mode = frame.rt_mode;
+        msg.command_kind = toRtFastKind(frame.kind);
+        msg.values = frame.values;
+        msg.finished = frame.finished;
+        msg.dispatch_mode = frame.dispatch_mode;
+        msg.transport_hint = sent
+            ? rokae_xmate3_ros2::msg::RtFastCommand::TRANSPORT_HINT_SHM
+            : rokae_xmate3_ros2::msg::RtFastCommand::TRANSPORT_HINT_TOPIC;
+        msg.send_time = impl_->node_->get_clock()->now();
+        impl_->xmate3_rt_fast_command_pub_->publish(msg);
+        sent = true;
+    }
+
+    if (!sent) {
+        ec = std::make_error_code(std::errc::operation_not_supported);
+        return false;
+    }
+
+    ec.clear();
+    return true;
 }
 
 bool xMateRobot::registerDataCallback(const std::string& data_topic,

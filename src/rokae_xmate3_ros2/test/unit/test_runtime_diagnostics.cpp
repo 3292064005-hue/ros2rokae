@@ -21,6 +21,10 @@ TEST(RuntimeDiagnosticsStateTest, ExtendedFieldsAreTracked) {
   state.setRtSubscriptionPlan("armed_in_loop bytes=144 interval_ms=1 fields=q_m,dq_m,tau_m");
   state.setRtPrearmStatus("ready");
   state.setRtWatchdogSummary("late_cycles=1,max_gap_ms=6.0,avg_gap_ms=3.0", 1, 6.0, 3.0, 1, 2, 1, "late_cycle");
+  state.setRtIngressMetrics("shm_ring", 31.5, 4);
+  state.setRtSchedulerState("active_fifo_80");
+  state.incrementRtDeadlineMiss();
+  state.incrementRtDeadlineMiss();
   state.setProfileCapabilitySummary("rt_sim_experimental_best_effort=active,experimental");
   state.setPlanningCapabilitySummary("kinematics[kdl=active]; retimer[nominal=active]; planner[risk_weighted=active]");
   state.notePlanSummary("plan_explanation[policy=risk_weighted; candidate=nominal]", "nominal");
@@ -53,6 +57,11 @@ TEST(RuntimeDiagnosticsStateTest, ExtendedFieldsAreTracked) {
   EXPECT_EQ(snap.rt_stale_state_count, 2u);
   EXPECT_EQ(snap.rt_command_starvation_windows, 1u);
   EXPECT_EQ(snap.rt_last_trigger_reason, "late_cycle");
+  EXPECT_EQ(snap.rt_transport_source, "shm_ring");
+  EXPECT_EQ(snap.rt_scheduler_state, "active_fifo_80");
+  EXPECT_EQ(snap.rt_deadline_miss, 2u);
+  EXPECT_DOUBLE_EQ(snap.rt_rx_latency_us, 31.5);
+  EXPECT_EQ(snap.rt_queue_depth, 4u);
   EXPECT_EQ(snap.last_selected_candidate, "nominal");
   EXPECT_NE(snap.last_plan_summary.find("plan_explanation"), std::string::npos);
   EXPECT_NE(snap.rt_subscription_plan.find("q_m"), std::string::npos);

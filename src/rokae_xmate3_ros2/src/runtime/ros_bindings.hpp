@@ -14,6 +14,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
+#include "rokae_xmate3_ros2/msg/rt_fast_command.hpp"
 #include "runtime/runtime_context.hpp"
 #include "runtime/service_facade.hpp"
 
@@ -44,6 +45,8 @@ class RosBindings {
   void initServices();
   void registerCompatibilityAliases();
   void initActionServers();
+  void initRtIngress();
+  void handleRtFastCommand(const rokae_xmate3_ros2::msg::RtFastCommand::SharedPtr &msg);
   void executeMoveAppend(
       const std::shared_ptr<rclcpp_action::ServerGoalHandle<rokae_xmate3_ros2::action::MoveAppend>> &goal_handle);
 
@@ -61,6 +64,8 @@ class RosBindings {
 
   std::vector<rclcpp::ServiceBase::SharedPtr> services_;
   std::vector<rclcpp::ServiceBase::SharedPtr> compatibility_services_;
+  rclcpp::CallbackGroup::SharedPtr rt_ingress_group_;
+  rclcpp::Subscription<rokae_xmate3_ros2::msg::RtFastCommand>::SharedPtr rt_fast_command_sub_;
   rclcpp_action::Server<rokae_xmate3_ros2::action::MoveAppend>::SharedPtr move_append_action_server_;
   std::atomic<bool> move_append_shutdown_requested_{false};
   std::mutex move_append_workers_mutex_;

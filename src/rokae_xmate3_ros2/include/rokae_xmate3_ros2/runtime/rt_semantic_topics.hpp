@@ -10,6 +10,8 @@ inline constexpr const char *kControlStop = "rt/control/stop";
 inline constexpr const char *kControlDispatchMode = "rt/control/dispatch_mode";
 inline constexpr const char *kControlSurface = "rt/control/api_surface";
 inline constexpr const char *kControlSequence = "rt/control/sequence";
+inline constexpr const char *kFastCommandTopic = "/xmate3/internal/rt_fast_command";
+inline constexpr const char *kFastShmName = "/rokae_xmate3_rt_fast_ring";
 
 inline constexpr const char *kConfigRtNetworkTolerance = "rt/config/network_tolerance";
 inline constexpr const char *kConfigUseRciClient = "rt/config/use_rci_client";

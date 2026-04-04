@@ -93,6 +93,11 @@ struct RuntimeDiagnosticsSnapshot {
   std::uint32_t rt_stale_state_count = 0;
   std::uint32_t rt_command_starvation_windows = 0;
   std::string rt_last_trigger_reason{"nominal"};
+  std::string rt_transport_source{"unknown"};
+  std::string rt_scheduler_state{"unknown"};
+  std::uint32_t rt_deadline_miss = 0;
+  double rt_rx_latency_us = 0.0;
+  std::uint32_t rt_queue_depth = 0;
   std::vector<std::string> recent_runtime_events;
   std::string event_bus_summary{"events=0"};
   std::uint32_t runtime_event_count = 0;

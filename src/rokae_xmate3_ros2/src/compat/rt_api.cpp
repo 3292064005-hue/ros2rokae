@@ -142,7 +142,9 @@ void publish_joint_command(detail::CompatRtControllerHandle6 &ctx,
       rokae_xmate3_ros2::runtime::rt_command_bridge::CommandKind::JointPosition,
       values,
       finished,
-      ec);
+      ec,
+      "independent_rt",
+      static_cast<int>(ctx.loop->current_mode));
 }
 
 void publish_cartesian_command(detail::CompatRtControllerHandle6 &ctx,
@@ -155,7 +157,9 @@ void publish_cartesian_command(detail::CompatRtControllerHandle6 &ctx,
       rokae_xmate3_ros2::runtime::rt_command_bridge::CommandKind::CartesianPosition,
       values,
       finished,
-      ec);
+      ec,
+      "independent_rt",
+      static_cast<int>(ctx.loop->current_mode));
 }
 
 void publish_torque_command(detail::CompatRtControllerHandle6 &ctx,
@@ -168,7 +172,9 @@ void publish_torque_command(detail::CompatRtControllerHandle6 &ctx,
       rokae_xmate3_ros2::runtime::rt_command_bridge::CommandKind::Torque,
       values,
       finished,
-      ec);
+      ec,
+      "independent_rt",
+      static_cast<int>(ctx.loop->current_mode));
 }
 
 void wait_joint_target(detail::CompatRobotHandle &handle,
@@ -305,6 +311,7 @@ void RtMotionControlCobot<6>::startLoop(bool blocking) {
   }
   stopLoop();
   auto body = [ctx = impl_]() {
+    auto next_tick = std::chrono::steady_clock::now();
     while (ctx->loop->running.load()) {
       try {
         if (ctx->loop->use_state_data_in_loop) {
@@ -337,7 +344,8 @@ void RtMotionControlCobot<6>::startLoop(bool blocking) {
           ctx->loop->running.store(false);
           break;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        next_tick += std::chrono::milliseconds(1);
+        std::this_thread::sleep_until(next_tick);
       } catch (...) {
         error_code ignore_ec;
         rokae_xmate3_ros2::runtime::rt_command_bridge::publishStop(*ctx->robot->backend, ignore_ec);

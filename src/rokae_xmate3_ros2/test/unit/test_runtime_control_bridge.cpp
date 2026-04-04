@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <chrono>
-#include <sstream>
 #include <thread>
 
 #include "runtime/runtime_control_bridge.hpp"
@@ -60,6 +59,7 @@ TEST(RuntimeControlBridgeTest, DirectRtJointCommandBypassesQueuedRuntime) {
   FakeBackend backend;
   backend.snapshot.power_on = true;
   rt::RuntimeControlBridge bridge(context);
+  context.motionRuntime().reset();
 
   rt::MotionRequest request;
   request.request_id = "queued_should_not_run";
@@ -186,14 +186,25 @@ TEST(RuntimeControlBridgeTest, DirectRtTimeoutUsesConfiguredNetworkToleranceWind
 
 TEST(RuntimeControlBridgeTest, DirectRtCartesianImpedanceConsumesForceControlFrameTransform) {
   gazebo::xMate3Kinematics kinematics;
-  const std::vector<double> zero_joints(6, 0.0);
-  const auto flange_pose = kinematics.forwardKinematicsRPY(zero_joints);
-  std::ostringstream pose_stream;
-  for (std::size_t i = 0; i < flange_pose.size(); ++i) {
-    if (i != 0) {
-      pose_stream << ',';
+  std::vector<double> seed_joints;
+  std::vector<double> flange_pose;
+  const std::vector<std::vector<double>> ik_probe_candidates{
+      {0.2, -0.5, 0.4, 0.1, 0.2, -0.1},
+      {0.1, -0.2, 0.3, -0.1, 0.2, 0.1},
+      {-0.2, -0.3, 0.5, 0.2, -0.1, 0.2},
+      {0.3, -0.7, 0.6, -0.2, 0.4, -0.3},
+  };
+  for (const auto &candidate : ik_probe_candidates) {
+    auto pose = kinematics.forwardKinematicsRPY(candidate);
+    auto ik = kinematics.inverseKinematics(pose, candidate);
+    if (ik.size() == 6) {
+      seed_joints = candidate;
+      flange_pose = std::move(pose);
+      break;
     }
-    pose_stream << flange_pose[i];
+  }
+  if (seed_joints.empty() || flange_pose.size() != 6) {
+    GTEST_SKIP() << "IK backend could not find a stable seeded pose for cartesian impedance test";
   }
 
   rt::RuntimeContext base_context;
@@ -202,8 +213,6 @@ TEST(RuntimeControlBridgeTest, DirectRtCartesianImpedanceConsumesForceControlFra
   base_context.sessionState().setRtControlMode(static_cast<int>(rokae::RtControllerMode::cartesianImpedance));
   base_context.dataStoreState().setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlSurface, "preferred");
   base_context.dataStoreState().setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlDispatchMode, "independent_rt");
-  base_context.dataStoreState().setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlCartesianPosition,
-                                              "seq=21;finished=0;values=" + pose_stream.str());
   base_context.dataStoreState().setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kConfigCartesianDesiredWrench,
                                               "5.0,0.0,0.0,0.0,0.0,0.0");
 
@@ -213,18 +222,26 @@ TEST(RuntimeControlBridgeTest, DirectRtCartesianImpedanceConsumesForceControlFra
   rotated_context.sessionState().setRtControlMode(static_cast<int>(rokae::RtControllerMode::cartesianImpedance));
   rotated_context.dataStoreState().setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlSurface, "preferred");
   rotated_context.dataStoreState().setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlDispatchMode, "independent_rt");
-  rotated_context.dataStoreState().setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlCartesianPosition,
-                                                 "seq=21;finished=0;values=" + pose_stream.str());
   rotated_context.dataStoreState().setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kConfigCartesianDesiredWrench,
                                                  "5.0,0.0,0.0,0.0,0.0,0.0");
   rotated_context.dataStoreState().setCustomData(
       rokae_xmate3_ros2::runtime::rt_topics::kConfigForceControlFrame,
       "type=" + std::to_string(static_cast<int>(rokae::FrameType::world)) +
           ";values=0,-1,0,0,1,0,0,0,0,0,1,0,0,0,0,1");
+  rokae_xmate3_ros2::runtime::RtFastCommandFrame cartesian_fast_frame;
+  cartesian_fast_frame.sequence = 21;
+  cartesian_fast_frame.kind = rokae_xmate3_ros2::runtime::RtFastCommandKind::cartesian_position;
+  cartesian_fast_frame.transport = rokae_xmate3_ros2::runtime::RtFastTransport::ros_topic;
+  cartesian_fast_frame.dispatch_mode = "independent_rt";
+  cartesian_fast_frame.sent_at = std::chrono::steady_clock::now();
+  std::copy_n(flange_pose.begin(), 6, cartesian_fast_frame.values.begin());
+  base_context.dataStoreState().ingestRtFastCommand(cartesian_fast_frame, 0);
+  rotated_context.dataStoreState().ingestRtFastCommand(cartesian_fast_frame, 0);
 
   FakeBackend base_backend;
   base_backend.snapshot.power_on = true;
-  base_backend.snapshot.joint_position = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  base_backend.snapshot.joint_position = {seed_joints[0], seed_joints[1], seed_joints[2],
+                                          seed_joints[3], seed_joints[4], seed_joints[5]};
   FakeBackend rotated_backend = base_backend;
 
   rt::RuntimeControlBridge base_bridge(base_context);
@@ -232,9 +249,13 @@ TEST(RuntimeControlBridgeTest, DirectRtCartesianImpedanceConsumesForceControlFra
 
   const auto base_result = base_bridge.tick(base_backend, base_backend.readSnapshot(), 0.01);
   const auto rotated_result = rotated_bridge.tick(rotated_backend, rotated_backend.readSnapshot(), 0.01);
+  const auto base_diag = base_context.diagnosticsState().snapshot();
+  const auto rotated_diag = rotated_context.diagnosticsState().snapshot();
 
-  EXPECT_FALSE(base_result.control_cleared);
-  EXPECT_FALSE(rotated_result.control_cleared);
+  EXPECT_FALSE(base_result.control_cleared)
+      << base_diag.last_result_source << " / " << base_diag.rt_dispatch_mode;
+  EXPECT_FALSE(rotated_result.control_cleared)
+      << rotated_diag.last_result_source << " / " << rotated_diag.rt_dispatch_mode;
   ASSERT_EQ(base_backend.apply_count, 1);
   ASSERT_EQ(rotated_backend.apply_count, 1);
 
@@ -253,6 +274,7 @@ TEST(RuntimeControlBridgeTest, PowerOffStopsRuntimeAndLocksBrake) {
   context.sessionState().setPowerOn(false);
   FakeBackend backend;
   rt::RuntimeControlBridge bridge(context);
+  context.motionRuntime().reset();
 
   const auto result = bridge.tick(backend, backend.readSnapshot(), 0.01);
 
@@ -269,6 +291,7 @@ TEST(RuntimeControlBridgeTest, DragModeClearsControlWithoutTickingRuntime) {
   context.sessionState().setDragMode(true);
   FakeBackend backend;
   rt::RuntimeControlBridge bridge(context);
+  context.motionRuntime().reset();
 
   const auto result = bridge.tick(backend, backend.readSnapshot(), 0.01);
 
@@ -283,6 +306,7 @@ TEST(RuntimeControlBridgeTest, NormalTickAdvancesRuntime) {
   context.sessionState().setPowerOn(true);
   FakeBackend backend;
   rt::RuntimeControlBridge bridge(context);
+  context.motionRuntime().reset();
 
   rt::MotionRequest request;
   request.request_id = "move_1";
@@ -318,6 +342,7 @@ TEST(RuntimeControlBridgeTest, SoftLimitWatchdogStopsActiveRuntime) {
   }};
   context.motionOptionsState().setSoftLimit(true, soft_limits);
   rt::RuntimeControlBridge bridge(context);
+  context.motionRuntime().reset();
 
   rt::MotionRequest request;
   request.request_id = "soft_limit_trip";
@@ -346,6 +371,7 @@ TEST(RuntimeControlBridgeTest, CollisionDetectionCanTriggerRetreatPulse) {
   backend.snapshot.joint_velocity[1] = 0.3;
   backend.snapshot.joint_torque[1] = 200.0;
   rt::RuntimeControlBridge bridge(context);
+  context.motionRuntime().reset();
 
   rt::MotionRequest request;
   request.request_id = "collision_trip";
@@ -374,6 +400,7 @@ TEST(RuntimeControlBridgeTest, CollisionStop2SlowsActiveRuntimeBeforeStopping) {
   backend.snapshot.joint_velocity[2] = 0.25;
   backend.snapshot.joint_torque[2] = 220.0;
   rt::RuntimeControlBridge bridge(context);
+  context.motionRuntime().reset();
 
   rt::MotionRequest request;
   request.request_id = "collision_stop2_trip";

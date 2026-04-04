@@ -182,6 +182,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/JointPos6.msg
   msg/LogInfo.msg
   msg/RuntimeDiagnostics.msg
+  msg/RtFastCommand.msg
   # Srv
   srv/Connect.srv
   srv/Disconnect.srv

@@ -89,6 +89,8 @@ constexpr double kTrajectoryCompletionInferenceVelocityRadPerSec = 0.02;
       "ros2.humble",
       "rt.experimental",
       "rt.best_effort_non_controller_grade",
+      "rt.transport.shm_ring",
+      "rt.transport.ros_topic",
       "compat.alias.get_joint_torque",
       "compat.alias.get_end_torque",
       "diagnostics.runtime_status",

@@ -29,6 +29,11 @@ uint32 rt_consecutive_late_cycles
 uint32 rt_stale_state_count
 uint32 rt_command_starvation_windows
 string rt_last_trigger_reason
+string rt_transport_source
+string rt_scheduler_state
+uint32 rt_deadline_miss
+float64 rt_rx_latency_us
+uint32 rt_queue_depth
 string[] recent_runtime_events
 string event_bus_summary
 uint32 runtime_event_count

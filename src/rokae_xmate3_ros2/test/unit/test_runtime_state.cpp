@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 #include "runtime/runtime_state.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_fast_command.hpp"
 #include "rokae_xmate3_ros2/runtime/rt_semantic_topics.hpp"
 
 namespace rt = rokae_xmate3_ros2::runtime;
@@ -117,4 +119,75 @@ TEST(DataStoreStateTest, RtSemanticSnapshotTracksHotPathMetadata) {
   EXPECT_EQ(snapshot.control_surface, "web_bridge");
   EXPECT_EQ(snapshot.dispatch_mode, "joint_position");
   EXPECT_EQ(snapshot.catalog_provenance, "runtime_cache");
+}
+
+TEST(DataStoreStateTest, RtFastIngressPrefersHigherPriorityTransport) {
+  rt::DataStoreState state;
+  state.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlDispatchMode, "independent_rt");
+  state.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlJointPosition,
+                      "seq=3;finished=0;values=0.1,0.2,0.3,0.4,0.5,0.6");
+
+  auto ingress = state.rtFastIngressSnapshot();
+  ASSERT_TRUE(ingress.present);
+  EXPECT_EQ(ingress.sequence, 3u);
+  EXPECT_EQ(ingress.transport, rokae_xmate3_ros2::runtime::RtFastTransport::legacy_custom_data);
+
+  rokae_xmate3_ros2::runtime::RtFastCommandFrame topic_frame;
+  topic_frame.sequence = 3;
+  topic_frame.kind = rokae_xmate3_ros2::runtime::RtFastCommandKind::joint_position;
+  topic_frame.values = {1.0, 1.1, 1.2, 1.3, 1.4, 1.5};
+  topic_frame.dispatch_mode = "independent_rt";
+  topic_frame.transport = rokae_xmate3_ros2::runtime::RtFastTransport::ros_topic;
+  topic_frame.sent_at = std::chrono::steady_clock::now();
+  state.ingestRtFastCommand(topic_frame, 2);
+
+  ingress = state.rtFastIngressSnapshot();
+  ASSERT_TRUE(ingress.present);
+  EXPECT_EQ(ingress.sequence, 3u);
+  EXPECT_EQ(ingress.transport, rokae_xmate3_ros2::runtime::RtFastTransport::ros_topic);
+  EXPECT_EQ(ingress.queue_depth, 2u);
+  EXPECT_DOUBLE_EQ(ingress.values[0], 1.0);
+
+  state.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kControlJointPosition,
+                      "seq=3;finished=0;values=9,9,9,9,9,9");
+  ingress = state.rtFastIngressSnapshot();
+  EXPECT_EQ(ingress.transport, rokae_xmate3_ros2::runtime::RtFastTransport::ros_topic);
+  EXPECT_DOUBLE_EQ(ingress.values[0], 1.0);
+
+  rokae_xmate3_ros2::runtime::RtFastCommandFrame shm_frame = topic_frame;
+  shm_frame.values = {2.0, 2.1, 2.2, 2.3, 2.4, 2.5};
+  shm_frame.transport = rokae_xmate3_ros2::runtime::RtFastTransport::shm_ring;
+  shm_frame.sent_at = std::chrono::steady_clock::now();
+  state.ingestRtFastCommand(shm_frame, 7);
+
+  ingress = state.rtFastIngressSnapshot();
+  EXPECT_EQ(ingress.transport, rokae_xmate3_ros2::runtime::RtFastTransport::shm_ring);
+  EXPECT_EQ(ingress.queue_depth, 7u);
+  EXPECT_DOUBLE_EQ(ingress.values[0], 2.0);
+
+  const auto rt_snapshot = state.rtControlSnapshot();
+  EXPECT_TRUE(rt_snapshot.joint_position_command.present);
+  EXPECT_TRUE(rt_snapshot.joint_position_command.valid);
+  EXPECT_EQ(rt_snapshot.joint_position_command.sequence, 3u);
+  EXPECT_DOUBLE_EQ(rt_snapshot.joint_position_command.values[0], 2.0);
+}
+
+TEST(DataStoreStateTest, RtFastStopCommandSetsStopRequested) {
+  rt::DataStoreState state;
+  rokae_xmate3_ros2::runtime::RtFastCommandFrame stop_frame;
+  stop_frame.sequence = 11;
+  stop_frame.kind = rokae_xmate3_ros2::runtime::RtFastCommandKind::stop;
+  stop_frame.dispatch_mode = "independent_rt";
+  stop_frame.transport = rokae_xmate3_ros2::runtime::RtFastTransport::ros_topic;
+  stop_frame.sent_at = std::chrono::steady_clock::now();
+  state.ingestRtFastCommand(stop_frame, 0);
+
+  const auto ingress = state.rtFastIngressSnapshot();
+  EXPECT_TRUE(ingress.present);
+  EXPECT_EQ(ingress.sequence, 11u);
+  EXPECT_EQ(ingress.kind, rokae_xmate3_ros2::runtime::RtFastCommandKind::stop);
+  EXPECT_EQ(ingress.transport, rokae_xmate3_ros2::runtime::RtFastTransport::ros_topic);
+
+  const auto rt_snapshot = state.rtControlSnapshot();
+  EXPECT_TRUE(rt_snapshot.stop_requested);
 }

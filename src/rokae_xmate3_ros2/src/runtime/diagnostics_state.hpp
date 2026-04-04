@@ -35,6 +35,11 @@ class RuntimeDiagnosticsState {
                             std::uint32_t stale_state_count,
                             std::uint32_t command_starvation_windows,
                             const std::string &last_trigger_reason);
+  void setRtIngressMetrics(const std::string &transport_source,
+                           double rx_latency_us,
+                           std::uint32_t queue_depth);
+  void setRtSchedulerState(const std::string &state);
+  void incrementRtDeadlineMiss();
   void setProfileCapabilitySummary(const std::string &summary);
   void setPlanningCapabilitySummary(const std::string &summary);
   void setRuntimeOptionSummary(const std::string &summary);

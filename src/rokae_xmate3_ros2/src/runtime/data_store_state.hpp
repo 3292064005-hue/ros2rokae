@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -12,6 +13,8 @@
 
 #include "rokae/data_types.h"
 #include "rokae_xmate3_ros2/msg/log_info.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_fast_command.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_fast_shm_ring.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -100,6 +103,20 @@ class DataStoreState {
     RtDirectCommandSnapshot torque_command{};
   };
 
+  struct RtFastIngressSnapshot {
+    bool present = false;
+    std::uint64_t sequence = 0;
+    int rt_mode = -1;
+    RtFastCommandKind kind = RtFastCommandKind::joint_position;
+    std::array<double, 6> values{};
+    bool finished = false;
+    std::string dispatch_mode{"idle"};
+    RtFastTransport transport = RtFastTransport::unknown;
+    double rx_latency_us = 0.0;
+    std::uint32_t queue_depth = 0;
+    std::chrono::steady_clock::time_point received_at{};
+  };
+
   void appendLog(const rokae_xmate3_ros2::msg::LogInfo &log);
   [[nodiscard]] std::vector<rokae_xmate3_ros2::msg::LogInfo> queryLogs(
       unsigned int count,
@@ -131,6 +148,9 @@ class DataStoreState {
    */
   [[nodiscard]] RtControlSnapshot rtControlSnapshot() const;
   [[nodiscard]] RtSemanticSnapshot rtSemanticSnapshot() const;
+  void ingestRtFastCommand(const RtFastCommandFrame &frame, std::uint32_t queue_depth = 0) noexcept;
+  bool pollRtFastShm() noexcept;
+  [[nodiscard]] RtFastIngressSnapshot rtFastIngressSnapshot() const;
 
   [[nodiscard]] bool hasCallback(const std::string &callback_id) const;
   void registerCallback(const std::string &callback_id, const std::string &topic);
@@ -157,6 +177,9 @@ class DataStoreState {
   std::vector<rokae_xmate3_ros2::msg::LogInfo> log_buffer_;
   RtControlSnapshot rt_control_snapshot_{};
   RtSemanticSnapshot rt_semantic_snapshot_{};
+  mutable std::mutex rt_fast_mutex_;
+  RtFastIngressSnapshot rt_fast_snapshot_{};
+  std::unique_ptr<RtFastShmRingReader> rt_fast_shm_reader_;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

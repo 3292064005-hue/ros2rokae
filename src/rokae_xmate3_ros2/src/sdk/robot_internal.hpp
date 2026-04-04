@@ -4,6 +4,7 @@
 #include "rokae_xmate3_ros2/robot.hpp"
 #include "rokae_xmate3_ros2/model.hpp"
 #include "rokae_xmate3_ros2/runtime/ros_context_owner.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_fast_shm_ring.hpp"
 #include "rokae_xmate3_ros2/sdk_catalog_policy.hpp"
 #include "rokae_xmate3_ros2/utils.hpp"
 #include "rokae/error_category.hpp"
@@ -29,6 +30,7 @@
 #include "rokae_xmate3_ros2/msg/log_info.hpp"
 #include "rokae_xmate3_ros2/msg/operation_state.hpp"
 #include "rokae_xmate3_ros2/msg/power_state.hpp"
+#include "rokae_xmate3_ros2/msg/rt_fast_command.hpp"
 #include "rokae_xmate3_ros2/srv/adjust_speed_online.hpp"
 #include "rokae_xmate3_ros2/srv/calc_fk.hpp"
 #include "rokae_xmate3_ros2/srv/calc_ik.hpp"
@@ -264,6 +266,9 @@ public:
     rokae::xPanelOpt::Vout xpanel_vout_ = rokae::xPanelOpt::Vout::off;
     unsigned rt_network_tolerance_ = 10;
     bool use_rci_client_ = false;
+    bool rt_fast_topic_enabled_ = true;
+    bool rt_fast_shm_enabled_ = true;
+    std::unique_ptr<rokae_xmate3_ros2::runtime::RtFastShmRingWriter> rt_fast_shm_writer_;
 
     rclcpp::Client<rokae_xmate3_ros2::srv::Connect>::SharedPtr xmate3_robot_connect_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::Disconnect>::SharedPtr xmate3_robot_disconnect_client_;
@@ -301,6 +306,7 @@ public:
     rclcpp::Client<rokae_xmate3_ros2::srv::AdjustSpeedOnline>::SharedPtr xmate3_motion_adjust_speed_online_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::SetRtControlMode>::SharedPtr xmate3_rt_set_control_mode_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::GetRtJointData>::SharedPtr xmate3_rt_get_joint_data_client_;
+    rclcpp::Publisher<rokae_xmate3_ros2::msg::RtFastCommand>::SharedPtr xmate3_rt_fast_command_pub_;
     rclcpp::Client<rokae_xmate3_ros2::srv::SendCustomData>::SharedPtr xmate3_comm_send_custom_data_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::RegisterDataCallback>::SharedPtr xmate3_comm_register_data_callback_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::ReadRegister>::SharedPtr xmate3_comm_read_register_client_;

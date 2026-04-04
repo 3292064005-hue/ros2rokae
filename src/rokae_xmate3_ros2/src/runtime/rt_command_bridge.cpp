@@ -1,8 +1,10 @@
 #include "runtime/rt_command_bridge.hpp"
 
+#include <chrono>
 #include <sstream>
 
 #include "rokae_xmate3_ros2/robot.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_fast_command.hpp"
 #include "rokae_xmate3_ros2/runtime/rt_semantic_topics.hpp"
 
 namespace rokae_xmate3_ros2::runtime::rt_command_bridge {
@@ -44,6 +46,18 @@ const char *topicForKind(const CommandKind kind) {
   return rt_topics::kControlJointPosition;
 }
 
+RtFastCommandKind toFastKind(const CommandKind kind) noexcept {
+  switch (kind) {
+    case CommandKind::JointPosition:
+      return RtFastCommandKind::joint_position;
+    case CommandKind::CartesianPosition:
+      return RtFastCommandKind::cartesian_position;
+    case CommandKind::Torque:
+      return RtFastCommandKind::torque;
+  }
+  return RtFastCommandKind::joint_position;
+}
+
 bool send(rokae::ros2::xMateRobot &robot,
           const std::string &topic,
           const std::string &payload,
@@ -72,11 +86,27 @@ bool publishCommand(rokae::ros2::xMateRobot &robot,
                     const std::array<double, 6> &values,
                     const bool finished,
                     std::error_code &ec,
-                    const std::string &dispatch_mode) noexcept {
+                    const std::string &dispatch_mode,
+                    const int rt_mode) noexcept {
+  const auto seq = sequence.fetch_add(1);
+
+  RtFastCommandFrame frame;
+  frame.sequence = seq;
+  frame.rt_mode = rt_mode;
+  frame.kind = toFastKind(kind);
+  frame.values = values;
+  frame.finished = finished;
+  frame.dispatch_mode = dispatch_mode;
+  frame.sent_at = std::chrono::steady_clock::now();
+  frame.transport = RtFastTransport::unknown;
+  std::uint32_t queue_depth = 0;
+  if (robot.publishRtFastCommand(frame, queue_depth, ec)) {
+    return true;
+  }
+
   if (!publishMetadata(robot, dispatch_mode, ec)) {
     return false;
   }
-  const auto seq = sequence.fetch_add(1);
   if (!send(robot, rt_topics::kControlSequence, std::to_string(seq), ec)) {
     return false;
   }
@@ -84,6 +114,18 @@ bool publishCommand(rokae::ros2::xMateRobot &robot,
 }
 
 bool publishStop(rokae::ros2::xMateRobot &robot, std::error_code &ec) noexcept {
+  RtFastCommandFrame frame;
+  frame.sequence = 0;
+  frame.rt_mode = -1;
+  frame.kind = RtFastCommandKind::stop;
+  frame.finished = true;
+  frame.dispatch_mode = "independent_rt";
+  frame.sent_at = std::chrono::steady_clock::now();
+  frame.transport = RtFastTransport::unknown;
+  std::uint32_t queue_depth = 0;
+  if (robot.publishRtFastCommand(frame, queue_depth, ec)) {
+    return true;
+  }
   return send(robot, rt_topics::kControlStop, "1", ec);
 }
 

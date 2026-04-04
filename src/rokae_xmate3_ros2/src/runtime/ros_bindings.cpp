@@ -1,6 +1,11 @@
 #include "runtime/ros_bindings.hpp"
 
+#include <algorithm>
+#include <chrono>
+
 #include "runtime/runtime_publish_bridge.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_fast_command.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_semantic_topics.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -50,6 +55,7 @@ RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
   initServices();
   registerCompatibilityAliases();
   initActionServers();
+  initRtIngress();
 }
 
 RosBindings::~RosBindings() {
@@ -62,6 +68,54 @@ RosBindings::~RosBindings() {
     }
   }
   move_append_workers_.clear();
+}
+
+void RosBindings::initRtIngress() {
+  rt_ingress_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  auto options = rclcpp::SubscriptionOptions();
+  options.callback_group = rt_ingress_group_;
+  auto qos = rclcpp::QoS(rclcpp::KeepLast(1));
+  qos.best_effort();
+  qos.durability_volatile();
+  rt_fast_command_sub_ = node_->create_subscription<rokae_xmate3_ros2::msg::RtFastCommand>(
+      rt_topics::kFastCommandTopic,
+      qos,
+      [this](const rokae_xmate3_ros2::msg::RtFastCommand::SharedPtr msg) { handleRtFastCommand(msg); },
+      options);
+}
+
+void RosBindings::handleRtFastCommand(const rokae_xmate3_ros2::msg::RtFastCommand::SharedPtr &msg) {
+  RtFastCommandFrame frame;
+  frame.sequence = msg->seq;
+  frame.rt_mode = msg->rt_mode;
+  frame.values = msg->values;
+  frame.finished = msg->finished;
+  frame.dispatch_mode = msg->dispatch_mode.empty() ? std::string{"independent_rt"} : msg->dispatch_mode;
+  frame.transport = RtFastTransport::ros_topic;
+  switch (msg->command_kind) {
+    case rokae_xmate3_ros2::msg::RtFastCommand::COMMAND_JOINT_POSITION:
+      frame.kind = RtFastCommandKind::joint_position;
+      break;
+    case rokae_xmate3_ros2::msg::RtFastCommand::COMMAND_CARTESIAN_POSITION:
+      frame.kind = RtFastCommandKind::cartesian_position;
+      break;
+    case rokae_xmate3_ros2::msg::RtFastCommand::COMMAND_TORQUE:
+      frame.kind = RtFastCommandKind::torque;
+      break;
+    case rokae_xmate3_ros2::msg::RtFastCommand::COMMAND_STOP:
+      frame.kind = RtFastCommandKind::stop;
+      break;
+    default:
+      frame.kind = RtFastCommandKind::joint_position;
+      break;
+  }
+
+  auto receive_tp = std::chrono::steady_clock::now();
+  const auto now_ros = node_->get_clock()->now();
+  const auto sent_ros = rclcpp::Time(msg->send_time);
+  const auto rx_latency_ns = std::max<std::int64_t>(0, now_ros.nanoseconds() - sent_ros.nanoseconds());
+  frame.sent_at = receive_tp - std::chrono::nanoseconds(rx_latency_ns);
+  runtime_context_.dataStoreState().ingestRtFastCommand(frame, 1);
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

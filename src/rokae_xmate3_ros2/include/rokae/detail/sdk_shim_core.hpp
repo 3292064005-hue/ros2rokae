@@ -940,6 +940,7 @@ public:
       return;
     }
     auto body = [this]() {
+      auto next_tick = std::chrono::steady_clock::now();
       while (loop_running_) {
         if (use_state_data_in_loop_ && session_) {
           error_code refresh_ec;
@@ -962,7 +963,8 @@ public:
           loop_running_ = false;
           break;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        next_tick += std::chrono::milliseconds(1);
+        std::this_thread::sleep_until(next_tick);
       }
     };
     if (blocking) {

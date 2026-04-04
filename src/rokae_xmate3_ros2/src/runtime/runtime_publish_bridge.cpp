@@ -63,6 +63,11 @@ rokae_xmate3_ros2::msg::RuntimeDiagnostics RuntimePublishBridge::buildRuntimeDia
   msg.rt_stale_state_count = snapshot.rt_stale_state_count;
   msg.rt_command_starvation_windows = snapshot.rt_command_starvation_windows;
   msg.rt_last_trigger_reason = snapshot.rt_last_trigger_reason;
+  msg.rt_transport_source = snapshot.rt_transport_source;
+  msg.rt_scheduler_state = snapshot.rt_scheduler_state;
+  msg.rt_deadline_miss = snapshot.rt_deadline_miss;
+  msg.rt_rx_latency_us = snapshot.rt_rx_latency_us;
+  msg.rt_queue_depth = snapshot.rt_queue_depth;
   msg.recent_runtime_events = snapshot.recent_runtime_events;
   msg.event_bus_summary = snapshot.event_bus_summary;
   msg.runtime_event_count = snapshot.runtime_event_count;

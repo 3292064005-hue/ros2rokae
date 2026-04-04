@@ -204,6 +204,30 @@ void RuntimeDiagnosticsState::setRtWatchdogSummary(const std::string &summary,
   snapshot_.rt_last_trigger_reason = last_trigger_reason.empty() ? std::string{"nominal"} : last_trigger_reason;
 }
 
+void RuntimeDiagnosticsState::setRtIngressMetrics(const std::string &transport_source,
+                                                  const double rx_latency_us,
+                                                  const std::uint32_t queue_depth) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!transport_source.empty()) {
+    snapshot_.rt_transport_source = transport_source;
+  }
+  snapshot_.rt_rx_latency_us = std::isfinite(rx_latency_us) ? std::max(0.0, rx_latency_us) : 0.0;
+  snapshot_.rt_queue_depth = queue_depth;
+}
+
+void RuntimeDiagnosticsState::setRtSchedulerState(const std::string &state) {
+  if (state.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.rt_scheduler_state = state;
+}
+
+void RuntimeDiagnosticsState::incrementRtDeadlineMiss() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_.rt_deadline_miss += 1;
+}
+
 void RuntimeDiagnosticsState::setProfileCapabilitySummary(const std::string &summary) {
   if (summary.empty()) {
     return;

@@ -124,6 +124,13 @@ ros2 service call /xmate3/internal/get_runtime_diagnostics rokae_xmate3_ros2/srv
 ros2 topic echo /xmate3/internal/runtime_status --once
 ```
 
+### RT 1kHz 逼近建议（xMate6 仿真）
+- 传输链路默认优先级：`shm_ring > ros_rt_topic > legacy_custom_data`。
+- SDK 侧可用 `ROKAE_RT_TRANSPORT_MODE` 覆盖策略：`shm_topic`（默认）、`shm_only`、`topic_only`、`legacy_only`。
+- runtime 默认启用实时化参数：`rt_scheduler.enable=true`、`rt_scheduler.policy=fifo`、`rt_scheduler.priority=80`、`rt_memory.lock_all=true`。
+- 若宿主机权限不足，runtime 会降级并在诊断中标记 `rt_scheduler_state=degraded_best_effort(...)`。
+- 主链验收建议同时观察：`rt_transport_source`、`rt_scheduler_state`、`rt_deadline_miss`、`rt_rx_latency_us`、`rt_queue_depth`。
+
 兼容别名仍可使用：
 ```bash
 ros2 interface show rokae_xmate3_ros2/srv/GetJointTorques

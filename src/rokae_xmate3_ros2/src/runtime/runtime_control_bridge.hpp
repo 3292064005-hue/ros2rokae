@@ -1,6 +1,7 @@
 #ifndef ROKAE_XMATE3_ROS2_RUNTIME_CONTROL_BRIDGE_HPP
 #define ROKAE_XMATE3_ROS2_RUNTIME_CONTROL_BRIDGE_HPP
 
+#include <chrono>
 #include <vector>
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
@@ -62,6 +63,7 @@ class RuntimeControlBridge {
   bool has_last_torque_command_ = false;
   bool has_last_joint_target_ = false;
   bool has_last_cartesian_target_ = false;
+  std::chrono::steady_clock::time_point last_rt_fast_received_at_{};
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

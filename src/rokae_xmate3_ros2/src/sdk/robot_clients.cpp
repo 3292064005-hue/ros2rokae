@@ -20,6 +20,38 @@ rclcpp::Node::SharedPtr makeManagedNode(const RosClientOptions& options) {
     return rclcpp::Node::make_shared(options.node_name.empty() ? std::string{"xmate3_robot"} : options.node_name);
 }
 
+void parseRtTransportMode(const char *raw_mode, bool &enable_shm, bool &enable_topic) {
+    enable_shm = true;
+    enable_topic = true;
+    if (raw_mode == nullptr) {
+        return;
+    }
+    const std::string mode(raw_mode);
+    if (mode == "legacy_only") {
+        enable_shm = false;
+        enable_topic = false;
+        return;
+    }
+    if (mode == "topic_only") {
+        enable_shm = false;
+        enable_topic = true;
+        return;
+    }
+    if (mode == "shm_only") {
+        enable_shm = true;
+        enable_topic = false;
+        return;
+    }
+    if (mode == "shm_topic") {
+        enable_shm = true;
+        enable_topic = true;
+        return;
+    }
+    // auto (default): enable both, runtime picks priority.
+    enable_shm = true;
+    enable_topic = true;
+}
+
 }  // namespace
 
 
@@ -66,6 +98,19 @@ void xMateRobot::Impl::init_clients() {
     // 实时控制/高级数据
     xmate3_rt_set_control_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetRtControlMode>("/xmate3/cobot/set_rt_control_mode");
     xmate3_rt_get_joint_data_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetRtJointData>("/xmate3/cobot/get_rt_joint_data");
+    parseRtTransportMode(std::getenv("ROKAE_RT_TRANSPORT_MODE"), rt_fast_shm_enabled_, rt_fast_topic_enabled_);
+    if (rt_fast_topic_enabled_) {
+        auto qos = rclcpp::QoS(rclcpp::KeepLast(1));
+        qos.best_effort();
+        qos.durability_volatile();
+        xmate3_rt_fast_command_pub_ =
+            node_->create_publisher<rokae_xmate3_ros2::msg::RtFastCommand>(
+                rokae_xmate3_ros2::runtime::rt_topics::kFastCommandTopic, qos);
+    }
+    if (rt_fast_shm_enabled_) {
+        rt_fast_shm_writer_ = std::make_unique<rokae_xmate3_ros2::runtime::RtFastShmRingWriter>(
+            rokae_xmate3_ros2::runtime::rt_topics::kFastShmName);
+    }
     xmate3_comm_send_custom_data_client_ = node_->create_client<rokae_xmate3_ros2::srv::SendCustomData>("/xmate3/cobot/send_custom_data");
     xmate3_comm_register_data_callback_client_ = node_->create_client<rokae_xmate3_ros2::srv::RegisterDataCallback>("/xmate3/cobot/register_data_callback");
     xmate3_comm_read_register_client_ = node_->create_client<rokae_xmate3_ros2::srv::ReadRegister>("/xmate3/cobot/read_register");

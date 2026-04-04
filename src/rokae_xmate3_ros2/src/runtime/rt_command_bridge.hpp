@@ -29,7 +29,8 @@ bool publishCommand(rokae::ros2::xMateRobot &robot,
                     const std::array<double, 6> &values,
                     bool finished,
                     std::error_code &ec,
-                    const std::string &dispatch_mode = "independent_rt") noexcept;
+                    const std::string &dispatch_mode = "independent_rt",
+                    int rt_mode = -1) noexcept;
 
 bool publishStop(rokae::ros2::xMateRobot &robot, std::error_code &ec) noexcept;
 

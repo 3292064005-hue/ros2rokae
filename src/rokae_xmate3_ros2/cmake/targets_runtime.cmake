@@ -32,6 +32,7 @@ add_library(${PROJECT_NAME}_runtime_state OBJECT
   src/runtime/data_store_state.cpp
   src/runtime/program_state.cpp
   src/runtime/diagnostics_state.cpp
+  src/runtime/rt_fast_shm_ring.cpp
   src/runtime/rt_field_registry.cpp
   src/runtime/rt_subscription_plan.cpp
   src/runtime/rt_watchdog.cpp

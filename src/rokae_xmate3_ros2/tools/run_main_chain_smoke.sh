@@ -217,6 +217,26 @@ if ! grep -q "rt_profile" "${RUNTIME_DIAG_LOG}" && ! grep -q "active_profile" "$
   echo "main_chain_smoke: runtime diagnostics missing profile marker" >&2
   exit 1
 fi
+if ! grep -q "rt_transport_source" "${RUNTIME_DIAG_LOG}"; then
+  echo "main_chain_smoke: runtime diagnostics missing rt_transport_source" >&2
+  exit 1
+fi
+if ! grep -q "rt_scheduler_state" "${RUNTIME_DIAG_LOG}"; then
+  echo "main_chain_smoke: runtime diagnostics missing rt_scheduler_state" >&2
+  exit 1
+fi
+if ! grep -q "rt_deadline_miss" "${RUNTIME_DIAG_LOG}"; then
+  echo "main_chain_smoke: runtime diagnostics missing rt_deadline_miss" >&2
+  exit 1
+fi
+if ! grep -q "rt_rx_latency_us" "${RUNTIME_DIAG_LOG}"; then
+  echo "main_chain_smoke: runtime diagnostics missing rt_rx_latency_us" >&2
+  exit 1
+fi
+if ! grep -q "rt_queue_depth" "${RUNTIME_DIAG_LOG}"; then
+  echo "main_chain_smoke: runtime diagnostics missing rt_queue_depth" >&2
+  exit 1
+fi
 
 echo "[main_chain_smoke] success"
 echo "[main_chain_smoke] launch log: ${LOG_FILE}"

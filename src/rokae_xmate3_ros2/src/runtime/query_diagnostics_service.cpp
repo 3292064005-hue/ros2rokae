@@ -53,6 +53,11 @@ void QueryFacade::handleGetRuntimeDiagnostics(
   res.diagnostics.rt_stale_state_count = snapshot.rt_stale_state_count;
   res.diagnostics.rt_command_starvation_windows = snapshot.rt_command_starvation_windows;
   res.diagnostics.rt_last_trigger_reason = snapshot.rt_last_trigger_reason;
+  res.diagnostics.rt_transport_source = snapshot.rt_transport_source;
+  res.diagnostics.rt_scheduler_state = snapshot.rt_scheduler_state;
+  res.diagnostics.rt_deadline_miss = snapshot.rt_deadline_miss;
+  res.diagnostics.rt_rx_latency_us = snapshot.rt_rx_latency_us;
+  res.diagnostics.rt_queue_depth = snapshot.rt_queue_depth;
   res.diagnostics.recent_runtime_events = snapshot.recent_runtime_events;
   res.diagnostics.event_bus_summary = snapshot.event_bus_summary;
   res.diagnostics.runtime_event_count = snapshot.runtime_event_count;

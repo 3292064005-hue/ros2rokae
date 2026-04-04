@@ -1,7 +1,12 @@
 #include "gazebo/runtime_bootstrap.hpp"
 
 #include <algorithm>
+#include <pthread.h>
+#include <sched.h>
+#include <sys/mman.h>
 #include <utility>
+
+#include <rclcpp/executors/multi_threaded_executor.hpp>
 
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
 #include "rokae_xmate3_ros2/types.hpp"
@@ -22,6 +27,71 @@ rclcpp::Node::SharedPtr makeBootstrapNode(const RuntimeBootstrap::RosIntegration
     return std::make_shared<rclcpp::Node>("xcore_gazebo_controller", node_options);
   }
   return std::make_shared<rclcpp::Node>("xcore_gazebo_controller");
+}
+
+std::string applyBootstrapRealtimeProfile(rclcpp::Node &node,
+                                          const bool enable,
+                                          const std::string &policy,
+                                          const int priority,
+                                          const std::string &cpu_affinity,
+                                          const bool lock_all_memory) {
+  if (!enable) {
+    return "disabled";
+  }
+  std::string state = "active";
+  if (lock_all_memory) {
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
+      state = "degraded_best_effort(memory_lock_failed)";
+    }
+  }
+  int sched_policy = SCHED_FIFO;
+  if (policy == "rr") {
+    sched_policy = SCHED_RR;
+  } else if (policy != "fifo") {
+    sched_policy = SCHED_OTHER;
+  }
+  sched_param sched{};
+  sched.sched_priority = std::clamp(priority, 1, 95);
+  if (sched_setscheduler(0, sched_policy, &sched) != 0) {
+    state = "degraded_best_effort(scheduler_failed)";
+  }
+  if (!cpu_affinity.empty()) {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    bool any = false;
+    std::size_t start = 0;
+    while (start <= cpu_affinity.size()) {
+      const auto end = cpu_affinity.find(',', start);
+      const auto token = cpu_affinity.substr(start, end == std::string::npos ? std::string::npos : end - start);
+      if (!token.empty()) {
+        try {
+          const int cpu = std::stoi(token);
+          if (cpu >= 0 && cpu < CPU_SETSIZE) {
+            CPU_SET(cpu, &set);
+            any = true;
+          }
+        } catch (...) {
+        }
+      }
+      if (end == std::string::npos) {
+        break;
+      }
+      start = end + 1;
+    }
+    if (any && pthread_setaffinity_np(pthread_self(), sizeof(set), &set) != 0) {
+      state = "degraded_best_effort(affinity_failed)";
+    }
+  }
+  RCLCPP_INFO(
+      node.get_logger(),
+      "runtime bootstrap rt scheduler: enable=%s policy=%s priority=%d cpu_affinity=\"%s\" lock_all=%s state=%s",
+      enable ? "true" : "false",
+      policy.c_str(),
+      priority,
+      cpu_affinity.c_str(),
+      lock_all_memory ? "true" : "false",
+      state.c_str());
+  return state;
 }
 
 }  // namespace
@@ -235,6 +305,19 @@ void RuntimeBootstrap::start() {
       toString(backend_mode_),
       diagnosticCapabilityFlags(backend_mode_),
       runtime_profile);
+  const bool rt_scheduler_enable = node_->declare_parameter<bool>("rt_scheduler.enable", true);
+  const std::string rt_scheduler_policy = node_->declare_parameter<std::string>("rt_scheduler.policy", "fifo");
+  const int rt_scheduler_priority = node_->declare_parameter<int>("rt_scheduler.priority", 80);
+  const std::string rt_scheduler_cpu_affinity = node_->declare_parameter<std::string>("rt_scheduler.cpu_affinity", "");
+  const bool rt_memory_lock_all = node_->declare_parameter<bool>("rt_memory.lock_all", true);
+  runtime_context_->diagnosticsState().setRtSchedulerState(
+      applyBootstrapRealtimeProfile(
+          *node_,
+          rt_scheduler_enable,
+          rt_scheduler_policy,
+          rt_scheduler_priority,
+          rt_scheduler_cpu_affinity,
+          rt_memory_lock_all));
   runtime_context_->diagnosticsState().setSessionModes(
       runtime_context_->sessionState().motionMode(),
       runtime_context_->sessionState().rtControlMode());
@@ -268,7 +351,7 @@ void RuntimeBootstrap::attachExecutorNode() {
     executor_node_added_by_bootstrap_ = true;
     return;
   }
-  executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+  executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>(rclcpp::ExecutorOptions(), 4);
   executor_->add_node(node_);
   executor_node_added_by_bootstrap_ = true;
 }

@@ -13,6 +13,7 @@
 
 #include "rokae_xmate3_ros2/types.hpp"
 #include "rokae_xmate3_ros2/sdk_catalog_policy.hpp"
+#include "rokae_xmate3_ros2/runtime/rt_fast_command.hpp"
 
 namespace rclcpp {
 class Context;
@@ -119,6 +120,9 @@ public:
     void setRtControlMode(rokae::RtControllerMode mode, std::error_code& ec);
     bool getRtJointData(std::array<double, 6>& position, std::array<double, 6>& velocity, std::array<double, 6>& torque, std::error_code& ec);
     std::string sendCustomData(const std::string& topic, const std::string& payload, std::error_code& ec);
+    bool publishRtFastCommand(const rokae_xmate3_ros2::runtime::RtFastCommandFrame& frame,
+                              std::uint32_t& queue_depth,
+                              std::error_code& ec);
     bool registerDataCallback(const std::string& data_topic, const std::string& callback_id, std::error_code& ec);
 
     bool getDI(unsigned int board, unsigned int port, std::error_code& ec);

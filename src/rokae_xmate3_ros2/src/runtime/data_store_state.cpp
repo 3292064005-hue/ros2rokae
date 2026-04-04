@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <optional>
 #include <sstream>
 
@@ -14,6 +15,40 @@ constexpr std::size_t kMaxLogBuffer = 128;
 constexpr double kDefaultRtCommandTimeoutSec = 0.25;
 constexpr double kMinRtCommandTimeoutSec = 0.05;
 constexpr double kMaxRtCommandTimeoutSec = 2.0;
+constexpr auto kMaxAcceptedRtFastAge = std::chrono::milliseconds(250);
+
+int transportPriority(const RtFastTransport transport) {
+  switch (transport) {
+    case RtFastTransport::shm_ring:
+      return 3;
+    case RtFastTransport::ros_topic:
+      return 2;
+    case RtFastTransport::legacy_custom_data:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+bool topicToFastKind(const std::string &topic, RtFastCommandKind &kind) {
+  if (topic == rt_topics::kControlJointPosition) {
+    kind = RtFastCommandKind::joint_position;
+    return true;
+  }
+  if (topic == rt_topics::kControlCartesianPosition) {
+    kind = RtFastCommandKind::cartesian_position;
+    return true;
+  }
+  if (topic == rt_topics::kControlTorque) {
+    kind = RtFastCommandKind::torque;
+    return true;
+  }
+  if (topic == rt_topics::kControlStop) {
+    kind = RtFastCommandKind::stop;
+    return true;
+  }
+  return false;
+}
 
 std::vector<std::string> splitText(const std::string &text, char delim) {
   std::vector<std::string> parts;
@@ -129,6 +164,17 @@ void updateDirectCommandSnapshot(const DataStoreState::CustomDataEntry &entry,
       command.sequence = 0;
     }
   }
+}
+
+void updateDirectCommandSnapshotFromFast(const RtFastCommandFrame &frame,
+                                         DataStoreState::RtDirectCommandSnapshot &command) {
+  command = {};
+  command.present = true;
+  command.valid = frame.kind != RtFastCommandKind::stop;
+  command.finished = frame.finished;
+  command.sequence = frame.sequence;
+  command.values = frame.values;
+  command.updated_at = std::chrono::steady_clock::now();
 }
 
 void updateArray6Topic(const std::string &value,
@@ -454,17 +500,69 @@ std::vector<std::string> DataStoreState::registerKeys() const {
 }
 
 void DataStoreState::setCustomData(const std::string &topic, const std::string &value) {
-  std::lock_guard<std::mutex> lock(mutex_);
   CustomDataEntry entry;
   entry.value = value;
   entry.updated_at = std::chrono::steady_clock::now();
   entry.valid = true;
-  custom_data_bank_[topic] = entry;
-  if (topic.rfind("register/", 0) == 0) {
-    register_bank_[topic.substr(9)] = value;
+  bool has_fast_update = false;
+  RtFastCommandFrame fast_frame;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    custom_data_bank_[topic] = entry;
+    if (topic.rfind("register/", 0) == 0) {
+      register_bank_[topic.substr(9)] = value;
+    }
+    updateRtSnapshotForTopic(topic, entry, rt_control_snapshot_);
+    updateSemanticSnapshotForTopic(topic, entry, rt_semantic_snapshot_);
+
+    RtFastCommandKind fast_kind{};
+    if (topicToFastKind(topic, fast_kind) && fast_kind != RtFastCommandKind::stop) {
+      fast_frame.kind = fast_kind;
+      if (fast_kind == RtFastCommandKind::joint_position) {
+        fast_frame.sequence = rt_control_snapshot_.joint_position_command.sequence;
+        fast_frame.values = rt_control_snapshot_.joint_position_command.values;
+        fast_frame.finished = rt_control_snapshot_.joint_position_command.finished;
+      } else if (fast_kind == RtFastCommandKind::cartesian_position) {
+        fast_frame.sequence = rt_control_snapshot_.cartesian_position_command.sequence;
+        fast_frame.values = rt_control_snapshot_.cartesian_position_command.values;
+        fast_frame.finished = rt_control_snapshot_.cartesian_position_command.finished;
+      } else {
+        fast_frame.sequence = rt_control_snapshot_.torque_command.sequence;
+        fast_frame.values = rt_control_snapshot_.torque_command.values;
+        fast_frame.finished = rt_control_snapshot_.torque_command.finished;
+      }
+      fast_frame.dispatch_mode = rt_semantic_snapshot_.dispatch_mode;
+      fast_frame.transport = RtFastTransport::legacy_custom_data;
+      fast_frame.sent_at = entry.updated_at;
+      has_fast_update = true;
+    }
   }
-  updateRtSnapshotForTopic(topic, entry, rt_control_snapshot_);
-  updateSemanticSnapshotForTopic(topic, entry, rt_semantic_snapshot_);
+
+  if (!has_fast_update) {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> rt_lock(rt_fast_mutex_);
+    const bool accept =
+        !rt_fast_snapshot_.present ||
+        fast_frame.sequence > rt_fast_snapshot_.sequence ||
+        (fast_frame.sequence == rt_fast_snapshot_.sequence &&
+         transportPriority(fast_frame.transport) >= transportPriority(rt_fast_snapshot_.transport));
+    if (!accept) {
+      return;
+    }
+    rt_fast_snapshot_.present = true;
+    rt_fast_snapshot_.sequence = fast_frame.sequence;
+    rt_fast_snapshot_.rt_mode = -1;
+    rt_fast_snapshot_.kind = fast_frame.kind;
+    rt_fast_snapshot_.values = fast_frame.values;
+    rt_fast_snapshot_.finished = fast_frame.finished;
+    rt_fast_snapshot_.dispatch_mode = fast_frame.dispatch_mode;
+    rt_fast_snapshot_.transport = fast_frame.transport;
+    rt_fast_snapshot_.rx_latency_us = 0.0;
+    rt_fast_snapshot_.queue_depth = 0;
+    rt_fast_snapshot_.received_at = entry.updated_at;
+  }
 }
 
 std::string DataStoreState::customData(const std::string &topic) const {
@@ -485,6 +583,88 @@ DataStoreState::RtControlSnapshot DataStoreState::rtControlSnapshot() const {
 DataStoreState::RtSemanticSnapshot DataStoreState::rtSemanticSnapshot() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return rt_semantic_snapshot_;
+}
+
+void DataStoreState::ingestRtFastCommand(const RtFastCommandFrame &frame,
+                                         const std::uint32_t queue_depth) noexcept {
+  const auto received_at = std::chrono::steady_clock::now();
+  const auto age_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(received_at - frame.sent_at).count();
+  const double rx_latency_us = age_ns > 0 ? static_cast<double>(age_ns) / 1000.0 : 0.0;
+  {
+    std::lock_guard<std::mutex> rt_lock(rt_fast_mutex_);
+    const bool accept =
+        !rt_fast_snapshot_.present ||
+        frame.sequence > rt_fast_snapshot_.sequence ||
+        (frame.sequence == rt_fast_snapshot_.sequence &&
+         transportPriority(frame.transport) >= transportPriority(rt_fast_snapshot_.transport));
+    if (!accept) {
+      return;
+    }
+    rt_fast_snapshot_.present = true;
+    rt_fast_snapshot_.sequence = frame.sequence;
+    rt_fast_snapshot_.rt_mode = frame.rt_mode;
+    rt_fast_snapshot_.kind = frame.kind;
+    rt_fast_snapshot_.values = frame.values;
+    rt_fast_snapshot_.finished = frame.finished;
+    rt_fast_snapshot_.dispatch_mode = frame.dispatch_mode;
+    rt_fast_snapshot_.transport = frame.transport;
+    rt_fast_snapshot_.rx_latency_us = std::isfinite(rx_latency_us) ? std::max(0.0, rx_latency_us) : 0.0;
+    rt_fast_snapshot_.queue_depth = queue_depth;
+    rt_fast_snapshot_.received_at = received_at;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!frame.dispatch_mode.empty()) {
+    rt_semantic_snapshot_.dispatch_mode = frame.dispatch_mode;
+  }
+  switch (frame.kind) {
+    case RtFastCommandKind::joint_position:
+      updateDirectCommandSnapshotFromFast(frame, rt_control_snapshot_.joint_position_command);
+      rt_control_snapshot_.stop_requested = false;
+      break;
+    case RtFastCommandKind::cartesian_position:
+      updateDirectCommandSnapshotFromFast(frame, rt_control_snapshot_.cartesian_position_command);
+      rt_control_snapshot_.stop_requested = false;
+      break;
+    case RtFastCommandKind::torque:
+      updateDirectCommandSnapshotFromFast(frame, rt_control_snapshot_.torque_command);
+      rt_control_snapshot_.stop_requested = false;
+      break;
+    case RtFastCommandKind::stop:
+      rt_control_snapshot_.stop_requested = true;
+      break;
+    default:
+      break;
+  }
+}
+
+bool DataStoreState::pollRtFastShm() noexcept {
+  if (!rt_fast_shm_reader_) {
+    rt_fast_shm_reader_ = std::make_unique<RtFastShmRingReader>(rt_topics::kFastShmName);
+  }
+  if (!rt_fast_shm_reader_ || !rt_fast_shm_reader_->ready()) {
+    return false;
+  }
+  RtFastCommandFrame frame;
+  std::uint32_t queue_depth = 0;
+  if (!rt_fast_shm_reader_->readLatest(frame, &queue_depth)) {
+    return false;
+  }
+  const auto now = std::chrono::steady_clock::now();
+  if (frame.sent_at.time_since_epoch().count() <= 0) {
+    return false;
+  }
+  if (now - frame.sent_at > kMaxAcceptedRtFastAge) {
+    return false;
+  }
+  frame.transport = RtFastTransport::shm_ring;
+  ingestRtFastCommand(frame, queue_depth);
+  return true;
+}
+
+DataStoreState::RtFastIngressSnapshot DataStoreState::rtFastIngressSnapshot() const {
+  std::lock_guard<std::mutex> lock(rt_fast_mutex_);
+  return rt_fast_snapshot_;
 }
 
 bool DataStoreState::hasCallback(const std::string &callback_id) const {
