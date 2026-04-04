@@ -21,7 +21,7 @@ TEST(RuntimeDiagnosticsStateTest, ExtendedFieldsAreTracked) {
   state.setRtSubscriptionPlan("armed_in_loop bytes=144 interval_ms=1 fields=q_m,dq_m,tau_m");
   state.setRtPrearmStatus("ready");
   state.setRtWatchdogSummary("late_cycles=1,max_gap_ms=6.0,avg_gap_ms=3.0", 1, 6.0, 3.0, 1, 2, 1, "late_cycle");
-  state.setProfileCapabilitySummary("rt_simulated=active,experimental");
+  state.setProfileCapabilitySummary("rt_sim_experimental_best_effort=active,experimental");
   state.setPlanningCapabilitySummary("kinematics[kdl=active]; retimer[nominal=active]; planner[risk_weighted=active]");
   state.notePlanSummary("plan_explanation[policy=risk_weighted; candidate=nominal]", "nominal");
   state.setRuntimeOptionSummary("default_speed=50.000; simulation_mode=true");
@@ -56,7 +56,7 @@ TEST(RuntimeDiagnosticsStateTest, ExtendedFieldsAreTracked) {
   EXPECT_EQ(snap.last_selected_candidate, "nominal");
   EXPECT_NE(snap.last_plan_summary.find("plan_explanation"), std::string::npos);
   EXPECT_NE(snap.rt_subscription_plan.find("q_m"), std::string::npos);
-  EXPECT_NE(snap.profile_capability_summary.find("rt_simulated"), std::string::npos);
+  EXPECT_NE(snap.profile_capability_summary.find("rt_sim_experimental_best_effort"), std::string::npos);
   EXPECT_NE(snap.planning_capability_summary.find("kinematics[kdl=active"), std::string::npos);
   EXPECT_NE(snap.event_bus_summary.find("events=1"), std::string::npos);
   EXPECT_NE(snap.runtime_option_summary.find("default_speed"), std::string::npos);

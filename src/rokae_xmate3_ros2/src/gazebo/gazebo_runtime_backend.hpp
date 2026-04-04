@@ -88,6 +88,7 @@ constexpr double kTrajectoryCompletionInferenceVelocityRadPerSec = 0.02;
       "simulation.gazebo11",
       "ros2.humble",
       "rt.experimental",
+      "rt.best_effort_non_controller_grade",
       "compat.alias.get_joint_torque",
       "compat.alias.get_end_torque",
       "diagnostics.runtime_status",

@@ -1,6 +1,8 @@
 # xMate6 Official SDK Alignment Matrix (Call/Build Layer)
 
 This matrix freezes the install-facing xMate6 compatibility lane against the official SDK call shape.
+It is kept in sync with the single-source manifest:
+`docs/xmate6_official_alignment_manifest.json`.
 
 ## Baseline
 
@@ -19,6 +21,7 @@ This matrix freezes the install-facing xMate6 compatibility lane against the off
 | Flange pose alias | `flangePos(ec)` compatibility alias | Aligned (deprecated) |
 | NRT move API shape | `moveAppend/executeCommand/moveStart/stop` | Aligned |
 | RT API shape | `getRtMotionController()` and RT command/config surface | Aligned (simulation-grade backend) |
+| Runtime profile naming | explicit NRT/RT profile tags | `nrt_strict_parity`, `rt_sim_experimental_best_effort` |
 | IO/register | symbols kept for source compatibility | Unsupported (`not_implemented`) |
 | RL project | symbols kept for source compatibility | Unsupported (`not_implemented`) |
 | Calibration | symbol kept for source compatibility | Unsupported (`not_implemented`) |

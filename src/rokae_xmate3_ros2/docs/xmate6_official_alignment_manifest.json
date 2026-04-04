@@ -1,6 +1,7 @@
 {
   "target_family": "xmate6",
   "alignment_scope": "call_build_only",
+  "contract_source": "single_source_manifest",
   "baseline": {
     "headers": [
       "librokae/include/rokae/base.h",
@@ -24,15 +25,94 @@
     "rl",
     "calibration"
   ],
-  "signature_contract": {
-    "toolset_by_name_returns_toolset": true,
-    "flange_pos_alias_present": true,
-    "joint_torque_primary": true,
-    "joint_torques_deprecated_alias": true
+  "unsupported_contract": {
+    "source_compatible_symbols": true,
+    "runtime_policy": "deterministic_not_implemented",
+    "error_code_symbol": "SdkError::not_implemented"
   },
-  "connect_contract": {
-    "constructor_remote_autoconnect": true,
-    "no_error_code_connect_throws": true,
-    "explicit_remote_required": true
+  "profiles": {
+    "nrt": "nrt_strict_parity",
+    "rt": "rt_sim_experimental_best_effort",
+    "rt_policy": "best_effort_non_controller_grade"
+  },
+  "checks": {
+    "header_patterns": [
+      {
+        "file": "include/rokae/robot.h",
+        "contains": "Toolset setToolset(const std::string &toolName, const std::string &wobjName, error_code &ec) noexcept;"
+      },
+      {
+        "file": "include/rokae/robot.h",
+        "contains": "std::array<double, 6> flangePos(error_code &ec) const noexcept;"
+      },
+      {
+        "file": "include/rokae/robot.h",
+        "contains": "[[deprecated(\"Use jointTorque() instead\")]]"
+      }
+    ],
+    "compat_patterns": [
+      {
+        "file": "src/compat/robot_api.cpp",
+        "contains": "throw_if_error<ExecutionException>(ec, \"connectToRobot\");"
+      },
+      {
+        "file": "src/compat/robot_api.cpp",
+        "contains": "Robot_T<WorkType::collaborative, 6>::Robot_T(const std::string &remoteIP, const std::string &localIP)"
+      },
+      {
+        "file": "src/compat/robot_api.cpp",
+        "contains": "throw_if_error<ExecutionException>(ec, \"Robot_T::Robot_T(connectToRobot)\");"
+      },
+      {
+        "file": "src/compat/robot_api.cpp",
+        "contains": "if (remoteIP.empty()) {"
+      },
+      {
+        "file": "src/compat/robot_api.cpp",
+        "contains": "if (!has_remote_endpoint(handle_)) {"
+      },
+      {
+        "file": "src/compat/internal/compat_shared.hpp",
+        "contains": "std::string remote_ip;"
+      }
+    ],
+    "runtime_patterns": [
+      {
+        "file": "src/runtime/runtime_profile_service.cpp",
+        "contains": "nrt_strict_parity"
+      },
+      {
+        "file": "src/runtime/runtime_profile_service.cpp",
+        "contains": "rt_sim_experimental_best_effort"
+      },
+      {
+        "file": "src/runtime/runtime_profile_service.cpp",
+        "contains": "best-effort simulation-grade RT"
+      }
+    ],
+    "docs_patterns": [
+      {
+        "file": "docs/XMATE6_OFFICIAL_ALIGNMENT_MATRIX.md",
+        "contains": "single-source manifest"
+      },
+      {
+        "file": "docs/XMATE6_OFFICIAL_ALIGNMENT_MATRIX.md",
+        "contains": "rt_sim_experimental_best_effort"
+      },
+      {
+        "file": "docs/COMPAT_ABI.md",
+        "contains": "single-source manifest"
+      },
+      {
+        "file": "docs/COMPAT_ABI.md",
+        "contains": "best-effort non-controller-grade RT profile"
+      }
+    ],
+    "cmake_patterns": [
+      {
+        "file": "CMakeLists.txt",
+        "contains": "set(ROKAE_PUBLIC_UNSUPPORTED_MODULES \"io;rl;calibration\""
+      }
+    ]
   }
 }

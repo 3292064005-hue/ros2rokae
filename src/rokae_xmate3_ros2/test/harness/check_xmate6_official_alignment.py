@@ -2,13 +2,19 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 failures: list[str] = []
+
+
+def require_contains(path: Path, needle: str, label: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if needle not in text:
+        failures.append(f"{label}: missing '{needle}' in {path.relative_to(ROOT)}")
+
 
 manifest_path = ROOT / "docs" / "xmate6_official_alignment_manifest.json"
 if not manifest_path.is_file():
@@ -19,37 +25,44 @@ else:
         failures.append("manifest target_family must be xmate6")
     if manifest.get("alignment_scope") != "call_build_only":
         failures.append("manifest alignment_scope must be call_build_only")
+    if manifest.get("contract_source") != "single_source_manifest":
+        failures.append("manifest contract_source must be single_source_manifest")
+
     unsupported = manifest.get("unsupported_public_modules", [])
     if unsupported != ["io", "rl", "calibration"]:
         failures.append("manifest unsupported_public_modules must be exactly ['io', 'rl', 'calibration']")
 
-robot_header = (ROOT / "include" / "rokae" / "robot.h").read_text(encoding="utf-8")
-if "Toolset setToolset(const std::string &toolName, const std::string &wobjName, error_code &ec) noexcept;" not in robot_header:
-    failures.append("robot.h must expose Toolset-returning setToolset(toolName, wobjName, ec)")
-if "std::array<double, 6> flangePos(error_code &ec) const noexcept;" not in robot_header:
-    failures.append("robot.h must keep flangePos(ec) compatibility alias")
-if "[[deprecated(\"Use jointTorque() instead\")]]" not in robot_header:
-    failures.append("robot.h must mark jointTorques as deprecated alias")
+    unsupported_contract = manifest.get("unsupported_contract", {})
+    if unsupported_contract.get("runtime_policy") != "deterministic_not_implemented":
+        failures.append("manifest unsupported_contract.runtime_policy must be deterministic_not_implemented")
+    if unsupported_contract.get("error_code_symbol") != "SdkError::not_implemented":
+        failures.append("manifest unsupported_contract.error_code_symbol must be SdkError::not_implemented")
 
-compat_api = (ROOT / "src" / "compat" / "robot_api.cpp").read_text(encoding="utf-8")
-if "throw_if_error<ExecutionException>(ec, \"connectToRobot\");" not in compat_api:
-    failures.append("no-error-code connect overload must throw ExecutionException")
-if "Robot_T<WorkType::collaborative, 6>::Robot_T(const std::string &remoteIP, const std::string &localIP)" not in compat_api:
-    failures.append("Robot_T<collaborative,6> remote constructor definition is missing")
-if "throw_if_error<ExecutionException>(ec, \"Robot_T::Robot_T(connectToRobot)\");" not in compat_api:
-    failures.append("Robot_T remote constructor must auto-connect and throw on failure")
-if "if (remoteIP.empty()) {" not in compat_api:
-    failures.append("connectToRobot(remoteIP, localIP, ec) must reject empty remoteIP")
-if "if (!has_remote_endpoint(handle_)) {" not in compat_api:
-    failures.append("connectToRobot(ec) must reject missing configured remote endpoint")
+    profiles = manifest.get("profiles", {})
+    if profiles.get("nrt") != "nrt_strict_parity":
+        failures.append("manifest profiles.nrt must be nrt_strict_parity")
+    if profiles.get("rt") != "rt_sim_experimental_best_effort":
+        failures.append("manifest profiles.rt must be rt_sim_experimental_best_effort")
+    if profiles.get("rt_policy") != "best_effort_non_controller_grade":
+        failures.append("manifest profiles.rt_policy must be best_effort_non_controller_grade")
 
-compat_shared_hpp = (ROOT / "src" / "compat" / "internal" / "compat_shared.hpp").read_text(encoding="utf-8")
-if not re.search(r"std::string\s+remote_ip\s*;", compat_shared_hpp):
-    failures.append("CompatRobotHandle::remote_ip must not have an implicit default endpoint")
-
-cmake_text = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-if 'set(ROKAE_PUBLIC_UNSUPPORTED_MODULES "io;rl;calibration"' not in cmake_text:
-    failures.append("CMakeLists.txt must keep public unsupported modules fixed to io;rl;calibration")
+    checks = manifest.get("checks", {})
+    for key in ("header_patterns", "compat_patterns", "runtime_patterns", "docs_patterns", "cmake_patterns"):
+        entries = checks.get(key, [])
+        if not isinstance(entries, list) or not entries:
+            failures.append(f"manifest checks.{key} must be a non-empty list")
+            continue
+        for entry in entries:
+            rel_file = entry.get("file", "")
+            contains = entry.get("contains", "")
+            if not rel_file or not contains:
+                failures.append(f"manifest checks.{key} entries require file+contains")
+                continue
+            path = ROOT / rel_file
+            if not path.is_file():
+                failures.append(f"manifest checks.{key}: missing file {rel_file}")
+                continue
+            require_contains(path, contains, f"manifest checks.{key}")
 
 if failures:
     print("xmate6 official alignment check failed:")

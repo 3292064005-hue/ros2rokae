@@ -74,7 +74,8 @@ void QueryFacade::handleGetProfileCapabilities(
   res.success = true;
   res.message = summarizeRuntimeProfileCatalog(profiles) + "; " +
                 summarizePlanningCapabilityCatalog(kinematics_backends, retimer_policies, planner_policies) + "; " +
-                summarizeRtFieldPolicies(defaultRtFieldSet());
+                summarizeRtFieldPolicies(defaultRtFieldSet()) +
+                "; rt_policy=best_effort_non_controller_grade";
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

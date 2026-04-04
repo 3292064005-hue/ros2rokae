@@ -100,7 +100,7 @@ TEST(RtHardening, PrearmRequiresRtModePowerCapabilityAndValidPlan) {
   input.motion_mode = kSessionMotionModeRt;
   input.rt_mode = static_cast<int>(rokae::RtControllerMode::jointPosition);
   input.power_on = true;
-  input.active_profile = "rt_simulated";
+  input.active_profile = "rt_sim_experimental_best_effort";
   input.network_tolerance_configured = true;
   input.capability_flags = {"rt.experimental", "trajectory_executor"};
   input.subscription_plan = buildRtSubscriptionPlan(defaultRtFieldSet(), std::chrono::milliseconds(1), true);
@@ -126,7 +126,7 @@ TEST(RtHardening, PrearmRejectsIncompleteModeSpecificSubscription) {
   input.motion_mode = kSessionMotionModeRt;
   input.rt_mode = static_cast<int>(rokae::RtControllerMode::torque);
   input.power_on = true;
-  input.active_profile = "rt_simulated";
+  input.active_profile = "rt_sim_experimental_best_effort";
   input.network_tolerance_configured = true;
   input.capability_flags = {"rt.experimental", "effort_owner"};
   input.subscription_plan = buildRtSubscriptionPlan(

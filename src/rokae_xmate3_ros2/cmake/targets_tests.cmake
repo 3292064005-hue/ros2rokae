@@ -1104,6 +1104,16 @@ if(BUILD_TESTING AND ROKAE_BUILD_COMPAT_SDK)
   set_tests_properties(compat_install_tree_consumer PROPERTIES LABELS "abi_gate;install_tree" TIMEOUT 600)
 
   add_test(
+    NAME compat_no_ros_env_external_consumer
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/run_no_ros_env_consumer.py"
+            --build-dir "${CMAKE_CURRENT_BINARY_DIR}"
+            --consumer-dir "${CMAKE_CURRENT_SOURCE_DIR}/test/compat/install_tree"
+            --staging-prefix "${CMAKE_CURRENT_BINARY_DIR}/compat_no_ros_env_stage"
+  )
+  set_tests_properties(compat_no_ros_env_external_consumer PROPERTIES LABELS "abi_gate;install_tree" TIMEOUT 600)
+
+  add_test(
     NAME compat_exported_symbols
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_exported_symbols.py"

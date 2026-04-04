@@ -11,7 +11,13 @@ option(ROKAE_EXPORT_PRIVATE_SDK_TARGETS "Export native/private SDK targets in th
 option(ROKAE_INSTALL_BACKEND_DEV_HEADERS "Install backend/developer headers" OFF)
 option(ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES "Install internal/backend example binaries into the package runtime path" OFF)
 option(ROKAE_PUBLIC_XMATE6_ONLY "Freeze the install-facing compatibility lane to xMate 6-axis only" ON)
+option(ROKAE_DAEMONIZED_RUNTIME_DEFAULT "Publish xCoreSDK metadata with daemonized runtime as the default hosting mode" ON)
 set(ROKAE_PUBLIC_UNSUPPORTED_MODULES "io;rl;calibration" CACHE STRING "Semicolon-separated public-lane modules intentionally excluded from the xMate6 compatibility contract")
+if(ROKAE_DAEMONIZED_RUNTIME_DEFAULT)
+  set(ROKAE_PUBLIC_BACKEND_MODE "daemonized_runtime_default")
+else()
+  set(ROKAE_PUBLIC_BACKEND_MODE "ros_gazebo_backed")
+endif()
 # 抑制Gazebo CMake配置的dev警告
 set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS ON)
 
@@ -128,6 +134,20 @@ add_custom_target(release_candidate
   DEPENDS package_verified_source_archive
   COMMENT "Produce the only distributable verified source archive"
 )
+if(ROKAE_BUILD_COMPAT_SDK)
+  set(ROKAE_SDK_ARTIFACT_STAGE "${CMAKE_CURRENT_BINARY_DIR}/xcoresdk_artifact_stage")
+  set(ROKAE_SDK_ARTIFACT_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/xcoresdk_artifact")
+  add_custom_target(assemble_sdk_artifact
+    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${ROKAE_SDK_ARTIFACT_STAGE}" "${ROKAE_SDK_ARTIFACT_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" --install "${CMAKE_CURRENT_BINARY_DIR}" --prefix "${ROKAE_SDK_ARTIFACT_STAGE}"
+    COMMAND "${ROKAE_SYSTEM_PYTHON}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/assemble_sdk_artifact.py"
+            --staging-prefix "${ROKAE_SDK_ARTIFACT_STAGE}"
+            --output-dir "${ROKAE_SDK_ARTIFACT_OUTPUT}"
+    COMMENT "Assembling deterministic xCoreSDK artifact from staged install"
+    VERBATIM
+  )
+endif()
 if(ROKAE_SOURCE_ARCHIVE)
   add_test(
     NAME verify_source_archive

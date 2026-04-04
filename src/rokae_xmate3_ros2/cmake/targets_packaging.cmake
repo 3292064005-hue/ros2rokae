@@ -5,6 +5,7 @@ if(ROKAE_BUILD_COMPAT_SDK)
   install(TARGETS
     ${PROJECT_NAME}_runtime_core
     ${PROJECT_NAME}_sdk_backend
+    rokae_sim_runtime
     EXPORT xCoreSDKPrivateTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -14,6 +15,7 @@ else()
   install(TARGETS
     ${PROJECT_NAME}_runtime_core
     ${PROJECT_NAME}_sdk_backend
+    rokae_sim_runtime
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

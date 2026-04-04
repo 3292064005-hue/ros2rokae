@@ -228,8 +228,8 @@ void RuntimeBootstrap::start() {
   runtime_context_->attachBackend(motion_backend_.get());
   runtime_context_->motionRuntime().setExecutorConfig(executor_config);
   const std::string inferred_runtime_profile =
-      backend_mode_ == BackendMode::effort ? std::string{"rt_simulated"} :
-      (backend_mode_ == BackendMode::jtc ? std::string{"jtc_profile"} : std::string{"hybrid_bridge"});
+      backend_mode_ == BackendMode::effort ? std::string{"rt_sim_experimental_best_effort"} :
+      std::string{"nrt_strict_parity"};
   const std::string runtime_profile = node_->declare_parameter("runtime_profile", inferred_runtime_profile);
   runtime_context_->diagnosticsState().configure(
       toString(backend_mode_),
@@ -245,7 +245,7 @@ void RuntimeBootstrap::start() {
 
   RCLCPP_INFO(
       node_->get_logger(),
-      "runtime diagnostics ready: backend=%s rt_level=experimental aliases=[get_joint_torque,get_end_torque] "
+      "runtime diagnostics ready: backend=%s rt_level=best_effort_non_controller_grade aliases=[get_joint_torque,get_end_torque] "
       "services=[/xmate3/internal/validate_motion,/xmate3/internal/get_runtime_diagnostics] "
       "topic=[/xmate3/internal/runtime_status]",
       toString(backend_mode_));

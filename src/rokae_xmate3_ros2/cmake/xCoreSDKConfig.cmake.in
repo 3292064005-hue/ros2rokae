@@ -1,7 +1,7 @@
 @PACKAGE_INIT@
 include(CMakeFindDependencyMacro)
 
-# The compatibility package is still ROS2/Gazebo-backed. Both public targets are real install-facing
+# The compatibility package is still ROS2/Gazebo-linked internally. Both public targets are real install-facing
 # libraries, and the install contract is frozen to the xMate6 compatibility lane. The static target
 # still packages the compatibility facade together with the internal runtime/backend object code.
 # Downstream consumers therefore need the same ROS2/Gazebo dependency set that the shipped
@@ -43,7 +43,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/xCoreSDKTargets.cmake")
 
 set(xCoreSDK_TARGET_FAMILY "xmate6")
 set(xCoreSDK_PUBLIC_SCOPE "compat")
-set(xCoreSDK_BACKEND_MODE "ros_gazebo_backed")
+set(xCoreSDK_BACKEND_MODE "@ROKAE_PUBLIC_BACKEND_MODE@")
+set(xCoreSDK_RUNTIME_DAEMON_DEFAULT @ROKAE_DAEMONIZED_RUNTIME_DEFAULT@)
+set(xCoreSDK_RUNTIME_EXECUTABLE "rokae_sim_runtime")
 set(xCoreSDK_UNSUPPORTED_MODULES "@ROKAE_PUBLIC_UNSUPPORTED_MODULES@")
 set(xCoreSDK_XMATE6_ONLY TRUE)
 

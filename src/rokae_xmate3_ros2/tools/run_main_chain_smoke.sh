@@ -118,6 +118,7 @@ wait_for_service "/xmate3/cobot/set_motion_control_mode" 60
 wait_for_service "/xmate3/cobot/move_reset" 60
 wait_for_service "/xmate3/cobot/move_start" 60
 wait_for_service "/xmate3/cobot/get_joint_pos" 60
+wait_for_service "/xmate3/internal/get_runtime_diagnostics" 60
 
 call_service_expect_success "connect" \
   /xmate3/cobot/connect \
@@ -195,6 +196,27 @@ call_service_expect_success "get_joint_pos" \
   /xmate3/cobot/get_joint_pos \
   rokae_xmate3_ros2/srv/GetJointPos \
   "{}"
+
+echo "[main_chain_smoke] get_runtime_diagnostics"
+RUNTIME_DIAG_LOG="${WORKSPACE_ROOT}/build/rokae_xmate3_ros2/main_chain_runtime_diagnostics.log"
+if ! ros2 service call /xmate3/internal/get_runtime_diagnostics rokae_xmate3_ros2/srv/GetRuntimeDiagnostics "{}" >"${RUNTIME_DIAG_LOG}" 2>&1; then
+  cat "${RUNTIME_DIAG_LOG}"
+  echo "main_chain_smoke: runtime diagnostics query failed" >&2
+  exit 1
+fi
+cat "${RUNTIME_DIAG_LOG}"
+if ! grep -q "rt_late_cycle_count" "${RUNTIME_DIAG_LOG}"; then
+  echo "main_chain_smoke: runtime diagnostics missing rt_late_cycle_count" >&2
+  exit 1
+fi
+if ! grep -q "rt_last_trigger_reason" "${RUNTIME_DIAG_LOG}"; then
+  echo "main_chain_smoke: runtime diagnostics missing rt_last_trigger_reason" >&2
+  exit 1
+fi
+if ! grep -q "rt_profile" "${RUNTIME_DIAG_LOG}" && ! grep -q "active_profile" "${RUNTIME_DIAG_LOG}"; then
+  echo "main_chain_smoke: runtime diagnostics missing profile marker" >&2
+  exit 1
+fi
 
 echo "[main_chain_smoke] success"
 echo "[main_chain_smoke] launch log: ${LOG_FILE}"

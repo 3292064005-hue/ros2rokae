@@ -40,20 +40,20 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const std::stri
   std::vector<RuntimeProfileDescriptor> profiles;
   profiles.reserve(5);
 
-  profiles.push_back(make_profile("nrt_queued",
+  profiles.push_back(make_profile("nrt_strict_parity",
                                   "runtime",
                                   "none",
                                   "queued_nrt",
-                                  "planner+runtime diagnostics",
+                                  "planner+runtime diagnostics; strict queued non-realtime contract",
                                   {"MoveAbsJ", "MoveJ", "MoveL", "MoveC", "MoveCF", "MoveSP", "ReplayPath"},
                                   false,
-                                  true,
+                                  false,
                                   false));
-  profiles.push_back(make_profile("rt_simulated",
+  profiles.push_back(make_profile("rt_sim_experimental_best_effort",
                                   "runtime",
                                   "simulated_rt_bridge",
-                                  "rt_simulated",
-                                  "rt prearm + watchdog + loop stats",
+                                  "rt_sim_experimental_best_effort",
+                                  "best-effort simulation-grade RT; non-controller-grade equivalent; rt prearm + watchdog + loop stats",
                                   {"JointPosition", "CartesianPosition", "Torque"},
                                   true,
                                   true,
@@ -88,7 +88,12 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const std::stri
 
   for (auto &profile : profiles) {
     profile.active = profile.name == active_profile;
-    if (profile.name == "hybrid_bridge" && backend_mode == "hybrid") {
+    if (profile.name == "nrt_strict_parity" &&
+        (backend_mode == "hybrid" || backend_mode == "jtc")) {
+      profile.active = true;
+    } else if (profile.name == "rt_sim_experimental_best_effort" && backend_mode == "effort") {
+      profile.active = true;
+    } else if (profile.name == "hybrid_bridge" && backend_mode == "hybrid") {
       profile.active = true;
     } else if (profile.name == "effort_direct" && backend_mode == "effort") {
       profile.active = true;
@@ -96,7 +101,7 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const std::stri
       profile.active = true;
     }
 
-    if (profile.name == "rt_simulated" && !has_flag(capability_flags, "rt.experimental")) {
+    if (profile.name == "rt_sim_experimental_best_effort" && !has_flag(capability_flags, "rt.experimental")) {
       profile.diagnostics_expectation += " (disabled)";
     }
     if (profile.name == "effort_direct" && !has_flag(capability_flags, "effort_owner")) {

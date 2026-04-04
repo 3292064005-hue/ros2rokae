@@ -18,7 +18,8 @@ TEST(RuntimeProfileCapabilitiesContract, SummariesStayStructured) {
   session.setRtControlMode(1);
   options.setDefaultSpeed(250.0);
   options.setDefaultZone(20);
-  const auto profiles = buildRuntimeProfileCatalog("hybrid", "rt_simulated", {"rt.experimental", "trajectory_executor"});
+  const auto profiles = buildRuntimeProfileCatalog(
+      "hybrid", "nrt_strict_parity", {"rt.experimental", "trajectory_executor"});
   const auto summary = summarizeRuntimeProfileCatalog(profiles);
   const auto option_entries = buildRuntimeOptionCatalog(options, session, data_store);
   const auto option_summary = summarizeRuntimeOptionCatalog(option_entries);
@@ -26,7 +27,7 @@ TEST(RuntimeProfileCapabilitiesContract, SummariesStayStructured) {
       buildKinematicsBackendCatalog("kdl"),
       buildRetimerPolicyCatalog("nominal"),
       buildPlannerSelectionCatalog("risk_weighted"));
-  EXPECT_NE(summary.find("rt_simulated=active"), std::string::npos);
+  EXPECT_NE(summary.find("nrt_strict_parity=active"), std::string::npos);
   EXPECT_NE(option_summary.find("default_speed=250.000"), std::string::npos);
   EXPECT_NE(option_summary.find("simulation_mode=true"), std::string::npos);
   EXPECT_NE(planning_summary.find("kinematics[kdl=active"), std::string::npos);

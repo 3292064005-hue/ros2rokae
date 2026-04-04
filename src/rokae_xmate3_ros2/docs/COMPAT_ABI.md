@@ -16,6 +16,7 @@ This document records the install-facing ABI contract added for the xMate 6-axis
 A downstream CMake project should be able to consume the installed compatibility package with the install-facing target set. Internal backend targets are exported separately through a private helper file and are not part of the supported public contract.
 
 The current package is still **ROS2/Gazebo-backed**. `xCoreSDK::xCoreSDK_static` and `xCoreSDK::xCoreSDK_shared` are both real install-facing targets; the static lane now packages the compatibility façade together with the internal runtime/backend object code. Downstream configuration therefore resolves the same ROS2/Gazebo dependency set up front, and runtime execution still requires the ROS2/Gazebo shared libraries that the compatibility implementation links against.
+The install metadata now publishes a daemonized runtime default (`xCoreSDK_BACKEND_MODE=daemonized_runtime_default`) with `xCoreSDK_RUNTIME_EXECUTABLE=rokae_sim_runtime`; legacy plugin-hosted mode remains available as rollback.
 
 ```cmake
 find_package(xCoreSDK CONFIG REQUIRED)
@@ -52,12 +53,14 @@ The install-facing headers now also retain the official-shaped convenience surfa
 - install-tree consumer coverage now includes `minimal_state_and_motion.cpp`, `minimal_static_link_only.cpp`, and `minimal_shared_link_only.cpp`
 - shared-library symbol leak check: `test/harness/check_exported_symbols.py`
 - official-alignment contract manifest and checker: `docs/xmate6_official_alignment_manifest.json`, `docs/XMATE6_OFFICIAL_ALIGNMENT_MATRIX.md`, `test/harness/check_xmate6_official_alignment.py`
+- xMate6 public alignment now treats `docs/xmate6_official_alignment_manifest.json` as the single-source manifest and checks docs/header/runtime consistency from that manifest
 
 ## Notes
 
 - The current lane intentionally targets **xMate 6-axis only**.
 - The current install package remains **ROS2/Gazebo-backed**; the public config now resolves the required ROS2/Gazebo dependency set before loading the exported targets, and `xCoreSDK::xCoreSDK_static` is a native static library rather than a compatibility alias.
 - The compatibility ABI split does **not** claim controller-grade RT fidelity; it only hardens the install/build/consumption boundary.
+- RT public profile is explicitly best-effort non-controller-grade RT profile (`rt_sim_experimental_best_effort`) and must not be interpreted as controller-grade parity.
 
 
 - `ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES=ON` 可显式安装 internal/backend example 二进制；默认 **OFF**，避免把源码树内部验证入口混入 public 安装面。

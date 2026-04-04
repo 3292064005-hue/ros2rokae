@@ -97,6 +97,10 @@ add_executable(minimal_shared_link_only minimal_shared_link_only.cpp)
 target_link_libraries(minimal_shared_link_only PRIVATE xCoreSDK::xCoreSDK_shared)
 target_compile_features(minimal_shared_link_only PRIVATE cxx_std_17)
 
+add_executable(minimal_no_ros_env_runtime minimal_no_ros_env_runtime.cpp)
+target_link_libraries(minimal_no_ros_env_runtime PRIVATE xCoreSDK::xCoreSDK_static)
+target_compile_features(minimal_no_ros_env_runtime PRIVATE cxx_std_17)
+
 # Official-SDK-style xMate6 subset examples (compile/link contract only).
 add_executable(official_sdk_example_xmate6 official_sdk_example_xmate6.cpp)
 target_link_libraries(official_sdk_example_xmate6 PRIVATE xCoreSDK::xCoreSDK_static)
