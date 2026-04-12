@@ -1,6 +1,6 @@
 /**
  * @file 27_rt_1khz_stress.cpp
- * @brief xMate6 simulated RT 1kHz stress runner (official SDK calling style).
+ * @brief xMate6 RT 1kHz stress runner (official SDK calling style).
  */
 
 #include <algorithm>
@@ -16,7 +16,7 @@
 
 #include "rokae/motion_control_rt.h"
 #include "rokae/robot.h"
-#include "example_common.hpp"
+#include "print_helper.hpp"
 
 using namespace rokae;
 using namespace example;
@@ -157,8 +157,9 @@ std::string toJson(const StressConfig &cfg, const StressStats &stats) {
 
 int main(int argc, char **argv) {
   const auto cfg = parseArgs(argc, argv);
-  printHeader("示例 27: RT 1kHz 压测", "xMate6 simulated RT stress runner");
-  os << "note: simulated RT facade only, not controller-grade hard real-time" << std::endl;
+  printHeader("示例 27: RT 1kHz 压测", "官方 SDK 风格");
+  os << "note: 当前示例运行于 ROS2/Gazebo 仿真环境，调用方式与官方 SDK 保持一致" << std::endl;
+  os << "rt profile: 1kHz control period (" << kRtControlPeriod.count() << " ms)" << std::endl;
   os << "config: duration=" << cfg.duration_sec << "s warmup=" << cfg.warmup_sec
      << "s amplitude=" << cfg.amplitude_rad << "rad frequency=" << cfg.frequency_hz << "Hz" << std::endl;
 
@@ -189,7 +190,7 @@ int main(int argc, char **argv) {
   (void)current;
 
   printSection("2 启动 1kHz 压测回调");
-  robot.startReceiveRobotState(std::chrono::milliseconds(1), {RtSupportedFields::jointPos_m});
+  robot.startReceiveRobotState(kRtControlPeriod, {RtSupportedFields::jointPos_m});
   std::vector<double> periods_ms;
   periods_ms.reserve(static_cast<std::size_t>(cfg.duration_sec * 1100.0) + 1024u);
 
@@ -203,7 +204,7 @@ int main(int argc, char **argv) {
   rt->setControlLoop(std::function<JointPosition(void)>([&]() {
     const auto now = Clock::now();
     if (!initialized) {
-      robot.updateRobotState(std::chrono::milliseconds(1));
+      robot.updateRobotState(kRtControlPeriod);
       robot.getStateData(RtSupportedFields::jointPos_m, start_joints);
       initialized = true;
       t_start = now;

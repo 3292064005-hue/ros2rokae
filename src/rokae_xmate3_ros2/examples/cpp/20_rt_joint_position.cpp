@@ -7,14 +7,15 @@
 
 #include "rokae/motion_control_rt.h"
 #include "rokae/robot.h"
-#include "example_common.hpp"
+#include "print_helper.hpp"
 
 using namespace rokae;
 using namespace example;
 
 int main() {
-  printHeader("示例 20: RT 关节位置控制", "Gazebo simulated RT facade");
-  os << "note: this is a simulation-only RT facade, not a hard real-time 1kHz controller" << std::endl;
+  printHeader("示例 20: RT 关节位置控制", "官方 SDK 风格");
+  os << "note: 当前示例运行于 ROS2/Gazebo 仿真环境，调用方式与官方 SDK 保持一致" << std::endl;
+  os << "rt profile: 1kHz control period (" << kRtControlPeriod.count() << " ms)" << std::endl;
 
   error_code ec;
   xMateRobot robot;
@@ -50,18 +51,18 @@ int main() {
   os << "rt MoveJ finished" << std::endl;
 
   printSection("2 启动 jointPosition 控制回调");
-  robot.startReceiveRobotState(std::chrono::milliseconds(1), {RtSupportedFields::jointPos_m});
+  robot.startReceiveRobotState(kRtControlPeriod, {RtSupportedFields::jointPos_m});
   std::array<double, 6> start_joints{};
   bool init = true;
   double time = 0.0;
   rt->startMove(RtControllerMode::jointPosition);
   rt->setControlLoop(std::function<JointPosition(void)>([&]() {
     if (init) {
-      robot.updateRobotState(std::chrono::milliseconds(1));
+      robot.updateRobotState(kRtControlPeriod);
       robot.getStateData(RtSupportedFields::jointPos_m, start_joints);
       init = false;
     }
-    time += 0.001;
+    time += kRtControlDtSec;
     const double delta = 0.08 * (1.0 - std::cos(kPi * time));
     JointPosition cmd(6);
     cmd.joints = {start_joints[0] + delta,

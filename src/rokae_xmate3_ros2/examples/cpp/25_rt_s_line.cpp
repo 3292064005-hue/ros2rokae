@@ -9,14 +9,15 @@
 
 #include "rokae/planner.h"
 #include "rokae/robot.h"
-#include "example_common.hpp"
+#include "print_helper.hpp"
 
 using namespace rokae;
 using namespace example;
 
 int main() {
-  printHeader("示例 25: RT S-Line 规划", "Gazebo simulated RT facade");
-  os << "note: S-line generation is simulated and intended for planning/trajectory inspection" << std::endl;
+  printHeader("示例 25: RT S-Line 规划", "官方 SDK 风格");
+  os << "note: 当前为仿真规划链路，接口调用方式与官方 SDK 一致" << std::endl;
+  os << "rt profile: 1kHz planner sampling period (" << kRtControlPeriod.count() << " ms)" << std::endl;
 
   error_code ec;
   xMateRobot robot;
@@ -35,11 +36,16 @@ int main() {
   const std::array<double, 6> q_goal{0.0, kPi / 6.0, kPi / 3.0, 0.0, kPi / 2.0, 0.0};
   JointMotionGenerator joint_s(0.5, q_goal);
   joint_s.calculateSynchronizedValues(q_init);
-  for (double t = 0.0; t <= joint_s.getTime(); t += 0.05) {
+  std::array<double, 6> last_delta{};
+  std::size_t joint_samples = 0;
+  for (double t = 0.0; t <= joint_s.getTime(); t += kRtControlDtSec) {
     std::array<double, 6> delta{};
     joint_s.calculateDesiredValues(t, delta);
-    printArray("joint delta", delta, 4, " rad");
+    last_delta = delta;
+    ++joint_samples;
   }
+  printArray("joint delta(last@1kHz)", last_delta, 4, " rad");
+  os << "joint planner samples(1kHz): " << joint_samples << std::endl;
 
   printSection("2 笛卡尔 S-Line 规划采样");
   const auto pose = robot.cartPosture(CoordinateType::flangeInBase, ec);
@@ -52,11 +58,16 @@ int main() {
   const double distance = (p_target - p_start).norm();
   CartMotionGenerator cart_s(0.05, distance);
   cart_s.calculateSynchronizedValues(0.0);
-  for (double t = 0.0; t <= cart_s.getTime(); t += 0.05) {
+  double last_delta_s = 0.0;
+  std::size_t cart_samples = 0;
+  for (double t = 0.0; t <= cart_s.getTime(); t += kRtControlDtSec) {
     double delta_s = 0.0;
     cart_s.calculateDesiredValues(t, &delta_s);
-    os << "cartesian delta_s: " << std::fixed << std::setprecision(4) << delta_s << std::endl;
+    last_delta_s = delta_s;
+    ++cart_samples;
   }
+  os << "cartesian delta_s(last@1kHz): " << std::fixed << std::setprecision(4) << last_delta_s << std::endl;
+  os << "cartesian planner samples(1kHz): " << cart_samples << std::endl;
 
   printSection("3 断开连接");
   cleanupRobot(robot);

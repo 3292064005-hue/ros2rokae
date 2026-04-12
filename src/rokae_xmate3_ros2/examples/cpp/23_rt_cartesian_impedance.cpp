@@ -8,14 +8,15 @@
 #include "rokae/motion_control_rt.h"
 #include "rokae/robot.h"
 #include "rokae/utility.h"
-#include "example_common.hpp"
+#include "print_helper.hpp"
 
 using namespace rokae;
 using namespace example;
 
 int main() {
-  printHeader("示例 23: RT 笛卡尔阻抗控制", "Gazebo simulated RT facade");
-  os << "note: cartesian impedance behavior here is approximate and simulation-only" << std::endl;
+  printHeader("示例 23: RT 笛卡尔阻抗控制", "官方 SDK 风格");
+  os << "note: 当前为仿真运行链路，接口调用方式与官方 SDK 一致" << std::endl;
+  os << "rt profile: 1kHz control period (" << kRtControlPeriod.count() << " ms)" << std::endl;
 
   error_code ec;
   xMateRobot robot;
@@ -32,10 +33,12 @@ int main() {
   if (!rt) {
     return skipExample(robot, "RT cartesian impedance controller unavailable in current simulation backend");
   }
+  robot.startReceiveRobotState(kRtControlPeriod, {RtSupportedFields::tcpPose_m});
 
   printSection("1 配置阻抗参数");
   rt->MoveJ(0.3, robot.jointPos(ec), kXMate3DragPose);
   if (const auto movej_ec = robot.lastErrorCode(); movej_ec) {
+    robot.stopReceiveRobotState();
     if (isSimulationOnlyCapabilityError(movej_ec)) {
       return skipExample(robot, "RT cartesian impedance MoveJ unavailable in current simulation backend: " + movej_ec.message());
     }
@@ -50,18 +53,21 @@ int main() {
                 FrameType::tool,
                 ec);
   if (reportError("setFcCoor", ec)) {
+    robot.stopReceiveRobotState();
     return isSimulationOnlyCapabilityError(ec)
                ? skipExample(robot, "Cartesian force frame configuration unavailable in current simulation backend: " + ec.message())
                : (cleanupRobot(robot), 1);
   }
   rt->setCartesianImpedance({1200.0, 1200.0, 200.0, 100.0, 100.0, 20.0}, ec);
   if (reportError("setCartesianImpedance", ec)) {
+    robot.stopReceiveRobotState();
     return isSimulationOnlyCapabilityError(ec)
                ? skipExample(robot, "Cartesian impedance configuration unavailable in current simulation backend: " + ec.message())
                : (cleanupRobot(robot), 1);
   }
   rt->setCartesianImpedanceDesiredTorque({3.0, 0.0, 3.0, 0.0, 0.0, 0.0}, ec);
   if (reportError("setCartesianImpedanceDesiredTorque", ec)) {
+    robot.stopReceiveRobotState();
     return isSimulationOnlyCapabilityError(ec)
                ? skipExample(robot, "Cartesian desired torque configuration unavailable in current simulation backend: " + ec.message())
                : (cleanupRobot(robot), 1);
@@ -77,7 +83,7 @@ int main() {
   double time = 0.0;
   rt->startMove(RtControllerMode::cartesianImpedance);
   rt->setControlLoop(std::function<CartesianPosition(void)>([&]() {
-    time += 0.001;
+    time += kRtControlDtSec;
     CartesianPosition cmd;
     cmd.pos = init_pose;
     cmd.pos[11] += 0.04 * (1.0 - std::cos(kPi * time));
@@ -88,6 +94,7 @@ int main() {
     return cmd;
   }));
   rt->startLoop(true);
+  robot.stopReceiveRobotState();
   if (const auto loop_ec = robot.lastErrorCode(); loop_ec) {
     if (isSimulationOnlyCapabilityError(loop_ec)) {
       return skipExample(robot, "RT cartesian impedance loop unavailable in current simulation backend: " + loop_ec.message());

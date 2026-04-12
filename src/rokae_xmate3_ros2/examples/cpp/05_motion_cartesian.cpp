@@ -14,7 +14,7 @@
 
 #include "rokae/robot.h"
 #include "rokae_xmate3_ros2/srv/validate_motion.hpp"
-#include "example_common.hpp"
+#include "print_helper.hpp"
 
 using namespace rokae;
 using namespace example;
@@ -79,6 +79,7 @@ public:
     request.target_posture = toArray(target);
     request.speed = speed;
     request.zone = zone;
+    // 对应官方 setDefaultConfOpt(false) 的宽松构型校验语义。
     request.strict_conf = false;
     request.avoid_singularity = false;
     request.soft_limit_enabled = false;
@@ -101,6 +102,7 @@ public:
     request.target_posture = toArray(target);
     request.speed = speed;
     request.zone = zone;
+    // 对应官方 setDefaultConfOpt(false) 的宽松构型校验语义。
     request.strict_conf = false;
     request.avoid_singularity = false;
     request.soft_limit_enabled = false;

@@ -7,7 +7,7 @@
 #include <thread>
 
 #include "rokae/robot.h"
-#include "example_common.hpp"
+#include "print_helper.hpp"
 
 using namespace rokae;
 using namespace example;

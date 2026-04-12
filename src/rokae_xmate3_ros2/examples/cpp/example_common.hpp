@@ -25,6 +25,8 @@ namespace example {
 
 using namespace rokae;
 inline constexpr double kPi = 3.14159265358979323846;
+inline constexpr auto kRtControlPeriod = std::chrono::milliseconds(1);
+inline constexpr double kRtControlDtSec = 0.001;
 inline constexpr std::array<double, 6> kXMate3DragPose{0.0, kPi / 6.0, kPi / 3.0, 0.0, kPi / 2.0, 0.0};
 inline std::ostream &os = std::cout;
 

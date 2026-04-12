@@ -10,7 +10,7 @@
 
 #include "rokae/planner.h"
 #include "rokae/robot.h"
-#include "example_common.hpp"
+#include "print_helper.hpp"
 
 using namespace rokae;
 using namespace example;
@@ -25,10 +25,29 @@ const std::vector<std::array<double, 6>> kFollowPoints{
     {0.0000, 0.5274, 0.9593, 0.0000, 1.6549, 0.0000},
 };
 
+constexpr auto kSegmentDuration = std::chrono::milliseconds(300);
+
+void streamSegmentAt1kHz(FollowPosition<6> &follow,
+                         const std::array<double, 6> &from,
+                         const std::array<double, 6> &to,
+                         std::chrono::milliseconds duration = kSegmentDuration) {
+  const int steps = std::max(1, static_cast<int>(duration / kRtControlPeriod));
+  for (int step = 1; step <= steps; ++step) {
+    const double alpha = static_cast<double>(step) / static_cast<double>(steps);
+    std::array<double, 6> cmd{};
+    for (std::size_t i = 0; i < cmd.size(); ++i) {
+      cmd[i] = from[i] + (to[i] - from[i]) * alpha;
+    }
+    follow.update(cmd);
+    std::this_thread::sleep_for(kRtControlPeriod);
+  }
+}
+
 }  // namespace
 
 int main() {
   printHeader("示例 24: RT 点位跟随", "follow_joint_position 对齐版");
+  os << "rt profile: 1kHz update period (" << kRtControlPeriod.count() << " ms)" << std::endl;
 
   error_code ec;
   xMateRobot robot;
@@ -45,10 +64,12 @@ int main() {
   if (!rt) {
     return skipExample(robot, "RT follow position controller unavailable in current simulation backend");
   }
+  robot.startReceiveRobotState(kRtControlPeriod, {RtSupportedFields::jointPos_m});
 
   printSection("1 MoveJ 到跟随起始位");
   rt->MoveJ(0.3, robot.jointPos(ec), kXMate3DragPose);
   if (const auto movej_ec = robot.lastErrorCode(); movej_ec) {
+    robot.stopReceiveRobotState();
     if (isSimulationOnlyCapabilityError(movej_ec)) {
       return skipExample(robot, "RT follow position MoveJ unavailable in current simulation backend: " + movej_ec.message());
     }
@@ -64,17 +85,26 @@ int main() {
   desired.rotate(Eigen::AngleAxisd(kPi, Eigen::Vector3d::UnitX()));
   desired.pretranslate(Eigen::Vector3d(0.40, 0.00, 0.40));
   follow.start(desired);
-  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  auto current_point = robot.jointPos(ec);
+  if (reportError("jointPos", ec)) {
+    robot.stopReceiveRobotState();
+    follow.stop();
+    cleanupRobot(robot);
+    return 1;
+  }
+
   follow.setScale(2.0);
   for (const auto &point : kFollowPoints) {
-    follow.update(point);
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    streamSegmentAt1kHz(follow, current_point, point);
+    current_point = point;
   }
   for (auto it = kFollowPoints.rbegin(); it != kFollowPoints.rend(); ++it) {
-    follow.update(*it);
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    streamSegmentAt1kHz(follow, current_point, *it);
+    current_point = *it;
   }
   follow.stop();
+  robot.stopReceiveRobotState();
   if (const auto follow_ec = robot.lastErrorCode(); follow_ec) {
     if (isSimulationOnlyCapabilityError(follow_ec)) {
       return skipExample(robot, "RT follow position loop unavailable in current simulation backend: " + follow_ec.message());

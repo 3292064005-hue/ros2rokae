@@ -8,7 +8,7 @@
 #include <thread>
 
 #include "rokae/robot.h"
-#include "example_common.hpp"
+#include "print_helper.hpp"
 
 using namespace rokae;
 using namespace example;
@@ -29,7 +29,7 @@ int main() {
   printSection("1 默认配置选项与能力边界");
   robot.setAvoidSingularity(true, ec);
   if (ec) {
-    os << "setAvoidSingularity(true): xMate6 compatibility lane reports unsupported as expected -> "
+    os << "setAvoidSingularity(true): xMate6 当前实现返回 unsupported（符合机型能力边界） -> "
        << ec.message() << std::endl;
     ec.clear();
   }

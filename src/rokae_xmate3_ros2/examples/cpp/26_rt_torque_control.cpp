@@ -18,15 +18,13 @@
 #include "rokae/model.h"
 #include "rokae/motion_control_rt.h"
 #include "rokae/robot.h"
-#include "example_common.hpp"
+#include "print_helper.hpp"
 
 using namespace rokae;
 using namespace example;
 
 namespace {
 
-constexpr auto kStatePeriod = std::chrono::milliseconds(1);
-constexpr double kLoopDt = 0.001;
 constexpr double kZeroTorqueDuration = 0.15;
 constexpr double kModelTorqueDuration = 0.25;
 constexpr double kWaveAmplitude = 0.35;
@@ -70,6 +68,7 @@ bool runTorqueLoop(xMateRobot &robot,
 int main() {
   printHeader("示例 26: RT 力矩控制", "torque_control Gazebo smoke 版");
   os << "note: torque control in Gazebo is simulation-only and approximate" << std::endl;
+  os << "rt profile: 1kHz control period (" << kRtControlPeriod.count() << " ms)" << std::endl;
 
   error_code ec;
   xMateRobot robot;
@@ -102,11 +101,11 @@ int main() {
   os << "rt MoveJ finished" << std::endl;
 
   printSection("2 读取状态并计算模型力矩");
-  robot.startReceiveRobotState(kStatePeriod,
+  robot.startReceiveRobotState(kRtControlPeriod,
                                {RtSupportedFields::jointPos_m,
                                 RtSupportedFields::jointVel_m,
                                 RtSupportedFields::jointAcc_c});
-  robot.updateRobotState(kStatePeriod);
+  robot.updateRobotState(kRtControlPeriod);
 
   auto model = robot.model();
   std::array<double, 6> q{};
@@ -121,7 +120,7 @@ int main() {
 
   printSection("3 Zero-torque loop smoke");
   if (!runTorqueLoop(robot, rt, "zero torque loop", [time = 0.0]() mutable {
-        time += kLoopDt;
+        time += kRtControlDtSec;
         Torque cmd;
         if (time > kZeroTorqueDuration) {
           cmd.setFinished();
@@ -142,7 +141,7 @@ int main() {
   std::array<double, 6> sample_gravity = gravity;
   if (!runTorqueLoop(robot, rt, "model torque loop", [&]() {
         static double time = 0.0;
-        time += kLoopDt;
+        time += kRtControlDtSec;
 
         fillStateSnapshot(robot, q, dq, ddq);
         sample_gravity = model.getTorque(q, dq, ddq, TorqueType::gravity);

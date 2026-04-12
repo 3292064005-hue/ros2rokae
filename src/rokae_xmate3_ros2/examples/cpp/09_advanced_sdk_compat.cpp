@@ -1,6 +1,6 @@
 /**
  * @file 09_advanced_sdk_compat.cpp
- * @brief 官方 SDK 风格 - 兼容层高级接口演示
+ * @brief 官方 SDK 风格 - 高级接口演示
  */
 
 #include <array>
@@ -11,13 +11,13 @@
 #include "rokae/motion_control_rt.h"
 #include "rokae/planner.h"
 #include "rokae/robot.h"
-#include "example_common.hpp"
+#include "print_helper.hpp"
 
 using namespace rokae;
 using namespace example;
 
 int main() {
-  printHeader("示例 9: 高级 SDK 兼容接口", "官方 SDK 风格");
+  printHeader("示例 9: 高级 SDK 接口", "官方 SDK 风格");
 
   error_code ec;
   xMateRobot robot;
@@ -32,11 +32,11 @@ int main() {
   printSection("1 末端力矩与能力边界");
   robot.setAvoidSingularity(true, ec);
   if (ec) {
-    os << "setAvoidSingularity: xMate6 compatibility lane reports unsupported as expected -> "
+    os << "setAvoidSingularity: xMate6 当前实现返回 unsupported（符合机型能力边界） -> "
        << ec.message() << std::endl;
     ec.clear();
   }
-  os << "skip getAvoidSingularity on xMate6 compatibility lane because the official manual scopes it to xMateCR/xMateSR only"
+  os << "skip getAvoidSingularity on xMate6 because the official manual scopes it to xMateCR/xMateSR only"
      << std::endl;
 
   std::array<double, 6> joint_tau{};

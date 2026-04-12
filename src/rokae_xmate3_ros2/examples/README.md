@@ -1,13 +1,15 @@
 # 示例程序说明
 
-> 本目录包含按 xCore SDK C++ 使用手册与当前 xMate6 compatibility lane 整理的示例程序。
+> 本目录包含按 xCore SDK C++ 使用手册整理的 xMate6 示例程序（官方调用风格）。
+
+示例默认提供官方同名头文件：`#include "print_helper.hpp"`。
 
 ## 示例分层
 
-### Public compat examples
-这些示例属于安装态兼容入口，目标是让外部工程参考 `rokae/*.h + xCoreSDK::xCoreSDK_static` 的官方风格调用路径；`xCoreSDK::xCoreSDK_shared` 继续保留为动态兼容入口。
+### Public examples
+这些示例属于安装态公开入口，外部工程可直接参考 `rokae/*.h + xCoreSDK::xCoreSDK_static` 的官方风格调用路径；`xCoreSDK::xCoreSDK_shared` 保留为动态入口。
 
-注意：当前安装态 compatibility lane 仍然依赖与本包一致的 ROS2/Gazebo 目标环境；示例分层强调的是 **public C++ ABI 头文件面** 与 **internal backend 实现面** 的隔离。
+注意：当前安装态仍依赖与本包一致的 ROS2/Gazebo 目标环境；示例分层强调的是 **public C++ ABI 头文件面** 与 **internal backend 实现面** 的隔离。
 
 - `01_basic_connect.cpp`
 - `02_joint_cartesian_read.cpp`
@@ -34,7 +36,7 @@
 - `99_complete_demo.cpp`
 
 ### Internal/backend examples
-这些示例保留给源码树内的 ROS2/backend 验证，不属于安装态 public compat contract：
+这些示例保留给源码树内的 ROS2/backend 验证，不属于安装态公开契约：
 
 - `05_motion_cartesian.cpp`：依赖 `/xmate3/internal/validate_motion` 与 `rclcpp`。
 - `06_io_control.cpp`：IO/control facade 验证，不属于 public xMate6 contract。
@@ -44,10 +46,10 @@
 
 ## 能力边界
 
-- 本轮只收口 **xMate 六轴 compatibility lane**。
+- 本轮只收口 **xMate 六轴**。
 - 拖动示例现在应先切到 **manual** 并确保机器人处于**下电**状态，再调用 `enableDrag()`；这与官方示例前置保持一致。
 - 路径回放示例不再隐式覆盖当前 toolset，上下文不匹配会直接失败。
-- `setAvoidSingularity()/getAvoidSingularity()` 在当前 xMate6 compatibility lane 上显式返回 unsupported；官方手册将该能力限定在 xMateCR/xMateSR 机型。
+- `setAvoidSingularity()/getAvoidSingularity()` 在当前 xMate6 上显式返回 unsupported；官方手册将该能力限定在 xMateCR/xMateSR 机型。
 - IO/寄存器示例仅用于 backend/internal 验证；安装态 public xMate6 lane 对这些入口统一返回 deterministic `not_implemented`。
 - **不做 RL 语义硬化**，因此 RL 示例被降级为 internal/backend example。
 - **不做标定链**，因此 `18_toolset_only.cpp` 只保留 toolset 管理，不再演示 `calibrateFrame()`。
@@ -56,7 +58,7 @@
 
 ## 使用方法
 
-### Public compat examples（推荐）
+### Public examples（推荐）
 ```bash
 cd ~/ros2_ws0
 src/rokae_xmate3_ros2/tools/clean_build_env.sh   colcon build --packages-select rokae_xmate3_ros2
