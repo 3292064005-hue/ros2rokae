@@ -46,7 +46,7 @@ class MotionOptionsState {
   int zone_valid_max_ = 200;
   double speed_scale_ = 1.0;
   bool default_conf_opt_forced_ = false;
-  bool avoid_singularity_enabled_ = true;
+  bool avoid_singularity_enabled_ = false;
   bool soft_limit_enabled_ = false;
   std::array<std::array<double, 2>, 6> soft_limits_ = rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits;
 };

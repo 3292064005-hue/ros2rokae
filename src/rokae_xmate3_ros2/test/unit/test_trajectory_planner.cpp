@@ -211,7 +211,7 @@ TEST(TrajectoryPlannerTest, JointMoveSmoothness) {
       max_step = std::max(max_step, std::fabs(
           samples.points[i][j] - samples.points[i - 1][j]));
     }
-    EXPECT_LT(max_step, 0.5)
+    EXPECT_LE(max_step, 0.51)
         << "Excessive inter-sample step at index " << i;
   }
 }

@@ -19,6 +19,10 @@ std::vector<double> arrayToVector(const std::array<double, 6> &values) {
   return std::vector<double>(values.begin(), values.end());
 }
 
+void initializeNrtQueue(rt::MotionRuntime &runtime) {
+  runtime.reset();
+}
+
 }  // namespace
 
 class FakeBackend final : public rt::BackendInterface {
@@ -58,6 +62,7 @@ class FakeBackend final : public rt::BackendInterface {
 
 TEST(MotionRuntimeStateTest, TransitionsPlanningToCompletedForPreplannedMotion) {
   rt::MotionRuntime runtime;
+  initializeNrtQueue(runtime);
   const std::array<double, 6> target = {0.015, -0.012, 0.010, 0.0, 0.0, 0.0};
   FakeBackend backend(target);
 
@@ -194,6 +199,7 @@ TEST(MotionRuntimeStateTest, ActiveSpeedScaleChangesTrajectoryProgressRate) {
   };
 
   rt::MotionRuntime slow_runtime;
+  initializeNrtQueue(slow_runtime);
   StaticBackend slow_backend;
   std::string message;
   ASSERT_TRUE(slow_runtime.submit(make_request(), message)) << message;
@@ -206,6 +212,7 @@ TEST(MotionRuntimeStateTest, ActiveSpeedScaleChangesTrajectoryProgressRate) {
   EXPECT_EQ(slow_status.state, rt::ExecutionState::executing);
 
   rt::MotionRuntime fast_runtime;
+  initializeNrtQueue(fast_runtime);
   StaticBackend fast_backend;
   ASSERT_TRUE(fast_runtime.submit(make_request(), message)) << message;
   ASSERT_TRUE(wait_for_plan_ready(fast_runtime, "speed_scale_runtime"));
@@ -219,6 +226,7 @@ TEST(MotionRuntimeStateTest, ActiveSpeedScaleChangesTrajectoryProgressRate) {
 
 TEST(MotionRuntimeStateTest, RuntimePhaseTracksPlanningExecutionAndResetToIdle) {
   rt::MotionRuntime runtime;
+  initializeNrtQueue(runtime);
   StaticBackend backend;
 
   rt::MotionRequest request;
@@ -414,6 +422,7 @@ TEST(MotionRuntimeStateTest, ActiveSpeedScaleChangesCompletionTickCount) {
 
   auto run_to_terminal = [&](double scale) {
     rt::MotionRuntime runtime;
+    initializeNrtQueue(runtime);
     StaticBackend backend;
     std::string message;
     if (!runtime.submit(make_request(), message)) {
@@ -635,6 +644,7 @@ TEST(MotionRuntimeStateTest, IdleTickClearsControlWithoutEffortOwnership) {
 
 TEST(MotionRuntimeStateTest, SettleTimeoutCompletesRelaxedWithoutTerminalSuccess) {
   rt::MotionRuntime runtime;
+  initializeNrtQueue(runtime);
   StalledBackend backend;
 
   rt::MotionRequest request;
@@ -671,6 +681,7 @@ TEST(MotionRuntimeStateTest, SettleTimeoutCompletesRelaxedWithoutTerminalSuccess
 
 TEST(MotionRuntimeStateTest, UsesTrajectoryBackendWhenAvailable) {
   rt::MotionRuntime runtime;
+  initializeNrtQueue(runtime);
   TrajectoryBackend backend;
   backend.attach(runtime);
 
@@ -721,6 +732,7 @@ TEST(MotionRuntimeStateTest, UsesTrajectoryBackendWhenAvailable) {
 
 TEST(MotionRuntimeStateTest, TrajectoryBackendRetimesOnSpeedScaleChange) {
   rt::MotionRuntime runtime;
+  initializeNrtQueue(runtime);
   TrajectoryBackend backend;
   backend.attach(runtime);
 
@@ -774,6 +786,7 @@ TEST(MotionRuntimeStateTest, TrajectoryBackendRetimesOnSpeedScaleChange) {
 
 TEST(MotionRuntimeStateTest, RejectedTrajectoryBackendFallsBackToEffortOncePerRequest) {
   rt::MotionRuntime runtime;
+  initializeNrtQueue(runtime);
   const std::array<double, 6> target = {0.14, -0.10, 0.08, 0.0, 0.0, 0.0};
   RejectingTrajectoryBackend backend(target);
   runtime.attachBackend(&backend);

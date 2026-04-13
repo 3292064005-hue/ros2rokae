@@ -18,7 +18,7 @@ def generate_launch_description():
     pkg_share = get_package_share_directory("rokae_xmate3_ros2")
     renderer = os.path.join(pkg_share, "tools", "render_robot_description.py")
     urdf_file = resolve_canonical_model(pkg_share)
-    canonical_artifact = resolve_canonical_artifact(pkg_share)
+    canonical_artifact = resolve_canonical_artifact(pkg_share) or urdf_file
     rviz_config = os.path.join(pkg_share, "config", "xMate3.rviz")
 
     model_arg = DeclareLaunchArgument(

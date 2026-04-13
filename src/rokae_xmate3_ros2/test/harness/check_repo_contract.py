@@ -2,12 +2,19 @@
 import math
 import pathlib
 import re
+import subprocess
 import sys
 
 sys.dont_write_bytecode = True
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FAILURES = []
+
+try:
+    TRACKED_FILES = set(subprocess.check_output(
+        ['git', '-C', str(ROOT), 'ls-files'], text=True).splitlines())
+except Exception:
+    TRACKED_FILES = set()
 
 
 def _parse_spec_array(text: str, name: str) -> list[float]:
@@ -62,7 +69,7 @@ def _parse_xacro_joint_invocations(text: str) -> list[dict[str, str]]:
 for path in ROOT.rglob('*'):
     rel = path.relative_to(ROOT)
     rel_str = str(rel)
-    if '__pycache__' in rel.parts:
+    if '__pycache__' in rel.parts and (not TRACKED_FILES or rel_str in TRACKED_FILES):
         FAILURES.append(f'compiled cache should not be committed: {rel_str}')
     if path.is_file() and (rel.name.startswith('REWRITE_') or rel.name.endswith('REWRITE_SUMMARY.md') or rel.name == 'CHATGPT_REWRITE_SUMMARY.md'):
         FAILURES.append(f'rewrite artifact should not be shipped: {rel_str}')

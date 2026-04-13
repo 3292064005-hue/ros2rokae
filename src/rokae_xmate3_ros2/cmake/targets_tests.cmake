@@ -176,6 +176,7 @@ if(BUILD_TESTING)
   ament_add_gtest(test_contract_surface
     test/unit/test_contract_surface.cpp
   )
+  set_tests_properties(test_contract_surface PROPERTIES LABELS "quick_gate;semantic_gate;contract_gate")
   ament_add_gtest(test_rt_pose_comparison
     test/unit/test_rt_pose_comparison.cpp
   )
@@ -722,7 +723,7 @@ SIMULATION_LAUNCH = r"@CMAKE_CURRENT_SOURCE_DIR@/launch/simulation.launch.py"
 PYTHON_BIN = r"@ROKAE_LAUNCH_TEST_PYTHON@"
 RUNNER = r"@CMAKE_CURRENT_SOURCE_DIR@/test/harness/gazebo_examples_smoke_runner.py"
 EXAMPLE_04 = r"$<TARGET_FILE:example_04_motion_basic>"
-EXAMPLE_08 = r"$<TARGET_FILE:example_08_path_record_replay>"
+EXAMPLE_05 = r"$<TARGET_FILE:example_05_motion_cartesian>"
 EXAMPLE_18 = r"$<TARGET_FILE:example_18_toolset_only>"
 PACKAGE_SHARE = r"@CMAKE_CURRENT_SOURCE_DIR@"
 PACKAGE_LIB_DIR = r"$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
@@ -741,7 +742,7 @@ def generate_test_description():
         }.items(),
     )
     runner = ExecuteProcess(
-        cmd=[PYTHON_BIN, RUNNER, EXAMPLE_04, EXAMPLE_08, EXAMPLE_18],
+        cmd=[PYTHON_BIN, RUNNER, EXAMPLE_04, EXAMPLE_05, EXAMPLE_18],
         output="screen",
     )
     shutdown_handler = RegisterEventHandler(

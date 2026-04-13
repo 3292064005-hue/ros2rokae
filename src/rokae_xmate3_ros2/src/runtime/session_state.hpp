@@ -20,6 +20,8 @@ inline constexpr int kSessionMotionModeMax = kSessionMotionModeRl;
 
 class SessionState {
  public:
+  SessionState();
+
   void connect(const std::string &remote_ip);
   void disconnect();
 

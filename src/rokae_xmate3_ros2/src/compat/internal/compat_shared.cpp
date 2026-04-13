@@ -3,7 +3,8 @@
 namespace rokae::detail {
 
 CompatRobotHandle::CompatRobotHandle()
-    : backend(std::make_shared<rokae::ros2::xMateRobot>()) {}
+    : backend(std::make_shared<rokae::ros2::xMateRobot>()),
+      remote_ip("192.168.0.160") {}
 
 CompatRobotHandle::CompatRobotHandle(const std::string &remote, const std::string &local)
     : backend(std::make_shared<rokae::ros2::xMateRobot>(remote, local)),

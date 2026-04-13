@@ -237,7 +237,7 @@ export ROKAE_SDK_LEGACY_CATALOG_FALLBACK=true
 export ROKAE_SDK_STRICT_RUNTIME_AUTHORITY=false
 ```
 
-说明：Gazebo/runtime facade 仍可在 backend/internal lane 上提供 **simulation-grade** `ppToMain()`；安装态 public xMate6 contract 不再把该 RL 能力视为受支持入口。
+说明：Gazebo/runtime facade 仍可在 backend/internal lane 上提供 **simulation-grade** `ppToMain()`，其语义是重新装载最近一次成功加载的工程路径；安装态 public xMate6 contract 不再把该 RL 能力视为受支持入口。
 
 ### 4. 运行示例
 

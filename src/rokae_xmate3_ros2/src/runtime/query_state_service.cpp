@@ -261,9 +261,9 @@ void QueryFacade::handleGetAvoidSingularity(
     const rokae_xmate3_ros2::srv::GetAvoidSingularity::Request &req,
     rokae_xmate3_ros2::srv::GetAvoidSingularity::Response &res) const {
   (void)req;
-  res.success = true;
-  res.enabled = motion_options_state_.avoidSingularityEnabled();
-  res.message = motion_options_state_.avoidSingularityEnabled() ? "enabled" : "disabled";
+  res.success = false;
+  res.enabled = false;
+  res.message = "avoid singularity is not supported on the xMate6 compatibility lane";
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

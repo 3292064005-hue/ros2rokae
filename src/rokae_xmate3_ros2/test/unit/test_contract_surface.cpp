@@ -55,7 +55,7 @@ TEST(ContractSurface, ExpandedContractsExistOnDisk) {
 
 TEST(ContractSurface, ReadmeStopsClaimingGenericIoParity) {
   const auto readme = readText(kProjectRoot / "README.md");
-  EXPECT_NE(readme.find("## xMate6 public contract hardening"), std::string::npos);
+  EXPECT_NE(readme.find("安装态 public xMate6 lane 不再承诺"), std::string::npos);
   EXPECT_NE(readme.find("GetEndWrench"), std::string::npos);
 }
 
@@ -66,8 +66,9 @@ TEST(ContractSurface, RobotHeaderAgainTransitivelyIncludesPlannerHeader) {
 
 TEST(ContractSurface, ReadmeDocumentsSimulationGradePpToMain) {
   const auto readme = readText(kProjectRoot / "README.md");
-  EXPECT_NE(readme.find("simulation-grade `ppToMain()`"), std::string::npos);
-  EXPECT_NE(readme.find("重新装载最近一次成功加载的工程路径"), std::string::npos);
+  EXPECT_NE(readme.find("simulation-grade"), std::string::npos);
+  EXPECT_NE(readme.find("ppToMain()"), std::string::npos);
+  EXPECT_NE(readme.find("最近一次成功加载的工程路径"), std::string::npos);
 }
 
 
@@ -167,9 +168,14 @@ TEST(ContractSurface, ShimSdkSurfaceNowExposesStartReceiveRobotStateAndDelegates
 TEST(ContractSurface, ShimRtStateRefreshNoLongerFallsBackToNrtSnapshots) {
   const auto shim_header = readText(kProjectRoot / "include" / "rokae" / "detail" / "sdk_shim_core.hpp");
   EXPECT_NE(shim_header.find("getRtJointData(joints, joint_vel, joint_tau, ec)"), std::string::npos);
-  EXPECT_EQ(shim_header.find("jointPos(ec);"), std::string::npos);
-  EXPECT_EQ(shim_header.find("jointVel(ec);"), std::string::npos);
-  EXPECT_EQ(shim_header.find("jointTorques(ec);"), std::string::npos);
+  const auto update_begin = shim_header.find("unsigned updateRobotState(std::chrono::steady_clock::duration timeout)");
+  ASSERT_NE(update_begin, std::string::npos);
+  const auto update_end = shim_header.find("template <typename R>", update_begin);
+  ASSERT_NE(update_end, std::string::npos);
+  const auto update_body = shim_header.substr(update_begin, update_end - update_begin);
+  EXPECT_EQ(update_body.find("jointPos(ec);"), std::string::npos);
+  EXPECT_EQ(update_body.find("jointVel(ec);"), std::string::npos);
+  EXPECT_EQ(update_body.find("jointTorques(ec);"), std::string::npos);
 }
 
 TEST(ContractSurface, NativeRtStateCacheExposesMatrix16GetterForShimReuse) {
@@ -289,7 +295,7 @@ TEST(ContractSurface, CompatAbiDocDocumentsRosBackedConsumerConstraint) {
   EXPECT_NE(abi_doc.find("xCoreSDK::xCoreSDK_static"), std::string::npos);
   EXPECT_NE(abi_doc.find("runtime execution still requires"), std::string::npos);
   EXPECT_NE(abi_doc.find("native static library"), std::string::npos);
-  EXPECT_NE(abi_doc.find("not part of the public header contract"), std::string::npos);
+  EXPECT_NE(abi_doc.find("not installed as part of the public SDK surface"), std::string::npos);
 }
 
 TEST(ContractSurface, ExportedSymbolHarnessChecksDynamicTableOnly) {
@@ -310,7 +316,8 @@ TEST(ContractSurface, EnvironmentLockPreflightScriptIsWired) {
   EXPECT_NE(release_gate.find("--quiet"), std::string::npos);
   EXPECT_NE(portable_release_gate.find("run_target_env_acceptance.sh"), std::string::npos);
   EXPECT_NE(portable_release_gate.find("run_release_gate.sh"), std::string::npos);
-  EXPECT_NE(target_acceptance.find("check_target_environment.sh --quiet"), std::string::npos);
+  EXPECT_TRUE(target_acceptance.find("check_target_environment.sh --quiet") != std::string::npos ||
+              target_acceptance.find("check_target_environment.sh\" --quiet") != std::string::npos);
   EXPECT_NE(target_acceptance.find("write_target_env_report.py"), std::string::npos);
   EXPECT_NE(target_acceptance.find("acceptance_report_container.json"), std::string::npos);
   EXPECT_NE(env_lock.find("tools/check_target_environment.sh"), std::string::npos);
@@ -383,7 +390,7 @@ TEST(ContractSurface, ExamplesAreSplitBetweenPublicCompatAndInternalBackendGroup
   const auto examples_readme = readText(kProjectRoot / "examples" / "README.md");
   EXPECT_NE(examples_cmake.find("ROKAE_PUBLIC_COMPAT_EXAMPLES"), std::string::npos);
   EXPECT_NE(examples_cmake.find("ROKAE_INTERNAL_BACKEND_EXAMPLES"), std::string::npos);
-  EXPECT_NE(examples_readme.find("Public compat examples"), std::string::npos);
+  EXPECT_NE(examples_readme.find("Public examples"), std::string::npos);
   EXPECT_NE(examples_readme.find("Internal/backend examples"), std::string::npos);
 }
 

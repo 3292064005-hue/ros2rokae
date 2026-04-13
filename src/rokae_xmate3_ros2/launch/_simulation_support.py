@@ -82,7 +82,7 @@ def build_robot_description(pkg_share):
         " --backend-mode ",
         LaunchConfiguration("backend_mode"),
         " --canonical-model ",
-        resolve_canonical_artifact(pkg_share),
+        resolve_canonical_model(pkg_share),
         " --allow-noncanonical-model ",
         LaunchConfiguration("allow_noncanonical_model"),
     ])

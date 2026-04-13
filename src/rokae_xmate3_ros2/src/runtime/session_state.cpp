@@ -2,6 +2,10 @@
 
 namespace rokae_xmate3_ros2::runtime {
 
+SessionState::SessionState() {
+  operate_mode_.mode = rokae_xmate3_ros2::msg::OperateMode::UNKNOWN;
+}
+
 void SessionState::connect(const std::string &remote_ip) {
   std::lock_guard<std::mutex> lock(mutex_);
   connected_ = true;

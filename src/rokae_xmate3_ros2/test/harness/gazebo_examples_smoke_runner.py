@@ -139,7 +139,7 @@ def main(argv):
         examples = [
             (argv[1], ["MoveAbsJ", "多段关节路径"]),
             (argv[2], ["MoveJ", "MoveL", "MoveC"]),
-            (argv[3], ["toolset / tool-only", "工具组"]),
+            (argv[3], ["toolset only", "工具组"]),
         ]
         for binary_path, markers in examples:
             if not probe.wait_for_runtime_ready(20.0):

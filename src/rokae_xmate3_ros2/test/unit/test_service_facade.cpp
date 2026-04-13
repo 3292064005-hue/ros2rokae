@@ -90,14 +90,14 @@ TEST(ServiceFacadeTest, ControlFacadeCoordinatesPowerDragAndStopWithRuntime) {
   facade.handleEnableDrag(drag_req, drag_res);
   ASSERT_TRUE(drag_res.success);
   EXPECT_TRUE(session_state.dragMode());
-  EXPECT_EQ(backend.clear_count, 1);
+  EXPECT_EQ(backend.clear_count, 2);
 
   rokae_xmate3_ros2::srv::DisableDrag::Request undrag_req;
   rokae_xmate3_ros2::srv::DisableDrag::Response undrag_res;
   facade.handleDisableDrag(undrag_req, undrag_res);
   ASSERT_TRUE(undrag_res.success);
   EXPECT_FALSE(session_state.dragMode());
-  EXPECT_EQ(backend.clear_count, 2);
+  EXPECT_EQ(backend.clear_count, 3);
 
   rokae_xmate3_ros2::srv::AdjustSpeedOnline::Request speed_req;
   rokae_xmate3_ros2::srv::AdjustSpeedOnline::Response speed_res;
@@ -130,7 +130,7 @@ TEST(ServiceFacadeTest, ControlFacadeCoordinatesPowerDragAndStopWithRuntime) {
   rokae_xmate3_ros2::srv::Stop::Response stop_res;
   facade.handleStop(stop_req, stop_res);
   ASSERT_TRUE(stop_res.success);
-  EXPECT_EQ(backend.clear_count, 3);
+  EXPECT_EQ(backend.clear_count, 4);
   EXPECT_TRUE(motion_runtime.status().state == rt::ExecutionState::stopped ||
               motion_runtime.status().state == rt::ExecutionState::idle);
 
@@ -259,6 +259,7 @@ TEST(ServiceFacadeTest, PathFacadeSubmitsReplayRequestsThroughCoordinator) {
   session_state.connect("127.0.0.1");
   rt::PathFacade facade(
       session_state, program_state, tooling_state, &coordinator, joint_state_fetcher, dt_provider, request_id_generator);
+  coordinator.reset();
 
   program_state.startRecordingPath(tooling_state.toolset(), "test_record");
   program_state.recordPathSample(0.00, {0.0, 0.1, 0.2, 0.3, 0.4, 0.5}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
@@ -342,6 +343,7 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
                          []() { return 0.01; },
                          6);
   rt::ControlFacade control_facade(session_state, motion_options_state, tooling_state, nullptr, nullptr, nullptr);
+  session_state.connect("127.0.0.1");
 
   rokae_xmate3_ros2::srv::SetToolset::Request set_tool_req;
   rokae_xmate3_ros2::srv::SetToolset::Response set_tool_res;
@@ -634,4 +636,32 @@ TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMate6Lane) {
   EXPECT_FALSE(res.success);
   EXPECT_EQ(res.message, "avoid singularity is not supported on the xMate6 compatibility lane");
   EXPECT_FALSE(motion_options_state.avoidSingularityEnabled());
+
+  rt::DataStoreState data_store_state;
+  rt::ProgramState program_state;
+  rt::RuntimeDiagnosticsState diagnostics_state;
+  gazebo::xMate3Kinematics kinematics;
+  rt::QueryFacade query_facade(session_state,
+                               motion_options_state,
+                               tooling_state,
+                               data_store_state,
+                               program_state,
+                               diagnostics_state,
+                               kinematics,
+                               [](std::array<double, 6> &position,
+                                  std::array<double, 6> &velocity,
+                                  std::array<double, 6> &torque) {
+                                 position.fill(0.0);
+                                 velocity.fill(0.0);
+                                 torque.fill(0.0);
+                               },
+                               []() { return rclcpp::Time(0); },
+                               []() { return 0.01; },
+                               6);
+  rokae_xmate3_ros2::srv::GetAvoidSingularity::Request get_req;
+  rokae_xmate3_ros2::srv::GetAvoidSingularity::Response get_res;
+  query_facade.handleGetAvoidSingularity(get_req, get_res);
+  EXPECT_FALSE(get_res.success);
+  EXPECT_FALSE(get_res.enabled);
+  EXPECT_EQ(get_res.message, "avoid singularity is not supported on the xMate6 compatibility lane");
 }

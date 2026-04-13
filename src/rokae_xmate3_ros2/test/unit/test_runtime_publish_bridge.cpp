@@ -13,6 +13,7 @@ namespace rt = rokae_xmate3_ros2::runtime;
 
 TEST(RuntimePublishBridgeTest, PublisherTickBuildsMessagesLogsAndPathSamplesFromRuntimeContext) {
   rt::RuntimeContext context;
+  context.motionRuntime().reset();
   context.sessionState().connect("127.0.0.1");
   context.sessionState().setPowerOn(true);
 

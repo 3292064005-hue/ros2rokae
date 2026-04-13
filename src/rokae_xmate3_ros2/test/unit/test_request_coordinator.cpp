@@ -13,6 +13,9 @@ TEST(MotionRequestCoordinatorTest, SubmitMoveAppendOccupiesRuntimeSlotUntilReset
   rt::MotionOptionsState motion_options_state;
   rt::ToolingState tooling_state;
   rt::SessionState session_state;
+  session_state.connect("127.0.0.1");
+  session_state.setPowerOn(true);
+  session_state.setOperateMode(static_cast<std::uint8_t>(rokae::OperateMode::automatic));
   motion_options_state.setDefaultSpeed(35);
   motion_options_state.setDefaultZone(4);
   motion_options_state.setAvoidSingularity(true);

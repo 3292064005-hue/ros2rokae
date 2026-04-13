@@ -165,9 +165,6 @@ void ControlFacade::handleClearServoAlarm(const rokae_xmate3_ros2::srv::ClearSer
 void ControlFacade::handleEnableCollisionDetection(
     const rokae_xmate3_ros2::srv::EnableCollisionDetection::Request &req,
     rokae_xmate3_ros2::srv::EnableCollisionDetection::Response &res) const {
-  if (!requireConnected(session_state_, res.success, res.message)) {
-    return;
-  }
   constexpr double kMinSensitivity = 0.01;
   constexpr double kMaxSensitivity = 2.0;
   std::array<double, 6> sensitivity{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
@@ -198,6 +195,9 @@ void ControlFacade::handleEnableCollisionDetection(
   } else if (req.fallback < 0.0) {
     res.success = false;
     res.message = "collision fallback distance must be non-negative";
+    return;
+  }
+  if (!requireConnected(session_state_, res.success, res.message)) {
     return;
   }
   session_state_.setCollisionDetectionEnabled(true);
@@ -529,7 +529,7 @@ void ControlFacade::handleEnableDrag(const rokae_xmate3_ros2::srv::EnableDrag::R
     res.message = "drag mode requires robot power off";
     return;
   }
-  if (request_coordinator_ != nullptr && !request_coordinator_->canAcceptRequest()) {
+  if (motion_runtime_ != nullptr && motion_runtime_->queueHasPendingCommands()) {
     res.success = false;
     res.message = "Runtime is busy";
     return;
@@ -551,7 +551,11 @@ void ControlFacade::handleDisableDrag(const rokae_xmate3_ros2::srv::DisableDrag:
     return;
   }
   session_state_.setDragMode(false);
-  clearBackendControl();
+  if (session_state_.powerOn()) {
+    clearBackendControl();
+  } else {
+    syncBrakeState(true);
+  }
   res.success = true;
   res.message = "drag mode disabled";
 }

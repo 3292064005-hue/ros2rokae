@@ -51,6 +51,11 @@ int main() {
     cleanupRobot(robot);
     return 1;
   }
+  if (!waitMotionCycle(robot, ec, std::chrono::seconds(60))) {
+    reportError("waitMotionCycle(record trajectory)", ec);
+    cleanupRobot(robot);
+    return 1;
+  }
   robot.stopRecordPath(ec);
   if (reportError("stopRecordPath", ec)) {
     cleanupRobot(robot);
@@ -60,6 +65,16 @@ int main() {
   printSection("3 保存并查询路径");
   robot.saveRecordPath(path_name, ec);
   if (reportError("saveRecordPath", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  robot.stop(ec);
+  if (reportError("stop before replay", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  robot.moveReset(ec);
+  if (reportError("moveReset before replay", ec)) {
     cleanupRobot(robot);
     return 1;
   }
@@ -79,6 +94,11 @@ int main() {
     return 1;
   }
   os << "path replay finished @ rate=1.0" << std::endl;
+  robot.moveReset(ec);
+  if (reportError("moveReset before replay(rate=1.5)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
 
   robot.replayPath(path_name, 1.5, ec);
   if (reportError("replayPath(rate=1.5)", ec) || !waitMotionCycle(robot, ec, std::chrono::seconds(60))) {
