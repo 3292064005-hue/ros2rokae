@@ -36,6 +36,17 @@ RuntimeView MotionRequestCoordinator::currentView() const {
   return view;
 }
 
+bool MotionRequestCoordinator::readAuthorityJointState(std::array<double, 6> &pos,
+                                                             std::array<double, 6> &vel,
+                                                             std::array<double, 6> &tau) const {
+  RobotSnapshot snapshot{};
+  const bool live_backend = motion_runtime_.readAuthoritativeSnapshot(snapshot);
+  pos = snapshot.joint_position;
+  vel = snapshot.joint_velocity;
+  tau = snapshot.joint_torque;
+  return live_backend;
+}
+
 bool MotionRequestCoordinator::canAcceptRequest() const {
   return currentView().can_accept_request;
 }
@@ -54,7 +65,7 @@ MotionRequestContext MotionRequestCoordinator::buildContext(const std::string &r
   return context;
 }
 
-SubmissionResult MotionRequestCoordinator::submitMoveAppend(
+SubmissionResult MotionRequestCoordinator::queueMoveAppend(
     const rokae_xmate3_ros2::action::MoveAppend::Goal &goal,
     const std::array<double, 6> &joint_position,
     double trajectory_dt,
@@ -64,10 +75,10 @@ SubmissionResult MotionRequestCoordinator::submitMoveAppend(
 
   const auto gate = currentView();
   if (!gate.can_accept_request) {
-    result.message = gate.snapshot_stale_reason.empty() ? std::string{"runtime request gate rejected"} : gate.snapshot_stale_reason;
+    result.message = gate.snapshot_stale_reason.empty() ? std::string{"runtime request gate rejected"}
+                                                        : gate.snapshot_stale_reason;
     return result;
   }
-
 
   MotionRequest request;
   std::string request_error;
@@ -77,14 +88,14 @@ SubmissionResult MotionRequestCoordinator::submitMoveAppend(
     return result;
   }
 
-  std::string submit_message;
-  if (!motion_runtime_.submit(request, submit_message)) {
-    result.message = submit_message.empty() ? "failed to submit runtime request" : submit_message;
+  std::string queue_message;
+  if (!motion_runtime_.queue(request, queue_message)) {
+    result.message = queue_message.empty() ? "failed to queue runtime request" : queue_message;
     return result;
   }
 
   result.success = true;
-  result.message = "submitted";
+  result.message = "queued awaiting moveStart";
   return result;
 }
 
@@ -99,7 +110,8 @@ SubmissionResult MotionRequestCoordinator::submitReplayPath(
 
   const auto gate = currentView();
   if (!gate.can_accept_request) {
-    result.message = gate.snapshot_stale_reason.empty() ? std::string{"runtime request gate rejected"} : gate.snapshot_stale_reason;
+    result.message = gate.snapshot_stale_reason.empty() ? std::string{"runtime request gate rejected"}
+                                                        : gate.snapshot_stale_reason;
     return result;
   }
 
@@ -122,14 +134,58 @@ SubmissionResult MotionRequestCoordinator::submitReplayPath(
   return result;
 }
 
+SubmissionResult MotionRequestCoordinator::startQueuedRequest() {
+  SubmissionResult result;
+  const auto view = currentView();
+  result.request_id = view.status.request_id;
+  if (!view.connected) {
+    result.message = "session_disconnected";
+    return result;
+  }
+  if (view.motion_mode != kSessionMotionModeNrt) {
+    result.message = "motion_mode_not_nrt";
+    return result;
+  }
+  if (!view.power_on) {
+    result.message = "power_off";
+    return result;
+  }
+  if (view.drag_mode) {
+    result.message = "drag_mode_active";
+    return result;
+  }
+
+  std::string start_message;
+  if (!motion_runtime_.commitQueuedRequest(start_message)) {
+    result.message = start_message.empty() ? std::string{"moveStart rejected"} : start_message;
+    return result;
+  }
+
+  result.success = true;
+  result.message = start_message.empty() ? std::string{"move start committed"} : start_message;
+  return result;
+}
+
 RuntimeStatus MotionRequestCoordinator::waitForUpdate(const std::string &request_id,
                                                       std::uint64_t last_revision,
                                                       std::chrono::milliseconds timeout) const {
   return motion_runtime_.waitForUpdate(request_id, last_revision, timeout);
 }
 
-void MotionRequestCoordinator::stop(const std::string &message) {
+void MotionRequestCoordinator::pause(const std::array<double, 6> &joint_position, const std::string &message) {
+  RobotSnapshot snapshot;
+  snapshot.joint_position = joint_position;
+  snapshot.power_on = session_state_.powerOn();
+  snapshot.drag_mode = session_state_.dragMode();
+  motion_runtime_.pause(snapshot, message);
+}
+
+void MotionRequestCoordinator::abort(const std::string &message) {
   motion_runtime_.stop(message);
+}
+
+void MotionRequestCoordinator::stop(const std::string &message) {
+  abort(message);
 }
 
 void MotionRequestCoordinator::reset() {

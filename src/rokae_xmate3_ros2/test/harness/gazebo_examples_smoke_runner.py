@@ -14,7 +14,6 @@ from rokae_xmate3_ros2.srv import (
     Connect,
     SetMotionControlMode,
     SetOperateMode,
-    ValidateMotion,
 )
 
 from common import RuntimeCleanupMixin, RuntimeReadinessMixin
@@ -31,9 +30,6 @@ class JointStateProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin):
         )
         self._set_operate_mode_client = self.create_client(
             SetOperateMode, "/xmate3/cobot/set_operate_mode"
-        )
-        self._validate_motion_client = self.create_client(
-            ValidateMotion, "/xmate3/internal/validate_motion"
         )
         self._init_runtime_cleanup_clients()
         self._init_runtime_readiness_clients()
@@ -67,7 +63,6 @@ class JointStateProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin):
             (self._set_motion_control_mode_client, "/xmate3/cobot/set_motion_control_mode"),
             (self._set_operate_mode_client, "/xmate3/cobot/set_operate_mode"),
             (self._power_client, "/xmate3/cobot/set_power_state"),
-            (self._validate_motion_client, "/xmate3/internal/validate_motion"),
         ]
         deadline = time.monotonic() + timeout_sec
         for client, service_name in service_specs:
@@ -122,7 +117,7 @@ def run_example(binary_path, required_markers):
 def main(argv):
     if len(argv) != 4:
         sys.stderr.write(
-            "Usage: gazebo_examples_smoke_runner.py <example_04> <example_05> <example_18>\n"
+            "Usage: gazebo_examples_smoke_runner.py <example_04> <example_15> <example_18>\n"
         )
         return 2
 
@@ -138,7 +133,7 @@ def main(argv):
 
         examples = [
             (argv[1], ["MoveAbsJ", "多段关节路径"]),
-            (argv[2], ["MoveJ", "MoveL", "MoveC"]),
+            (argv[2], ["moveAppend / moveStart", "queued cmd_id"]),
             (argv[3], ["toolset only", "工具组"]),
         ]
         for binary_path, markers in examples:

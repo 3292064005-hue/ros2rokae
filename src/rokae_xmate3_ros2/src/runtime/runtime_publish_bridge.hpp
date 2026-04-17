@@ -77,10 +77,27 @@ class RuntimePublishBridge {
                                                    std::chrono::milliseconds timeout) const;
   [[nodiscard]] std::shared_ptr<rokae_xmate3_ros2::action::MoveAppend::Feedback>
   buildMoveAppendFeedbackMessage(const FeedbackSnapshot &snapshot) const;
+  /**
+   * @brief Build the public xMate6 MoveAppend result for a successfully queued request.
+   * @param request_id Stable queued request identifier returned to SDK callers.
+   * @param message Queue-acceptance detail. Empty input is normalized to the canonical
+   *        "queued awaiting moveStart" text so install-facing clients observe one contract.
+   * @return Action result marking queue acceptance as success.
+   * @throws None.
+   */
   [[nodiscard]] std::shared_ptr<rokae_xmate3_ros2::action::MoveAppend::Result>
-  buildMoveAppendResult(const std::string &request_id, const RuntimeStatus &status) const;
-  void driveMoveAppendGoal(const std::shared_ptr<MoveAppendGoalHandle> &goal_handle,
-                           const std::string &request_id);
+  buildMoveAppendQueuedResult(const std::string &request_id, const std::string &message) const;
+  /**
+   * @brief Build a terminal MoveAppend result for internal/runtime status projections.
+   * @param request_id Stable queued request identifier.
+   * @param status Terminal runtime status.
+   * @return Action result representing the terminal runtime outcome.
+   * @throws None.
+   * @note Public xMate6 action clients no longer wait for this result before returning from
+   *       MoveAppend; terminal outcomes are consumed through runtime state / events after moveStart().
+   */
+  [[nodiscard]] std::shared_ptr<rokae_xmate3_ros2::action::MoveAppend::Result>
+  buildMoveAppendTerminalResult(const std::string &request_id, const RuntimeStatus &status) const;
 
  private:
   RuntimeContext &runtime_context_;

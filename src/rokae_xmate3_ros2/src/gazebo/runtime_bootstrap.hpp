@@ -20,6 +20,7 @@
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "rokae_xmate3_ros2/srv/prepare_shutdown.hpp"
 #include "runtime/runtime_context.hpp"
+#include "runtime/runtime_host_builder.hpp"
 #include "runtime/runtime_control_bridge.hpp"
 #include "runtime/runtime_publish_bridge.hpp"
 #include "runtime/rt_runtime_profile.hpp"
@@ -37,6 +38,7 @@ class RuntimeBootstrap {
     std::shared_ptr<rclcpp::Context> context;
     rclcpp::Node::SharedPtr node;
     std::shared_ptr<rclcpp::Executor> executor;
+    std::vector<rclcpp::Parameter> parameter_overrides;
     bool attach_to_executor = true;
   };
 
@@ -74,13 +76,13 @@ class RuntimeBootstrap {
     return publish_bridge_.get();
   }
   [[nodiscard]] rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr jointStatePublisher() const {
-    return joint_state_pub_;
+    return host_publishers_.joint_state_pub;
   }
   [[nodiscard]] rclcpp::Publisher<rokae_xmate3_ros2::msg::OperationState>::SharedPtr operationStatePublisher() const {
-    return operation_state_pub_;
+    return host_publishers_.operation_state_pub;
   }
   [[nodiscard]] rclcpp::Publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>::SharedPtr runtimeDiagnosticsPublisher() const {
-    return runtime_diagnostics_pub_;
+    return host_publishers_.runtime_diagnostics_pub;
   }
   [[nodiscard]] double trajectorySampleDt() const { return trajectory_sample_dt_; }
   [[nodiscard]] bool isShuttingDown() const { return shutting_down_.load(); }
@@ -90,24 +92,22 @@ class RuntimeBootstrap {
   void initPublishers();
   void initPublishTimer();
   void attachExecutorNode();
-  void initRuntimeBindings(const rokae_xmate3_ros2::runtime::RuntimeControlBridgeConfig &control_bridge_config);
+  void initRuntimeBindings(const rokae_xmate3_ros2::runtime::RuntimeHostBootstrapConfig &host_bootstrap);
   void initPrepareShutdownService();
   void startExecutorThread();
   void releaseExecutorNode();
 
-  BackendMode backend_mode_ = BackendMode::hybrid;
+  BackendMode backend_mode_ = BackendMode::jtc;
   std::vector<physics::JointPtr> *joints_ = nullptr;
   const std::array<std::pair<double, double>, 6> *original_joint_limits_ = nullptr;
   const std::vector<std::string> *joint_names_ = nullptr;
   JointStateFetcher joint_state_fetcher_;
 
   rclcpp::Node::SharedPtr node_;
-  std::shared_ptr<rclcpp::Executor> executor_;
   std::shared_ptr<rokae_xmate3_ros2::runtime::RosContextOwner::Lease> ros_context_lease_;
   RosIntegrationOptions ros_integration_;
-  bool attached_external_executor_ = false;
-  bool executor_node_added_by_bootstrap_ = false;
-  std::thread executor_thread_;
+  std::unique_ptr<rokae_xmate3_ros2::runtime::RuntimeHostBuilder> host_builder_;
+  rokae_xmate3_ros2::runtime::RuntimeHostExecutorState executor_state_{};
   std::unique_ptr<xMate3Kinematics> kinematics_;
 
   std::unique_ptr<rokae_xmate3_ros2::runtime::RuntimeContext> runtime_context_;
@@ -117,6 +117,8 @@ class RuntimeBootstrap {
   std::unique_ptr<GazeboRuntimeBackend> motion_backend_;
 
   rokae_xmate3_ros2::runtime::RuntimeRtProfileConfig rt_profile_config_{};
+  rokae_xmate3_ros2::runtime::ServiceExposureProfile service_exposure_profile_ =
+      rokae_xmate3_ros2::runtime::defaultServiceExposureProfile();
   std::atomic<uint64_t> next_request_id_{1};
   double trajectory_sample_dt_ = kDefaultTrajectorySampleDt;
   std::atomic<bool> shutting_down_{false};
@@ -125,10 +127,8 @@ class RuntimeBootstrap {
   rokae_xmate3_ros2::runtime::ShutdownCoordinator shutdown_coordinator_;
   rclcpp::Service<rokae_xmate3_ros2::srv::PrepareShutdown>::SharedPtr prepare_shutdown_service_;
 
-  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
+  rokae_xmate3_ros2::runtime::RuntimeHostPublishers host_publishers_{};
   rclcpp::TimerBase::SharedPtr publish_timer_;
-  rclcpp::Publisher<rokae_xmate3_ros2::msg::OperationState>::SharedPtr operation_state_pub_;
-  rclcpp::Publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>::SharedPtr runtime_diagnostics_pub_;
 };
 
 }  // namespace gazebo

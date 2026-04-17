@@ -4,6 +4,8 @@ namespace rokae_xmate3_ros2::runtime {
 
 const char *to_string(RuntimeEventType type) noexcept {
   switch (type) {
+    case RuntimeEventType::request_queued:
+      return "request_queued";
     case RuntimeEventType::planning_requested:
       return "planning_requested";
     case RuntimeEventType::planning_rejected:
@@ -16,6 +18,8 @@ const char *to_string(RuntimeEventType type) noexcept {
       return "progress_updated";
     case RuntimeEventType::trajectory_retimed:
       return "trajectory_retimed";
+    case RuntimeEventType::paused:
+      return "paused";
     case RuntimeEventType::watchdog_triggered:
       return "watchdog_triggered";
     case RuntimeEventType::completed:
@@ -72,13 +76,27 @@ void RuntimeStateMachine::apply(RuntimeStatus &status,
       runtime_phase = RuntimePhase::idle;
       status.runtime_phase = runtime_phase;
       return;
-    case RuntimeEventType::planning_requested:
+    case RuntimeEventType::request_queued:
       status = RuntimeStatus{};
       status.last_event = to_string(event.type);
       status.request_id = event.request_id;
+      status.state = ExecutionState::queued;
+      status.total_segments = event.total_segments;
+      status.completed_segments = event.completed_segments;
+      status.current_segment_index = event.current_segment_index;
+      status.message = event.message.empty() ? std::string{"queued awaiting moveStart"} : event.message;
+      status.execution_backend = ExecutionBackend::none;
+      runtime_phase = RuntimePhase::idle;
+      status.runtime_phase = runtime_phase;
+      return;
+    case RuntimeEventType::planning_requested:
+      status.last_event = to_string(event.type);
+      if (!event.request_id.empty()) {
+        status.request_id = event.request_id;
+      }
       status.state = ExecutionState::planning;
-      status.completed_segments = 0;
-      status.current_segment_index = 0;
+      status.completed_segments = event.completed_segments;
+      status.current_segment_index = event.current_segment_index;
       status.message = event.message.empty() ? std::string{"planning"} : event.message;
       status.total_segments = event.total_segments;
       status.execution_backend = ExecutionBackend::none;
@@ -99,7 +117,7 @@ void RuntimeStateMachine::apply(RuntimeStatus &status,
       status.current_segment_index = event.current_segment_index;
       status.execution_backend = ExecutionBackend::none;
       status.message = event.message.empty() ? std::string{"queued"} : event.message;
-      runtime_phase = RuntimePhase::planning;
+      runtime_phase = RuntimePhase::idle;
       status.runtime_phase = runtime_phase;
       return;
     case RuntimeEventType::execution_started:
@@ -121,7 +139,8 @@ void RuntimeStateMachine::apply(RuntimeStatus &status,
       if (!event.request_id.empty()) {
         status.request_id = event.request_id;
       }
-      if (status.state == ExecutionState::idle || status.state == ExecutionState::queued) {
+      if (status.state == ExecutionState::idle || status.state == ExecutionState::queued ||
+          status.state == ExecutionState::paused) {
         status.state = ExecutionState::executing;
       }
       if (event.execution_backend != ExecutionBackend::none) {
@@ -146,6 +165,24 @@ void RuntimeStateMachine::apply(RuntimeStatus &status,
       if (!event.message.empty()) {
         status.message = event.message;
       }
+      status.runtime_phase = runtime_phase;
+      return;
+    case RuntimeEventType::paused:
+      status.last_event = to_string(event.type);
+      if (!event.request_id.empty()) {
+        status.request_id = event.request_id;
+      }
+      status.state = ExecutionState::paused;
+      if (event.execution_backend != ExecutionBackend::none) {
+        status.execution_backend = event.execution_backend;
+      }
+      if (event.total_segments != 0 || status.total_segments == 0) {
+        status.total_segments = event.total_segments;
+      }
+      status.completed_segments = event.completed_segments;
+      status.current_segment_index = event.current_segment_index;
+      status.message = event.message.empty() ? std::string{"paused"} : event.message;
+      runtime_phase = RuntimePhase::idle;
       status.runtime_phase = runtime_phase;
       return;
     case RuntimeEventType::watchdog_triggered:

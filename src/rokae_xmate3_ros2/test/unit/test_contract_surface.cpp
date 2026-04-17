@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 
@@ -57,6 +58,7 @@ TEST(ContractSurface, ReadmeStopsClaimingGenericIoParity) {
   const auto readme = readText(kProjectRoot / "README.md");
   EXPECT_NE(readme.find("安装态 public xMate6 lane 不再承诺"), std::string::npos);
   EXPECT_NE(readme.find("GetEndWrench"), std::string::npos);
+  EXPECT_NE(readme.find("queue accepted"), std::string::npos);
 }
 
 TEST(ContractSurface, RobotHeaderAgainTransitivelyIncludesPlannerHeader) {
@@ -202,11 +204,53 @@ TEST(ContractSurface, NativeSdkFacadeTracksLastErrorAcrossPublicErrorCodeEntrypo
 }  // namespace
 
 
+
+TEST(ContractSurface, TextSourceFilesDoNotContainEmbeddedNulBytes) {
+  static constexpr const char *kExtensions[] = {
+      ".cpp", ".hpp", ".h", ".ipp", ".py", ".sh", ".cmake", ".md", ".srv", ".msg", ".action", ".launch.py", ".xacro", ".xml", ".yaml", ".yml"};
+
+  for (const auto &entry : std::filesystem::recursive_directory_iterator(kProjectRoot)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    const auto path = entry.path();
+    const auto filename = path.filename().string();
+    if (filename == ".gitkeep") {
+      continue;
+    }
+    const auto extension = path.extension().string();
+    bool should_check = false;
+    for (const auto *candidate : kExtensions) {
+      const std::string suffix(candidate);
+      if (suffix == ".launch.py") {
+        if (filename.size() >= suffix.size() &&
+            filename.compare(filename.size() - suffix.size(), suffix.size(), suffix) == 0) {
+          should_check = true;
+          break;
+        }
+        continue;
+      }
+      if (extension == suffix) {
+        should_check = true;
+        break;
+      }
+    }
+    if (!should_check) {
+      continue;
+    }
+
+    std::ifstream stream(path, std::ios::binary);
+    ASSERT_TRUE(stream.is_open()) << "failed to open " << path;
+    const std::string payload((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(payload.find('\0'), std::string::npos) << "embedded NUL in " << path;
+  }
+}
+
 TEST(ContractSurface, InstallFacingConfigPublishesNativeStaticProvider) {
   const auto config = readText(kProjectRoot / "cmake" / "xCoreSDKConfig.cmake.in");
   EXPECT_NE(config.find("xCoreSDK_STATIC_PROVIDER \"native-static\""), std::string::npos);
   EXPECT_NE(config.find("find_dependency(rclcpp REQUIRED CONFIG)"), std::string::npos);
-  EXPECT_NE(config.find("find_dependency(gazebo_ros REQUIRED CONFIG)"), std::string::npos);
+  EXPECT_EQ(config.find("find_dependency(gazebo_ros REQUIRED CONFIG)"), std::string::npos);
   EXPECT_EQ(config.find("shared-alias"), std::string::npos);
 }
 
@@ -358,11 +402,87 @@ TEST(ContractSurface, ServiceContractManifestCentralizesPrimaryAndCompatibilityS
 
 TEST(ContractSurface, ReadmeDocumentsCanonicalUrdfAndRuntimeSnapshot) {
   const auto readme = readText(kProjectRoot / "README.md");
+  const auto metadata = readText(kProjectRoot / "tools" / "generate_description_metadata.py");
   EXPECT_NE(readme.find("xMate3.description.json"), std::string::npos);
   EXPECT_NE(readme.find("/xmate3/internal/get_runtime_state_snapshot"), std::string::npos);
   EXPECT_NE(readme.find("service_contract_manifest.hpp"), std::string::npos);
+  EXPECT_NE(readme.find("service_exposure_profile"), std::string::npos);
+  EXPECT_NE(metadata.find("source_xacro_package_relative"), std::string::npos);
+  EXPECT_NE(metadata.find("service_exposure_profile"), std::string::npos);
 }
 
+
+TEST(ContractSurface, RuntimeHostBuilderCentralizesDaemonAndGazeboLifecycleAssembly) {
+  const auto host_builder = readText(kProjectRoot / "src" / "runtime" / "runtime_host_builder.hpp");
+  const auto host_builder_impl = readText(kProjectRoot / "src" / "runtime" / "runtime_host_builder.cpp");
+  const auto sim_main = readText(kProjectRoot / "src" / "runtime" / "sim_runtime_main.cpp");
+  const auto gazebo_bootstrap = readText(kProjectRoot / "src" / "gazebo" / "runtime_bootstrap.cpp");
+  const auto readme = readText(kProjectRoot / "README.md");
+  EXPECT_NE(host_builder.find("Single builder for runtime-host bootstrap, assembly and executor lifecycle"), std::string::npos);
+  EXPECT_NE(host_builder_impl.find("createPublishBridge"), std::string::npos);
+  EXPECT_NE(host_builder_impl.find("createRosBindings"), std::string::npos);
+  EXPECT_NE(host_builder_impl.find("createPublishTimer"), std::string::npos);
+  EXPECT_NE(host_builder_impl.find("attachExecutor"), std::string::npos);
+  EXPECT_NE(host_builder_impl.find("releaseExecutor"), std::string::npos);
+  EXPECT_NE(sim_main.find("RuntimeHostBuilder host_builder(node)"), std::string::npos);
+  EXPECT_NE(sim_main.find("createPublishTimer"), std::string::npos);
+  EXPECT_NE(sim_main.find("attachExecutor(nullptr, false"), std::string::npos);
+  EXPECT_NE(gazebo_bootstrap.find("host_builder_ = std::make_unique<runtime::RuntimeHostBuilder>(node_);"), std::string::npos);
+  EXPECT_NE(gazebo_bootstrap.find("host_builder_->createPublishBridge"), std::string::npos);
+  EXPECT_NE(gazebo_bootstrap.find("host_builder_->createRosBindings"), std::string::npos);
+  EXPECT_NE(gazebo_bootstrap.find("host_builder_->createPublishTimer"), std::string::npos);
+  EXPECT_NE(gazebo_bootstrap.find("host_builder_->attachExecutor"), std::string::npos);
+  EXPECT_NE(gazebo_bootstrap.find("host_builder_->releaseExecutor"), std::string::npos);
+  EXPECT_NE(readme.find("runtime_host_builder"), std::string::npos);
+}
+
+TEST(ContractSurface, LaunchProfilesAndCanonicalPublicAliasExist) {
+  const auto support = readText(kProjectRoot / "launch" / "_simulation_support.py");
+  const auto profile = readText(kProjectRoot / "launch" / "_launch_profile.py");
+  const auto canonical = readText(kProjectRoot / "launch" / "xmate6_public.launch.py");
+  EXPECT_NE(profile.find("public_xmate6_jtc"), std::string::npos);
+  EXPECT_NE(profile.find("daemon_hard_rt"), std::string::npos);
+  EXPECT_NE(profile.find("public_xmate6_jtc"), std::string::npos);
+  EXPECT_NE(profile.find("unknown launch_profile"), std::string::npos);
+  EXPECT_NE(support.find("validate_launch_profile_action"), std::string::npos);
+  EXPECT_NE(support.find("build_runtime_host_group"), std::string::npos);
+  EXPECT_NE(support.find("launch_profile"), std::string::npos);
+  EXPECT_NE(support.find("runtime_host"), std::string::npos);
+  EXPECT_NE(canonical.find("simulation.launch.py"), std::string::npos);
+}
+
+TEST(ContractSurface, PackagingSeparatesPublicAndInternalInstallComponents) {
+  const auto packaging = readText(kProjectRoot / "cmake" / "targets_packaging.cmake");
+  const auto root = readText(kProjectRoot / "CMakeLists.txt");
+  EXPECT_NE(packaging.find("COMPONENT public_sdk"), std::string::npos);
+  EXPECT_NE(packaging.find("COMPONENT internal_runtime"), std::string::npos);
+  EXPECT_NE(packaging.find("COMPONENT internal_devel"), std::string::npos);
+  EXPECT_NE(packaging.find("PUBLIC_SDK_ARTIFACT.md"), std::string::npos);
+  EXPECT_NE(packaging.find("xmate6_public.launch.py"), std::string::npos);
+  EXPECT_NE(root.find("--component public_sdk"), std::string::npos);
+}
+
+TEST(ContractSurface, QueryAuthorityAndExtensionContractsAreRuntimeBacked) {
+  const auto profile_service = readText(kProjectRoot / "src" / "runtime" / "query_profile_service.cpp");
+  const auto state_service = readText(kProjectRoot / "src" / "runtime" / "query_state_service.cpp");
+  const auto query_facade = readText(kProjectRoot / "src" / "runtime" / "query_facade.cpp");
+  const auto query_diag = readText(kProjectRoot / "src" / "runtime" / "query_diagnostics_service.cpp");
+  const auto query_kin = readText(kProjectRoot / "src" / "runtime" / "query_kinematics_service.cpp");
+  const auto contract_header = readText(kProjectRoot / "src" / "runtime" / "motion_extension_contract.hpp");
+  const auto runtime_context = readText(kProjectRoot / "src" / "runtime" / "runtime_context.cpp");
+  const auto coordinator_impl = readText(kProjectRoot / "src" / "runtime" / "request_coordinator.cpp");
+  EXPECT_NE(profile_service.find("summarizeMotionExtensionContracts"), std::string::npos);
+  EXPECT_NE(profile_service.find("validateMotionExtensionContracts"), std::string::npos);
+  EXPECT_NE(runtime_context.find("validateMotionExtensionContracts"), std::string::npos);
+  EXPECT_NE(state_service.find("query_authority=runtime_request_coordinator"), std::string::npos);
+  EXPECT_NE(query_facade.find("request_coordinator_.readAuthorityJointState"), std::string::npos);
+  EXPECT_NE(coordinator_impl.find("motion_runtime_.readAuthoritativeSnapshot(snapshot)"), std::string::npos);
+  EXPECT_EQ(query_facade.find("joint_state_fetcher_(pos, vel, tau)"), std::string::npos);
+  EXPECT_EQ(query_diag.find("joint_state_fetcher_(pos, vel, tau_array)"), std::string::npos);
+  EXPECT_EQ(query_diag.find("joint_state_fetcher_(pos, vel, measured)"), std::string::npos);
+  EXPECT_EQ(query_kin.find("joint_state_fetcher_(pos, vel, tau)"), std::string::npos);
+  EXPECT_NE(contract_header.find("MotionExtensionContract"), std::string::npos);
+}
 
 TEST(ContractSurface, LaunchEntryPointsGateDeveloperOnlyNonCanonicalOverrides) {
   const auto sim_alias = readText(kProjectRoot / "launch" / "xmate3_simulation.launch.py");
@@ -374,8 +494,11 @@ TEST(ContractSurface, LaunchEntryPointsGateDeveloperOnlyNonCanonicalOverrides) {
   EXPECT_NE(gazebo_alias.find("allow_noncanonical_model"), std::string::npos);
   EXPECT_NE(rviz_only.find("allow_noncanonical_model"), std::string::npos);
   EXPECT_NE(render_helper.find("non-canonical model override is disabled by default"), std::string::npos);
+  EXPECT_NE(render_helper.find("canonical metadata"), std::string::npos);
+  EXPECT_NE(render_helper.find("source_xacro_package_relative"), std::string::npos);
   EXPECT_NE(smoke.find("allow-noncanonical-model false"), std::string::npos);
   EXPECT_NE(smoke.find("allow-noncanonical-model true"), std::string::npos);
+  EXPECT_NE(smoke.find("canonical install-tree re-render does not match xacro for hybrid/internal_full"), std::string::npos);
 }
 
 
@@ -392,7 +515,10 @@ TEST(ContractSurface, ExamplesAreSplitBetweenPublicCompatAndInternalBackendGroup
   EXPECT_NE(examples_cmake.find("ROKAE_INTERNAL_BACKEND_EXAMPLES"), std::string::npos);
   EXPECT_NE(examples_readme.find("Public examples"), std::string::npos);
   EXPECT_NE(examples_readme.find("Internal/backend examples"), std::string::npos);
+  EXPECT_EQ(examples_cmake.find("  20_rt_joint_position"), std::string::npos);
+  EXPECT_NE(examples_cmake.find("set(ROKAE_INTERNAL_BACKEND_EXAMPLES"), std::string::npos);
 }
+
 
 TEST(ContractSurface, PackagingOnlyInstallsPublicExamplesByDefault) {
   const auto root = readText(kProjectRoot / "CMakeLists.txt");
@@ -405,11 +531,20 @@ TEST(ContractSurface, PackagingOnlyInstallsPublicExamplesByDefault) {
 TEST(ContractSurface, InstallFacingPackagingSeparatesPrivateBackendExportSet) {
   const auto packaging = readText(kProjectRoot / "cmake" / "targets_packaging.cmake");
   const auto config = readText(kProjectRoot / "cmake" / "xCoreSDKConfig.cmake.in");
+  const auto compat = readText(kProjectRoot / "cmake" / "targets_sdk_compat.cmake");
+  const auto runtime = readText(kProjectRoot / "cmake" / "targets_runtime.cmake");
+  const auto sdk_backend = readText(kProjectRoot / "cmake" / "targets_sdk_backend.cmake");
   EXPECT_NE(packaging.find("EXPORT xCoreSDKTargets"), std::string::npos);
   EXPECT_NE(packaging.find("EXPORT xCoreSDKPrivateTargets"), std::string::npos);
+  EXPECT_EQ(config.find("find_dependency(gazebo_ros REQUIRED CONFIG)"), std::string::npos);
+  EXPECT_EQ(compat.find("gazebo_ros"), std::string::npos);
+  EXPECT_EQ(compat.find("${GAZEBO_LIBRARIES}"), std::string::npos);
+  EXPECT_EQ(runtime.find("gazebo_ros"), std::string::npos);
+  EXPECT_EQ(runtime.find("${GAZEBO_LIBRARIES}"), std::string::npos);
+  EXPECT_EQ(sdk_backend.find("gazebo_ros"), std::string::npos);
+  EXPECT_EQ(sdk_backend.find("${GAZEBO_LIBRARIES}"), std::string::npos);
   EXPECT_NE(config.find("xCoreSDKPrivateTargets.cmake"), std::string::npos);
 }
-
 
 TEST(ContractSurface, InstallFacingCompatTargetsUseBuildAndInstallInterfaceIncludes) {
   const auto compat = readText(kProjectRoot / "cmake" / "targets_sdk_compat.cmake");

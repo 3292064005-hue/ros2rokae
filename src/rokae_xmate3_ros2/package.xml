@@ -3,7 +3,7 @@
 <package format="3">
   <name>rokae_xmate3_ros2</name>
   <version>2.1.0</version>
-  <description>ROKAE xMate3 ROS2 Simulation SDK - xCore SDK C++ API for Gazebo Simulation</description>
+  <description>ROKAE xMate6 public SDK compatibility lane (package name retained as legacy rokae_xmate3_ros2 alias). Install-facing public_sdk artifacts are separated from internal_runtime / internal_devel assets; canonical launch/profile selection and query authority are explicitly gated.</description>
   <maintainer email="support@rokae.com">ROKAE Support</maintainer>
   <license>Apache-2.0</license>
 
@@ -11,12 +11,9 @@
   <url type="website">https://www.rokae.com</url>
   <url type="bugtracker">https://github.com/rokae</url>
 
-  <!-- 运行依赖（覆盖build+exec，无重复） -->
-  <depend>urdf</depend>
-  <depend>xacro</depend>
-  <depend>robot_state_publisher</depend>
-  <depend>joint_state_publisher_gui</depend>
-  <depend>rviz2</depend>
+  <!-- Source-tree package dependencies. The public_sdk assembled artifact still exports a slimmer
+       xMate6 compatibility lane, but the source package honestly declares the Gazebo / ros2_control /
+       launch integration prerequisites that CMake and the canonical launch flows require. -->
   <depend>launch</depend>
   <depend>launch_ros</depend>
   <depend>ament_index_cpp</depend>
@@ -29,28 +26,26 @@
   <depend>trajectory_msgs</depend>
   <depend>std_srvs</depend>
   <depend>builtin_interfaces</depend>
-  <depend>gazebo</depend>
-  <depend>gazebo_ros</depend>
-  <depend>orocos_kdl_vendor</depend>
-  <depend>kdl_parser</depend>
   <depend>tf2_ros</depend>
+  <depend>kdl_parser</depend>
   <depend>eigen</depend>
-  <exec_depend>python3-numpy</exec_depend>
-  <exec_depend>python3-lxml</exec_depend>
+  <depend>xacro</depend>
+  <depend>robot_state_publisher</depend>
+  <depend>rviz2</depend>
+  <depend>gazebo_ros</depend>
+  <depend>controller_manager</depend>
+  <depend>joint_trajectory_controller</depend>
+  <depend>gazebo_ros2_control</depend>
   <depend>rosidl_default_runtime</depend>
   <depend>rosidl_runtime_cpp</depend>
   <depend>unique_identifier_msgs</depend>
   <depend>action_msgs</depend>
   <exec_depend>ament_index_python</exec_depend>
-  <!-- ros2_control 相关依赖 -->
-  <depend>controller_manager</depend>
-  <depend>controller_interface</depend>
-  <depend>hardware_interface</depend>
-  <depend>joint_state_broadcaster</depend>
-  <depend>joint_trajectory_controller</depend>
-  <depend>effort_controllers</depend>
-  <depend>forward_command_controller</depend>
-  <depend>gazebo_ros2_control</depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-lxml</exec_depend>
+
+  <!-- The install-facing public_sdk lane still assembles a slimmer consumer artifact; the extra
+       runtime-host dependencies above describe only the source-tree package and canonical launch flows. -->
   <!-- 构建工具依赖 -->
   <buildtool_depend>ament_cmake</buildtool_depend>
   <build_depend>pkg-config</build_depend>

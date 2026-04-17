@@ -36,6 +36,7 @@ enum class ExecutionState {
   planning,
   queued,
   executing,
+  paused,
   settling,
   completed,
   completed_relaxed,
@@ -70,6 +71,9 @@ struct MotionCommandSpec {
 
 struct MotionRequest {
   std::string request_id;
+  std::uint64_t request_token = 0;
+  std::size_t command_index_offset = 0;
+  std::size_t original_total_segments = 0;
   std::vector<double> start_joints;
   std::vector<MotionCommandSpec> commands;
   double default_speed = 50.0;
@@ -296,6 +300,8 @@ inline const char *to_string(ExecutionState state) noexcept {
       return "queued";
     case ExecutionState::executing:
       return "executing";
+    case ExecutionState::paused:
+      return "paused";
     case ExecutionState::settling:
       return "settling";
     case ExecutionState::completed:

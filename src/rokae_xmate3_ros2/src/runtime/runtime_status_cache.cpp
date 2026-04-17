@@ -66,7 +66,7 @@ RuntimeView MotionRuntime::buildViewLocked(const std::string *request_id) const 
   }
 
   const bool request_slot_busy =
-      pending_request_.has_value() || queued_plan_.has_value() || executor_.hasActivePlan() ||
+      staged_request_.has_value() || pending_request_.has_value() || queued_plan_.has_value() || executor_.hasActivePlan() ||
       using_backend_trajectory_ || active_trajectory_plan_.has_value();
 
   view.status = effective_status;
@@ -119,6 +119,16 @@ RuntimeStatus MotionRuntime::status(const std::string &request_id) const {
   RuntimeStatus status{request_id, ExecutionState::idle, "unknown request", 0, 0, 0, false, 0};
   status.runtime_phase = runtime_phase_;
   return status;
+}
+
+bool MotionRuntime::readAuthoritativeSnapshot(RobotSnapshot &snapshot) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (backend_ != nullptr) {
+    snapshot = backend_->readSnapshot();
+    return true;
+  }
+  snapshot = buildSyntheticPauseSnapshotLocked();
+  return false;
 }
 
 RuntimeView MotionRuntime::view() const {

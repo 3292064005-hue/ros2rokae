@@ -31,15 +31,15 @@ TEST(MotionRequestCoordinatorTest, SubmitMoveAppendOccupiesRuntimeSlotUntilReset
   goal.absj_cmds.front().zone = 2;
 
   const std::array<double, 6> current = {0.0, 0.0, 1.5, 0.0, 1.2, 3.14};
-  const auto submission = coordinator.submitMoveAppend(goal, current, 0.01, "req_move_append");
+  const auto submission = coordinator.queueMoveAppend(goal, current, 0.01, "req_move_append");
   ASSERT_TRUE(submission.success) << submission.message;
+  EXPECT_EQ(submission.message, "queued awaiting moveStart");
   EXPECT_FALSE(coordinator.canAcceptRequest());
 
   const auto view = coordinator.currentView();
   EXPECT_TRUE(view.has_request);
   EXPECT_EQ(view.status.request_id, "req_move_append");
-  EXPECT_TRUE(view.status.state == rt::ExecutionState::planning ||
-              view.status.state == rt::ExecutionState::queued);
+  EXPECT_EQ(view.status.state, rt::ExecutionState::queued);
 
   const auto feedback = rt::buildMoveAppendFeedback(view.status, 0, "");
   EXPECT_TRUE(feedback.should_publish);

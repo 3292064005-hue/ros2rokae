@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <future>
 #include <memory>
@@ -24,6 +25,7 @@
 #include "runtime/ros_bindings.hpp"
 #include "runtime/runtime_context.hpp"
 #include "runtime/runtime_control_bridge.hpp"
+#include "runtime/runtime_host_builder.hpp"
 #include "runtime/runtime_publish_bridge.hpp"
 #include "runtime/rt_runtime_profile.hpp"
 #include "runtime/rt_scheduler.hpp"
@@ -31,6 +33,17 @@
 namespace rokae_xmate3_ros2::runtime {
 
 namespace {
+
+std::string getenvOrDefault(const char *name, const std::string &fallback) {
+  if (name == nullptr) {
+    return fallback;
+  }
+  const char *value = std::getenv(name);
+  if (value == nullptr || *value == '\0') {
+    return fallback;
+  }
+  return std::string(value);
+}
 
 }  // namespace
 
@@ -44,40 +57,37 @@ int run_sim_runtime_main() {
   HeadlessMockRuntimeBackend backend;
   runtime_context.attachBackend(&backend);
 
+  const auto requested_service_exposure_profile =
+      node->declare_parameter<std::string>("service_exposure_profile", getenvOrDefault("ROKAE_SERVICE_EXPOSURE_PROFILE", to_string(defaultServiceExposureProfile())));
+  const auto service_exposure_profile = parseServiceExposureProfile(requested_service_exposure_profile);
   const auto requested_runtime_profile = node->declare_parameter<std::string>("runtime_profile", "nrt_strict_parity");
-  const auto runtime_profile = resolveRuntimeRtProfile(requested_runtime_profile, RuntimeHostKind::daemonized_runtime);
-  if (!runtime_profile.supported) {
-    RCLCPP_ERROR(node->get_logger(), "requested runtime_profile=%s is not supported: %s", requested_runtime_profile.c_str(), runtime_profile.startup_error.c_str());
+  RuntimeHostBuilder host_builder(node);
+  RuntimeHostBootstrapConfig host_bootstrap;
+  try {
+    host_bootstrap = host_builder.resolveBootstrap(
+        requested_runtime_profile,
+        RuntimeHostKind::daemonized_runtime,
+        "daemonized_headless_mock",
+        {
+            "backend.headless_mock",
+            "runtime.daemonized",
+            "rt.experimental",
+            "rt.best_effort_non_controller_grade",
+            "rt.transport.shm_ring",
+            "rt.transport.ros_topic",
+            "profile.nrt_strict_parity",
+            "profile.rt_sim_experimental_best_effort",
+            "profile.rt_hardened",
+            "profile.hard_1khz",
+        });
+  } catch (const std::exception &ex) {
+    RCLCPP_ERROR(node->get_logger(), "requested runtime_profile=%s is not supported: %s", requested_runtime_profile.c_str(), ex.what());
     return 2;
   }
+  const auto &runtime_profile = host_bootstrap.rt_profile;
 
-  runtime_context.diagnosticsState().configure(
-      "daemonized_headless_mock",
-      {
-          "backend.headless_mock",
-          "runtime.daemonized",
-          "rt.experimental",
-          "rt.best_effort_non_controller_grade",
-          "rt.transport.shm_ring",
-          "rt.transport.ros_topic",
-          "profile.nrt_strict_parity",
-          "profile.rt_sim_experimental_best_effort",
-          "profile.rt_hardened",
-          "profile.hard_1khz",
-      },
-      runtime_profile.effective_profile);
-  runtime_context.diagnosticsState().setRuntimeOptionSummary(summarizeRuntimeRtProfile(runtime_profile));
-  runtime_context.sessionState().setSimulationMode(true);
+  host_builder.configureContext(runtime_context, host_bootstrap, true);
 
-  RuntimeControlBridgeConfig control_bridge_config;
-  control_bridge_config.authoritative_servo_clock = runtime_profile.authoritative_servo_clock;
-  control_bridge_config.authoritative_servo_period_sec = runtime_profile.servo_period_sec;
-  control_bridge_config.allow_topic_rt_transport = runtime_profile.allow_topic_rt_ingress;
-  control_bridge_config.allow_legacy_rt_custom_data = runtime_profile.allow_legacy_rt_custom_data;
-  control_bridge_config.require_shm_rt_transport = runtime_profile.require_shm_transport;
-  control_bridge_config.fail_on_rt_deadline_miss = runtime_profile.fail_on_rt_deadline_miss;
-  RuntimeControlBridge control_bridge(runtime_context, control_bridge_config);
-  RuntimePublishBridge publish_bridge(runtime_context);
   gazebo::xMate3Kinematics kinematics;
 
   auto joint_state_fetcher = [&backend](std::array<double, 6> &position,
@@ -96,21 +106,19 @@ int run_sim_runtime_main() {
     return prefix + std::to_string(request_seed->fetch_add(1));
   };
 
-  RosBindings bindings(node,
-                       runtime_context,
-                       &publish_bridge,
-                       kinematics,
-                       joint_state_fetcher,
-                       time_provider,
-                       trajectory_dt_provider,
-                       request_id_generator,
-                       RosBindingsRtIngressOptions{runtime_profile.allow_topic_rt_ingress});
-
-  auto joint_state_pub = node->create_publisher<sensor_msgs::msg::JointState>("/xmate3/joint_states", 10);
-  auto operation_state_pub =
-      node->create_publisher<rokae_xmate3_ros2::msg::OperationState>("/xmate3/cobot/operation_state", 10);
-  auto runtime_diagnostics_pub =
-      node->create_publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>("/xmate3/internal/runtime_status", 10);
+  auto publish_bridge = host_builder.createPublishBridge(runtime_context);
+  auto bindings = host_builder.createRosBindings(
+      runtime_context,
+      publish_bridge.get(),
+      kinematics,
+      joint_state_fetcher,
+      time_provider,
+      trajectory_dt_provider,
+      request_id_generator,
+      service_exposure_profile,
+      runtime_profile);
+  auto control_bridge = host_builder.createControlBridge(runtime_context, host_bootstrap);
+  auto publishers = host_builder.createPublishers();
 
   const bool rt_scheduler_enable = node->declare_parameter<bool>("rt_scheduler.enable", true);
   const std::string rt_scheduler_policy = node->declare_parameter<std::string>("rt_scheduler.policy", "fifo");
@@ -159,8 +167,8 @@ int run_sim_runtime_main() {
         last_tick = now;
         backend.step(dt, runtime_context.sessionState().powerOn());
         const auto snapshot = backend.readSnapshot();
-        const auto tick_result = control_bridge.tick(backend, snapshot, dt);
-        publish_bridge.emitRuntimeStatus(tick_result.status, node->now(), node->get_logger());
+        const auto tick_result = control_bridge->tick(backend, snapshot, dt);
+        publish_bridge->emitRuntimeStatus(tick_result.status, node->now(), node->get_logger());
         std::this_thread::sleep_until(next_tick);
         next_tick += 1ms;
       }
@@ -187,48 +195,25 @@ int run_sim_runtime_main() {
     return 2;
   }
 
-  const auto publish_period_ms = std::max<int>(1, static_cast<int>(std::lround(std::min({runtime_profile.publish_rates.joint_state_period_sec, runtime_profile.publish_rates.operation_state_period_sec, runtime_profile.publish_rates.diagnostics_period_sec}) * 1000.0)));
-  auto timer = node->create_wall_timer(std::chrono::milliseconds(publish_period_ms), [&]() {
-    const auto snapshot = backend.readSnapshot();
-    PublisherTickInput tick_input;
-    tick_input.stamp = node->now();
-    tick_input.frame_id = "base_link";
-    tick_input.joint_names = &joint_names;
-    tick_input.position = snapshot.joint_position;
-    tick_input.velocity = snapshot.joint_velocity;
-    tick_input.torque = snapshot.joint_torque;
-    tick_input.min_publish_period_sec = 0.0;
-    tick_input.joint_state_publish_period_sec = runtime_profile.publish_rates.joint_state_period_sec;
-    tick_input.operation_state_publish_period_sec = runtime_profile.publish_rates.operation_state_period_sec;
-    tick_input.diagnostics_publish_period_sec = runtime_profile.publish_rates.diagnostics_period_sec;
-
-    const auto publish_tick = publish_bridge.buildPublisherTick(tick_input);
-    if (publish_tick.publish_joint_state) {
-      joint_state_pub->publish(publish_tick.joint_state);
-    }
-    if (publish_tick.publish_operation_state) {
-      operation_state_pub->publish(publish_tick.operation_state);
-    }
-    if (publish_tick.publish_runtime_diagnostics) {
-      runtime_diagnostics_pub->publish(publish_bridge.buildRuntimeDiagnosticsMessage());
-    }
-  });
+  auto timer = host_builder.createPublishTimer(
+      *publish_bridge,
+      publishers,
+      &joint_names,
+      joint_state_fetcher,
+      runtime_profile,
+      [&running]() { return running.load(); });
   (void)timer;
 
   RCLCPP_INFO(
       node->get_logger(),
-      "rokae_sim_runtime is running (authoritative runtime daemon). requested_profile=%s effective_profile=%s profile_summary=%s",
+      "rokae_sim_runtime is running (authoritative runtime daemon). requested_profile=%s effective_profile=%s service_exposure_profile=%s profile_summary=%s",
       requested_runtime_profile.c_str(),
       runtime_profile.effective_profile.c_str(),
+      to_string(service_exposure_profile),
       summarizeRuntimeRtProfile(runtime_profile).c_str());
-  std::unique_ptr<rclcpp::Executor> executor;
-  if (runtime_profile.executor_threads <= 1) {
-    executor = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
-  } else {
-    executor = std::make_unique<rclcpp::executors::MultiThreadedExecutor>(rclcpp::ExecutorOptions(), runtime_profile.executor_threads);
-  }
-  executor->add_node(node);
-  executor->spin();
+  auto executor_state = host_builder.attachExecutor(nullptr, false, runtime_profile.executor_threads);
+  executor_state.executor->spin();
+  host_builder.releaseExecutor(executor_state);
   running.store(false);
   if (control_thread.joinable()) {
     control_thread.join();

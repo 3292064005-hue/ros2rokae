@@ -105,7 +105,7 @@ TEST(RuntimePublishBridgeTest, BuildsMoveAppendFeedbackFromRuntimeStatus) {
   EXPECT_EQ(feedback.current_cmd_index, 2);
 }
 
-TEST(RuntimePublishBridgeTest, BuildsMoveAppendResultFromTerminalStatus) {
+TEST(RuntimePublishBridgeTest, BuildsMoveAppendQueueAcceptedAndTerminalResults) {
   rt::RuntimeContext context;
   rt::RuntimePublishBridge bridge(context);
 
@@ -113,7 +113,12 @@ TEST(RuntimePublishBridgeTest, BuildsMoveAppendResultFromTerminalStatus) {
   completed.state = rt::ExecutionState::completed;
   completed.terminal_success = true;
   completed.message = "done";
-  const auto ok_result = bridge.buildMoveAppendResult("move_ok", completed);
+  const auto queued_result = bridge.buildMoveAppendQueuedResult("move_queue", "queued awaiting moveStart");
+  EXPECT_TRUE(queued_result->success);
+  EXPECT_EQ(queued_result->cmd_id, "move_queue");
+  EXPECT_EQ(queued_result->message, "queued awaiting moveStart");
+
+  const auto ok_result = bridge.buildMoveAppendTerminalResult("move_ok", completed);
   EXPECT_TRUE(ok_result->success);
   EXPECT_EQ(ok_result->cmd_id, "move_ok");
   EXPECT_EQ(ok_result->message, "done");
@@ -122,7 +127,7 @@ TEST(RuntimePublishBridgeTest, BuildsMoveAppendResultFromTerminalStatus) {
   relaxed.state = rt::ExecutionState::completed_relaxed;
   relaxed.terminal_success = false;
   relaxed.message = "completed_with_relaxed_settle";
-  const auto relaxed_result = bridge.buildMoveAppendResult("move_relaxed", relaxed);
+  const auto relaxed_result = bridge.buildMoveAppendTerminalResult("move_relaxed", relaxed);
   EXPECT_FALSE(relaxed_result->success);
   EXPECT_EQ(relaxed_result->cmd_id, "move_relaxed");
   EXPECT_EQ(relaxed_result->message, "completed_with_relaxed_settle");
@@ -131,7 +136,7 @@ TEST(RuntimePublishBridgeTest, BuildsMoveAppendResultFromTerminalStatus) {
   failed.state = rt::ExecutionState::failed;
   failed.terminal_success = false;
   failed.message = "planning failed";
-  const auto fail_result = bridge.buildMoveAppendResult("move_fail", failed);
+  const auto fail_result = bridge.buildMoveAppendTerminalResult("move_fail", failed);
   EXPECT_FALSE(fail_result->success);
   EXPECT_EQ(fail_result->cmd_id, "move_fail");
   EXPECT_EQ(fail_result->message, "planning failed");

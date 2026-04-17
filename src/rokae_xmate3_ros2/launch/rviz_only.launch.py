@@ -11,7 +11,11 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _simulation_support import resolve_canonical_artifact, resolve_canonical_model
+from _simulation_support import (
+    resolve_canonical_artifact, resolve_canonical_metadata, resolve_canonical_model,
+    resolved_backend_mode_expression, resolved_enable_ros2_control_expression,
+    resolved_enable_xcore_plugin_expression, resolved_service_profile_expression
+)
 
 
 def generate_launch_description():
@@ -19,6 +23,7 @@ def generate_launch_description():
     renderer = os.path.join(pkg_share, "tools", "render_robot_description.py")
     urdf_file = resolve_canonical_model(pkg_share)
     canonical_artifact = resolve_canonical_artifact(pkg_share) or urdf_file
+    canonical_metadata = resolve_canonical_metadata(pkg_share)
     rviz_config = os.path.join(pkg_share, "config", "xMate3.rviz")
 
     model_arg = DeclareLaunchArgument(
@@ -41,6 +46,31 @@ def generate_launch_description():
         default_value="false",
         description="是否允许显式使用非 canonical 模型输入（开发者兼容旁路）",
     )
+    launch_profile_arg = DeclareLaunchArgument(
+        "launch_profile",
+        default_value="public_xmate6_jtc",
+        description="能力矩阵 profile；空缺的后端/暴露参数将跟随该 profile",
+    )
+    backend_mode_arg = DeclareLaunchArgument(
+        "backend_mode",
+        default_value="",
+        description="robot_description 生成使用的后端模式",
+    )
+    service_profile_arg = DeclareLaunchArgument(
+        "service_exposure_profile",
+        default_value="",
+        description="robot_description 生成使用的服务暴露 profile",
+    )
+    enable_xcore_plugin_arg = DeclareLaunchArgument(
+        "enable_xcore_plugin",
+        default_value="",
+        description="robot_description 生成时是否启用 xCore Gazebo plugin；留空时跟随 launch_profile",
+    )
+    enable_ros2_control_arg = DeclareLaunchArgument(
+        "enable_ros2_control",
+        default_value="",
+        description="robot_description 生成时是否启用 ros2_control；留空时跟随 launch_profile",
+    )
 
     robot_description_content = Command([
         sys.executable,
@@ -51,11 +81,18 @@ def generate_launch_description():
         " --package-share ",
         pkg_share,
         " --mesh-root model://rokae_xmate3_ros2/meshes/",
-        " --enable-ros2-control true",
-        " --enable-xcore-plugin true",
-        " --backend-mode hybrid",
+        " --enable-ros2-control ",
+        resolved_enable_ros2_control_expression(),
+        " --enable-xcore-plugin ",
+        resolved_enable_xcore_plugin_expression(),
+        " --backend-mode ",
+        resolved_backend_mode_expression(),
+        " --service-exposure-profile ",
+        resolved_service_profile_expression(),
         " --canonical-model ",
         canonical_artifact,
+        " --canonical-metadata ",
+        canonical_metadata,
         " --allow-noncanonical-model ",
         LaunchConfiguration("allow_noncanonical_model"),
     ])
@@ -90,6 +127,11 @@ def generate_launch_description():
         rviz_arg,
         sim_time_arg,
         allow_noncanonical_arg,
+        launch_profile_arg,
+        backend_mode_arg,
+        service_profile_arg,
+        enable_xcore_plugin_arg,
+        enable_ros2_control_arg,
         rsp,
         rviz,
     ])

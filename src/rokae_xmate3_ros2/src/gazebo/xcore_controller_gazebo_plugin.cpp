@@ -24,12 +24,17 @@ void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
 
     model_ = model;
     sdf_ = sdf;
-    std::string backend_mode_value = "hybrid";
+    std::string backend_mode_value = "jtc";
     if (sdf_ && sdf_->HasElement("backend_mode")) {
       backend_mode_value = sdf_->Get<std::string>("backend_mode");
     }
     const auto backend_mode = parseBackendMode(backend_mode_value);
-    gzmsg << "[xCore Controller] backend_mode=" << toString(backend_mode) << std::endl;
+    std::string service_exposure_profile_value = "public_xmate6_only";
+    if (sdf_ && sdf_->HasElement("service_exposure_profile")) {
+      service_exposure_profile_value = sdf_->Get<std::string>("service_exposure_profile");
+    }
+    gzmsg << "[xCore Controller] backend_mode=" << toString(backend_mode)
+          << " service_exposure_profile=" << service_exposure_profile_value << std::endl;
 
     joint_names_ = {"xmate_joint_1", "xmate_joint_2", "xmate_joint_3",
                     "xmate_joint_4", "xmate_joint_5", "xmate_joint_6"};
@@ -60,11 +65,14 @@ void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
       joint_state_cache_.read(position, velocity, torque);
     };
 
+    RuntimeBootstrap::RosIntegrationOptions ros_integration;
+    ros_integration.parameter_overrides.emplace_back("service_exposure_profile", service_exposure_profile_value);
     bootstrap_ = std::make_unique<RuntimeBootstrap>(backend_mode,
                                                     &joints_,
                                                     &original_joint_limits_,
                                                     &joint_names_,
-                                                    joint_state_fetcher);
+                                                    joint_state_fetcher,
+                                                    std::move(ros_integration));
     bootstrap_->start();
 
     if (backend_mode == BackendMode::jtc) {

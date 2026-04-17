@@ -1,4 +1,10 @@
 # 1. 内部 runtime 私有分层（不导出私有头）
+if(ROKAE_PUBLIC_XMATE6_ONLY)
+  set(ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE "public_xmate6_only")
+else()
+  set(ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE "internal_full")
+endif()
+
 add_library(${PROJECT_NAME}_runtime_motion_core OBJECT
   src/gazebo/kinematics_backend.cpp
   src/gazebo/kinematics.cpp
@@ -42,7 +48,9 @@ add_library(${PROJECT_NAME}_runtime_state OBJECT
   src/runtime/runtime_profile_service.cpp
   src/runtime/rt_runtime_profile.cpp
   src/runtime/rt_scheduler.cpp
+  src/runtime/runtime_host_builder.cpp
   src/runtime/planning_capability_service.cpp
+  src/runtime/motion_extension_contract.cpp
   src/runtime/controller_state.cpp
   src/runtime/runtime_context.cpp
   src/runtime/operation_state_adapter.cpp
@@ -103,10 +111,10 @@ foreach(runtime_target IN LISTS RUNTIME_PRIVATE_TARGETS)
     rosidl_runtime_cpp
     unique_identifier_msgs
     action_msgs
-    gazebo_ros
     kdl_parser
   )
   target_compile_features(${runtime_target} PUBLIC cxx_std_17)
+  target_compile_definitions(${runtime_target} PRIVATE ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}")
   set_target_properties(${runtime_target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
   rokae_add_rosidl_dependency(${runtime_target})
 endforeach()
@@ -144,6 +152,7 @@ target_link_libraries(${PROJECT_NAME}_runtime_core
   "${cpp_typesupport_target}"
 )
 target_compile_features(${PROJECT_NAME}_runtime_core PUBLIC cxx_std_17)
+target_compile_definitions(${PROJECT_NAME}_runtime_core PRIVATE ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}")
 rokae_add_rosidl_dependency(${PROJECT_NAME}_runtime_core)
 
 add_executable(rokae_sim_runtime
@@ -174,17 +183,16 @@ ament_target_dependencies(rokae_sim_runtime
   rosidl_runtime_cpp
   unique_identifier_msgs
   action_msgs
-  gazebo_ros
   kdl_parser
 )
 target_link_libraries(rokae_sim_runtime
   "${cpp_typesupport_target}"
   ${EIGEN3_LIBRARIES}
   ${OROCOS_KDL_LIBRARIES}
-  ${GAZEBO_LIBRARIES}
 )
 target_link_options(rokae_sim_runtime PRIVATE "-Wl,--disable-new-dtags")
 target_compile_features(rokae_sim_runtime PUBLIC cxx_std_17)
+target_compile_definitions(rokae_sim_runtime PRIVATE ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}")
 rokae_add_rosidl_dependency(rokae_sim_runtime)
 
 set(_rokae_runtime_ros_lib "/opt/ros/humble/lib")
@@ -233,14 +241,13 @@ if(BUILD_TESTING)
     rosidl_runtime_cpp
     unique_identifier_msgs
     action_msgs
-    gazebo_ros
     kdl_parser
   )
+  target_compile_definitions(${PROJECT_NAME}_runtime_test PRIVATE ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}")
   target_link_libraries(${PROJECT_NAME}_runtime_test
     "${cpp_typesupport_target}"
     ${EIGEN3_LIBRARIES}
     ${OROCOS_KDL_LIBRARIES}
-    ${GAZEBO_LIBRARIES}
   )
   target_compile_features(${PROJECT_NAME}_runtime_test PUBLIC cxx_std_17)
   rokae_add_rosidl_dependency(${PROJECT_NAME}_runtime_test)

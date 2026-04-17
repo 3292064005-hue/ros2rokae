@@ -1,24 +1,16 @@
 # Fidelity Policy
 
-The project distinguishes between:
+> 状态：Compatibility Redirect  
+> 角色：旧链接 / 旧脚本锚点 / 历史引用兼容入口  
+> 当前主说明：[`ARCHITECTURE.md`](ARCHITECTURE.md)  
+> 是否为当前主说明：否  
+> 最后校验：2026-04-17
 
-- **StrictAligned**: public shape and runtime semantics intentionally match the manual.
-- **SimApprox**: public surface matches, but the implementation is simulation-grade.
-- **Experimental**: useful, but not stable enough to claim parity.
+## 如何使用本页
 
-## Kinematics-specific policy
+- 需要当前有效规则时，直接跳转到 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
+- 只有在旧链接、旧脚本锚点或历史审计引用必须保留时，才继续保留此页。
 
-Kinematics now follows a stricter rule than before:
+## 保留锚点
 
-- the public API exposes one `xMate3Kinematics` contract
-- the default primary backend is `KDL/URDF`
-- the improved-DH backend is retained for seed generation, regression comparison, and fallback
-- a single request never mixes primary backends mid-solve
-
-This avoids the previous ambiguity where different steps of the same solve could silently traverse different geometry models.
-
-## Runtime RT dispatch policy
-
-- public RT APIs now prefer a runtime-owned direct RT command channel
-- the default implementation no longer intentionally routes RT loop commands through the queued NRT move pipeline
-- diagnostics must expose `last_api_surface`, `last_result_source`, and `rt_dispatch_mode` so simulation-only behaviour stays auditable
+- StrictAligned / SimApprox / Experimental

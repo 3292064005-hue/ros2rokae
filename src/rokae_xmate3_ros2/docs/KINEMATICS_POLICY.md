@@ -1,22 +1,18 @@
 # Kinematics Policy
 
-This package uses a policy-driven kinematics stack.
+> 状态：Compatibility Redirect  
+> 角色：旧链接 / 旧脚本锚点 / 历史引用兼容入口  
+> 当前主说明：[`KINEMATICS_AND_MODEL.md`](KINEMATICS_AND_MODEL.md)  
+> 是否为当前主说明：否  
+> 最后校验：2026-04-17
 
-## Default policy
-- Primary backend: `KDL`
-- Fallback backend: `improved_dh`
-- Jacobian mode: native backend Jacobian when available
-- IK seed mode: mixed (`current_state + improved_dh branch hints`)
+## 如何使用本页
 
-## Hard rule
-A single request must use exactly one primary backend for FK / Jacobian / IK scoring.
-The fallback backend is only allowed for seed generation, retry on primary failure, and regression comparisons.
+- 需要当前有效规则时，直接跳转到 [`KINEMATICS_AND_MODEL.md`](KINEMATICS_AND_MODEL.md)。
+- 只有在旧链接、旧脚本锚点或历史审计引用必须保留时，才继续保留此页。
 
-## Environment overrides
-- `ROKAE_KINEMATICS_PRIMARY=kdl|improved_dh`
-- `ROKAE_KINEMATICS_FALLBACK=improved_dh|none`
-- `ROKAE_KINEMATICS_IK_SEEDS=current|dh|mixed`
+## 保留锚点
 
-## Contract enforcement
-- `xMate3Kinematics::beginRequestContract()` / `requestContractState()` lock the primary backend for one logical request.
-- If a request observes a fallback-marked IK selection note, the request is rejected as `backend_contract_violation` instead of silently mixing semantics.
+- single request must use exactly one primary backend
+- primary backend: KDL
+- fallback: improved_dh

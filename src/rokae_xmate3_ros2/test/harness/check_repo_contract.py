@@ -7,14 +7,28 @@ import sys
 
 sys.dont_write_bytecode = True
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+def _resolve_root() -> pathlib.Path:
+    if len(sys.argv) > 1:
+        return pathlib.Path(sys.argv[1]).resolve()
+    return pathlib.Path(__file__).resolve().parents[2]
+
+
+ROOT = _resolve_root()
 FAILURES = []
 
-try:
-    TRACKED_FILES = set(subprocess.check_output(
-        ['git', '-C', str(ROOT), 'ls-files'], text=True).splitlines())
-except Exception:
-    TRACKED_FILES = set()
+
+def _load_tracked_files(root: pathlib.Path) -> set[str]:
+    git_dir = root / '.git'
+    if not git_dir.exists():
+        return set()
+    try:
+        return set(subprocess.check_output(
+            ['git', '-C', str(root), 'ls-files'], text=True, stderr=subprocess.DEVNULL).splitlines())
+    except Exception:
+        return set()
+
+
+TRACKED_FILES = _load_tracked_files(ROOT)
 
 
 def _parse_spec_array(text: str, name: str) -> list[float]:
@@ -201,7 +215,7 @@ if 'ROKAE_PRIMARY_SERVICE_CONTRACTS' not in manifest or 'ROKAE_COMPATIBILITY_ALI
 if '/xmate3/internal/get_runtime_state_snapshot' not in manifest:
     FAILURES.append('service contract manifest must include the aggregated runtime snapshot query surface')
 
-for launch_file in ['launch/xmate3_simulation.launch.py', 'launch/xmate3_gazebo.launch.py', 'launch/rviz_only.launch.py']:
+for launch_file in ['launch/xmate3_simulation.launch.py', 'launch/xmate3_gazebo.launch.py', 'launch/rviz_only.launch.py', 'launch/xmate6_public.launch.py']:
     launch_text = (ROOT / launch_file).read_text(encoding='utf-8')
     if 'allow_noncanonical_model' not in launch_text:
         FAILURES.append(f'{launch_file} must expose allow_noncanonical_model to gate developer-only model overrides')
@@ -329,3 +343,15 @@ if 'tools/check_target_environment.sh' not in env_lock:
     raise SystemExit('environment lock doc must mention the preflight script')
 if 'write_target_env_report.py' not in env_lock or 'artifacts/target_env_acceptance/' not in env_lock:
     raise SystemExit('environment lock doc must mention the generated acceptance report path')
+
+
+profile_helper = ROOT / "launch" / "_launch_profile.py"
+if not profile_helper.exists():
+    failures.append("launch/_launch_profile.py must exist to centralize capability-matrix defaults")
+else:
+    helper_text = profile_helper.read_text(encoding="utf-8")
+    for required in ["public_xmate6_jtc", "internal_full_hybrid", "daemon_hard_rt"]:
+        if required not in helper_text:
+            failures.append(f"launch/_launch_profile.py missing profile {required}")
+    if "unknown launch_profile" not in helper_text:
+        failures.append("launch/_launch_profile.py must fail fast on unknown profiles")

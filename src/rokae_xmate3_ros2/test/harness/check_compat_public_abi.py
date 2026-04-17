@@ -63,8 +63,10 @@ if 'set(xCoreSDK_UNSUPPORTED_MODULES' not in config:
     failures.append('xCoreSDKConfig.cmake.in must publish xCoreSDK_UNSUPPORTED_MODULES')
 if 'xCoreSDK_STATIC_PROVIDER "native-static"' not in config:
     failures.append('xCoreSDKConfig.cmake.in must publish the native static provider for the install-facing SDK')
-if 'find_dependency(rclcpp REQUIRED CONFIG)' not in config or 'find_dependency(gazebo_ros REQUIRED CONFIG)' not in config:
-    failures.append('xCoreSDKConfig.cmake.in must resolve the ROS2/Gazebo-backed dependency set before loading exported targets')
+if 'find_dependency(rclcpp REQUIRED CONFIG)' not in config or 'find_dependency(kdl_parser REQUIRED CONFIG)' not in config:
+    failures.append('xCoreSDKConfig.cmake.in must resolve the install-facing ROS2/KDL dependency set before loading exported targets')
+if 'find_dependency(gazebo_ros REQUIRED CONFIG)' in config:
+    failures.append('xCoreSDKConfig.cmake.in must not require gazebo_ros for the install-facing public SDK targets')
 
 compat_targets = ROOT / 'cmake' / 'targets_examples.cmake'
 if compat_targets.exists():

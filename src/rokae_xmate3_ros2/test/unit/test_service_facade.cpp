@@ -146,12 +146,64 @@ TEST(ServiceFacadeTest, ControlFacadeCoordinatesPowerDragAndStopWithRuntime) {
 
 
 
+
+TEST(ServiceFacadeTest, ControlFacadeStopPausesAndMoveStartResumesWithoutBackendSnapshot) {
+  rt::SessionState session_state;
+  rt::MotionOptionsState motion_options_state;
+  rt::ToolingState tooling_state;
+  rt::MotionRuntime motion_runtime;
+  motion_runtime.reset();
+  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, session_state, motion_runtime);
+  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, nullptr, &motion_runtime, &coordinator);
+
+  session_state.connect("127.0.0.1");
+  session_state.setPowerOn(true);
+  session_state.setOperateMode(static_cast<std::uint8_t>(rokae::OperateMode::automatic));
+  session_state.setMotionMode(rt::kSessionMotionModeNrt);
+
+  rokae_xmate3_ros2::action::MoveAppend::Goal goal;
+  goal.absj_cmds.resize(1);
+  goal.absj_cmds.front().target.joints = {0.1, -0.2, 1.4, 0.0, 1.1, 3.14};
+  goal.absj_cmds.front().speed = 20;
+  goal.absj_cmds.front().zone = 5;
+
+  const std::array<double, 6> current = {0.0, 0.0, 1.5, 0.0, 1.2, 3.14};
+  const auto queued = coordinator.queueMoveAppend(goal, current, 0.01, "req_pause_resume");
+  ASSERT_TRUE(queued.success) << queued.message;
+
+  rokae_xmate3_ros2::srv::Stop::Request stop_req;
+  rokae_xmate3_ros2::srv::Stop::Response stop_res;
+  facade.handleStop(stop_req, stop_res);
+  ASSERT_TRUE(stop_res.success);
+
+  const auto paused_view = motion_runtime.view();
+  EXPECT_TRUE(paused_view.has_request);
+  EXPECT_TRUE(paused_view.queue_has_pending_commands);
+  EXPECT_EQ(paused_view.status.request_id, "req_pause_resume");
+  EXPECT_EQ(paused_view.status.state, rt::ExecutionState::paused);
+
+  rokae_xmate3_ros2::srv::MoveStart::Request move_start_req;
+  rokae_xmate3_ros2::srv::MoveStart::Response move_start_res;
+  facade.handleMoveStart(move_start_req, move_start_res);
+  ASSERT_TRUE(move_start_res.success) << move_start_res.message;
+
+  const auto resumed_view = motion_runtime.view();
+  EXPECT_EQ(resumed_view.status.request_id, "req_pause_resume");
+  EXPECT_TRUE(resumed_view.has_request);
+  EXPECT_FALSE(resumed_view.terminal);
+  EXPECT_TRUE(resumed_view.status.state == rt::ExecutionState::planning ||
+              resumed_view.status.state == rt::ExecutionState::queued);
+}
+
 TEST(ServiceFacadeTest, ControlFacadeTreatsRepeatedLifecycleAndModeRequestsAsIdempotentSuccess) {
   rt::SessionState session_state;
   rt::MotionOptionsState motion_options_state;
   rt::ToolingState tooling_state;
   FakeBackend backend;
-  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, nullptr, nullptr);
+  rt::MotionRuntime motion_runtime;
+  motion_runtime.reset();
+  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, session_state, motion_runtime);
+  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, &motion_runtime, &coordinator);
 
   rokae_xmate3_ros2::srv::Connect::Request connect_req;
   rokae_xmate3_ros2::srv::Connect::Response connect_res;
@@ -509,7 +561,10 @@ TEST(ServiceFacadeTest, ControlFacadeRejectsDisconnectedAndInvalidModeRequests) 
   rt::MotionOptionsState motion_options_state;
   rt::ToolingState tooling_state;
   FakeBackend backend;
-  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, nullptr, nullptr);
+  rt::MotionRuntime motion_runtime;
+  motion_runtime.reset();
+  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, session_state, motion_runtime);
+  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, &motion_runtime, &coordinator);
 
   rokae_xmate3_ros2::srv::SetOperateMode::Request operate_req;
   rokae_xmate3_ros2::srv::SetOperateMode::Response operate_res;
@@ -553,7 +608,8 @@ TEST(ServiceFacadeTest, ControlFacadeRejectsDisconnectedAndInvalidModeRequests) 
 
   session_state.setDragMode(false);
   facade.handleMoveStart(move_start_req, move_start_res);
-  EXPECT_TRUE(move_start_res.success);
+  EXPECT_FALSE(move_start_res.success);
+  EXPECT_EQ(move_start_res.message, "moveStart rejected because no queued NRT request exists");
 }
 
 TEST(ServiceFacadeTest, PathFacadeSaveRequiresRecordedDataAndSupportsRenameOnlyWhenNoPendingRecording) {
@@ -622,7 +678,10 @@ TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMate6Lane) {
   rt::MotionOptionsState motion_options_state;
   rt::ToolingState tooling_state;
   FakeBackend backend;
-  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, nullptr, nullptr);
+  rt::MotionRuntime motion_runtime;
+  motion_runtime.reset();
+  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, session_state, motion_runtime);
+  rt::ControlFacade facade(session_state, motion_options_state, tooling_state, &backend, &motion_runtime, &coordinator);
 
   rokae_xmate3_ros2::srv::SetAvoidSingularity::Request req;
   rokae_xmate3_ros2::srv::SetAvoidSingularity::Response res;

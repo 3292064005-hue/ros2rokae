@@ -6,7 +6,7 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
   const auto snapshot = backend.readSnapshot();
 
   std::lock_guard<std::mutex> lock(mutex_);
-  if (active_request_id_.empty()) {
+  if (active_request_id_.empty() && !staged_request_) {
     (void)syncOwnerLocked(backend, ControlOwner::none, "idle");
     if (using_backend_trajectory_) {
       backend.cancelTrajectoryExecution("cleared idle trajectory owner");
@@ -25,9 +25,25 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
     return active_status_;
   }
 
+  if (active_status_.state == ExecutionState::paused) {
+    (void)syncOwnerLocked(backend,
+                          ControlOwner::none,
+                          active_status_.message.empty() ? "paused" : active_status_.message);
+    if (using_backend_trajectory_) {
+      backend.cancelTrajectoryExecution("paused");
+      using_backend_trajectory_ = false;
+      active_trajectory_plan_.reset();
+      active_trajectory_goal_.reset();
+    }
+    backend.clearControl();
+    rememberStatus(active_status_);
+    return active_status_;
+  }
+
   if (active_status_.state == ExecutionState::failed || active_status_.state == ExecutionState::stopped) {
-    (void)syncOwnerLocked(
-        backend, ControlOwner::none, active_status_.message.empty() ? "terminal" : active_status_.message);
+    (void)syncOwnerLocked(backend,
+                          ControlOwner::none,
+                          active_status_.message.empty() ? "terminal" : active_status_.message);
     if (using_backend_trajectory_) {
       backend.cancelTrajectoryExecution(active_status_.message.empty() ? "stopped" : active_status_.message);
       using_backend_trajectory_ = false;
@@ -38,7 +54,12 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
     backend.clearControl();
     rememberStatus(active_status_);
     const auto terminal_status = active_status_;
+    staged_request_.reset();
+    pending_request_.reset();
+    queued_plan_.reset();
+    active_request_.reset();
     active_request_id_.clear();
+    active_request_token_ = 0;
     return terminal_status;
   }
 
@@ -46,6 +67,8 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
     bool started_backend_trajectory = false;
     if (backend.supportsTrajectoryExecution()) {
       auto execution_goal = build_execution_goal(*queued_plan_, active_speed_scale_, nullptr, 0.0);
+      execution_goal.total_segments = activeTotalSegmentsLocked();
+      execution_goal.segment_index_offset += activeCommandOffsetLocked();
       std::string trajectory_message;
       if (!execution_goal.points.empty() && backend.startTrajectoryExecution(execution_goal, trajectory_message)) {
         using_backend_trajectory_ = true;
@@ -56,7 +79,7 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
         start_event.type = RuntimeEventType::execution_started;
         start_event.request_id = active_request_id_;
         start_event.message = "executing";
-        start_event.total_segments = active_status_.total_segments;
+        start_event.total_segments = activeTotalSegmentsLocked();
         start_event.completed_segments = active_trajectory_goal_->segment_index_offset;
         start_event.current_segment_index = active_trajectory_goal_->segment_index_offset;
         start_event.execution_backend = ExecutionBackend::jtc;
@@ -78,7 +101,12 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
           state_machine_.apply(active_status_, runtime_phase_, fail_event);
           rememberStatus(active_status_);
           const auto terminal_status = active_status_;
+          staged_request_.reset();
+          pending_request_.reset();
+          queued_plan_.reset();
+          active_request_.reset();
           active_request_id_.clear();
+          active_request_token_ = 0;
           return terminal_status;
         }
         queued_plan_.reset();
@@ -95,16 +123,17 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
       start_event.type = RuntimeEventType::execution_started;
       start_event.request_id = active_request_id_;
       start_event.message = active_status_.message.empty() ? std::string{"executing"} : active_status_.message;
-      start_event.total_segments = active_status_.total_segments;
-      start_event.completed_segments = 0;
-      start_event.current_segment_index = 0;
+      start_event.total_segments = activeTotalSegmentsLocked();
+      start_event.completed_segments = activeCommandOffsetLocked();
+      start_event.current_segment_index = activeCommandOffsetLocked();
       start_event.execution_backend = ExecutionBackend::effort;
       state_machine_.apply(active_status_, runtime_phase_, start_event);
       if (!syncOwnerLocked(backend, ControlOwner::effort, "effort execution")) {
         RuntimeEvent fail_event;
         fail_event.type = RuntimeEventType::failed;
         fail_event.request_id = active_request_id_;
-        fail_event.message = active_status_.message.empty() ? std::string{"owner arbitration rejected"} : active_status_.message;
+        fail_event.message =
+            active_status_.message.empty() ? std::string{"owner arbitration rejected"} : active_status_.message;
         fail_event.total_segments = active_status_.total_segments;
         fail_event.completed_segments = active_status_.completed_segments;
         fail_event.current_segment_index = active_status_.current_segment_index;
@@ -113,23 +142,41 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
         state_machine_.apply(active_status_, runtime_phase_, fail_event);
         rememberStatus(active_status_);
         const auto terminal_status = active_status_;
+        staged_request_.reset();
+        pending_request_.reset();
+        queued_plan_.reset();
+        active_request_.reset();
         active_request_id_.clear();
+        active_request_token_ = 0;
         return terminal_status;
       }
     }
   }
 
+  const bool waiting_for_move_start_or_planner =
+      !executor_.hasActivePlan() && !using_backend_trajectory_ && !queued_plan_ &&
+      (active_status_.state == ExecutionState::queued || active_status_.state == ExecutionState::planning);
+  if (waiting_for_move_start_or_planner) {
+    (void)syncOwnerLocked(backend,
+                          ControlOwner::none,
+                          active_status_.message.empty() ? "queued" : active_status_.message);
+    backend.clearControl();
+    rememberStatus(active_status_);
+    return active_status_;
+  }
+
   if (using_backend_trajectory_) {
     if (!syncOwnerLocked(backend, ControlOwner::trajectory, "jtc execution")) {
-      backend.cancelTrajectoryExecution(active_status_.message.empty() ? "owner arbitration rejected" :
-                                                                      active_status_.message);
+      backend.cancelTrajectoryExecution(active_status_.message.empty() ? "owner arbitration rejected"
+                                                                       : active_status_.message);
       using_backend_trajectory_ = false;
       active_trajectory_plan_.reset();
       active_trajectory_goal_.reset();
       RuntimeEvent fail_event;
       fail_event.type = RuntimeEventType::failed;
       fail_event.request_id = active_request_id_;
-      fail_event.message = active_status_.message.empty() ? std::string{"owner arbitration rejected"} : active_status_.message;
+      fail_event.message =
+          active_status_.message.empty() ? std::string{"owner arbitration rejected"} : active_status_.message;
       fail_event.total_segments = active_status_.total_segments;
       fail_event.completed_segments = active_status_.completed_segments;
       fail_event.current_segment_index = active_status_.current_segment_index;
@@ -138,12 +185,17 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
       state_machine_.apply(active_status_, runtime_phase_, fail_event);
       rememberStatus(active_status_);
       const auto terminal_status = active_status_;
+      staged_request_.reset();
+      pending_request_.reset();
+      queued_plan_.reset();
+      active_request_.reset();
       active_request_id_.clear();
+      active_request_token_ = 0;
       return terminal_status;
     }
+
     auto trajectory_state = backend.readTrajectoryExecutionState();
-    if (active_trajectory_plan_ && active_trajectory_goal_ && trajectory_state.active &&
-        !trajectory_state.completed &&
+    if (active_trajectory_plan_ && active_trajectory_goal_ && trajectory_state.active && !trajectory_state.completed &&
         std::fabs(active_speed_scale_ - dispatched_speed_scale_) > 1e-6) {
       const double current_original_time =
           active_trajectory_goal_->original_time_offset +
@@ -151,6 +203,8 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
       const auto start_override = build_start_override(trajectory_state, snapshot);
       auto retimed_goal =
           build_execution_goal(*active_trajectory_plan_, active_speed_scale_, &start_override, current_original_time);
+      retimed_goal.total_segments = activeTotalSegmentsLocked();
+      retimed_goal.segment_index_offset += activeCommandOffsetLocked();
       std::string retime_message;
       if (!retimed_goal.points.empty() && backend.startTrajectoryExecution(retimed_goal, retime_message)) {
         active_trajectory_goal_ = std::move(retimed_goal);
@@ -204,7 +258,8 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
         complete_event.message = terminal_message;
         complete_event.total_segments = active_status_.total_segments;
         complete_event.completed_segments = active_status_.total_segments;
-        complete_event.current_segment_index = active_status_.total_segments == 0 ? 0 : active_status_.total_segments - 1;
+        complete_event.current_segment_index =
+            active_status_.total_segments == 0 ? 0 : active_status_.total_segments - 1;
         complete_event.execution_backend = ExecutionBackend::jtc;
         complete_event.terminal_success = true;
         state_machine_.apply(active_status_, runtime_phase_, complete_event);
@@ -214,11 +269,12 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
       const auto terminal_status = active_status_;
       active_trajectory_plan_.reset();
       active_trajectory_goal_.reset();
+      active_request_.reset();
       active_request_id_.clear();
+      active_request_token_ = 0;
       return terminal_status;
     }
 
-    active_status_.state = ExecutionState::executing;
     RuntimeEvent progress_event;
     progress_event.type = RuntimeEventType::progress_updated;
     progress_event.request_id = active_request_id_;
@@ -240,12 +296,14 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
 
   const double trajectory_time_scale = active_speed_scale_;
   const auto step = executor_.tick(snapshot, dt, trajectory_time_scale);
+  const auto progress_offset = activeCommandOffsetLocked();
   if (!syncOwnerLocked(backend, ControlOwner::effort, "effort execution")) {
     executor_.stop(snapshot);
     RuntimeEvent fail_event;
     fail_event.type = RuntimeEventType::failed;
     fail_event.request_id = active_request_id_;
-    fail_event.message = active_status_.message.empty() ? std::string{"owner arbitration rejected"} : active_status_.message;
+    fail_event.message =
+        active_status_.message.empty() ? std::string{"owner arbitration rejected"} : active_status_.message;
     fail_event.total_segments = active_status_.total_segments;
     fail_event.completed_segments = active_status_.completed_segments;
     fail_event.current_segment_index = active_status_.current_segment_index;
@@ -254,7 +312,12 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
     state_machine_.apply(active_status_, runtime_phase_, fail_event);
     rememberStatus(active_status_);
     const auto terminal_status = active_status_;
+    staged_request_.reset();
+    pending_request_.reset();
+    queued_plan_.reset();
+    active_request_.reset();
     active_request_id_.clear();
+    active_request_token_ = 0;
     return terminal_status;
   }
   if (step.command.has_effort) {
@@ -264,25 +327,24 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
     backend.clearControl();
   }
 
-  const bool runtime_driving_execution =
-      executor_.hasActivePlan() || step.plan_completed ||
-      active_status_.state == ExecutionState::executing ||
-      active_status_.state == ExecutionState::settling;
+  const bool runtime_driving_execution = executor_.hasActivePlan() || step.plan_completed ||
+                                         active_status_.state == ExecutionState::executing ||
+                                         active_status_.state == ExecutionState::settling;
   if (runtime_driving_execution && step.state != ExecutionState::idle) {
     RuntimeEvent progress_event;
     progress_event.type = RuntimeEventType::progress_updated;
     progress_event.request_id = active_request_id_;
     progress_event.message = step.message.empty() ? std::string{to_string(step.state)} : step.message;
-    progress_event.total_segments = active_status_.total_segments;
-    progress_event.completed_segments = step.completed_segments;
-    progress_event.current_segment_index = step.current_segment_index;
+    progress_event.total_segments = activeTotalSegmentsLocked();
+    progress_event.completed_segments = progress_offset + step.completed_segments;
+    progress_event.current_segment_index = progress_offset + step.current_segment_index;
     progress_event.execution_backend = ExecutionBackend::effort;
     state_machine_.apply(active_status_, runtime_phase_, progress_event);
     active_status_.state = step.state;
     (void)setOwnerLocked(ControlOwner::effort, "effort execution");
   } else {
-    active_status_.current_segment_index = step.current_segment_index;
-    active_status_.completed_segments = step.completed_segments;
+    active_status_.current_segment_index = progress_offset + step.current_segment_index;
+    active_status_.completed_segments = progress_offset + step.completed_segments;
     active_status_.message = step.message.empty() ? active_status_.message : step.message;
   }
 
@@ -295,9 +357,9 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
     }
     terminal_event.request_id = active_request_id_;
     terminal_event.message = step.message.empty() ? std::string{to_string(step.state)} : step.message;
-    terminal_event.total_segments = active_status_.total_segments;
-    terminal_event.completed_segments = step.completed_segments;
-    terminal_event.current_segment_index = step.current_segment_index;
+    terminal_event.total_segments = activeTotalSegmentsLocked();
+    terminal_event.completed_segments = activeTotalSegmentsLocked();
+    terminal_event.current_segment_index = activeTotalSegmentsLocked() == 0 ? 0 : activeTotalSegmentsLocked() - 1;
     terminal_event.execution_backend = ExecutionBackend::effort;
     terminal_event.terminal_success = step.terminal_success;
     state_machine_.apply(active_status_, runtime_phase_, terminal_event);
@@ -310,7 +372,9 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
   rememberStatus(active_status_);
   const auto returned_status = active_status_;
   if (returned_status.terminal()) {
+    active_request_.reset();
     active_request_id_.clear();
+    active_request_token_ = 0;
   }
   return returned_status;
 }

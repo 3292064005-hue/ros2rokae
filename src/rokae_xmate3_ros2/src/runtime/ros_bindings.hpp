@@ -16,6 +16,7 @@
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "rokae_xmate3_ros2/msg/rt_fast_command.hpp"
 #include "runtime/runtime_context.hpp"
+#include "runtime/service_exposure_profile.hpp"
 #include "runtime/service_facade.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
@@ -24,6 +25,7 @@ class RuntimePublishBridge;
 
 struct RosBindingsRtIngressOptions {
   bool enable_topic_rt_ingress = true;
+  ServiceExposureProfile service_exposure_profile = defaultServiceExposureProfile();
 };
 
 class RosBindings {
@@ -62,6 +64,7 @@ class RosBindings {
   TrajectoryDtProvider trajectory_dt_provider_;
   RequestIdGenerator request_id_generator_;
   RosBindingsRtIngressOptions rt_ingress_options_{};
+  ServiceExposureProfile service_exposure_profile_ = defaultServiceExposureProfile();
 
   std::unique_ptr<ControlFacade> control_facade_;
   std::unique_ptr<QueryFacade> query_facade_;

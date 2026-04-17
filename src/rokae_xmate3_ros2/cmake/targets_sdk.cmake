@@ -17,7 +17,7 @@ add_library(${PROJECT_NAME}_sdk SHARED
   src/sdk/robot_model.cpp
 )
 ament_target_dependencies(${PROJECT_NAME}_sdk
-  ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs gazebo_ros kdl_parser
+  ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs kdl_parser
 )
 target_include_directories(${PROJECT_NAME}_sdk
   PUBLIC
@@ -32,7 +32,6 @@ target_link_libraries(${PROJECT_NAME}_sdk
   "${cpp_typesupport_target}"
   ${EIGEN3_LIBRARIES}
   ${OROCOS_KDL_LIBRARIES}
-  ${GAZEBO_LIBRARIES}
 )
 target_compile_features(${PROJECT_NAME}_sdk PUBLIC cxx_std_17)
 rokae_add_rosidl_dependency(${PROJECT_NAME}_sdk)

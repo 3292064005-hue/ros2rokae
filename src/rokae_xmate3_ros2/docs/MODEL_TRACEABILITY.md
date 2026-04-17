@@ -1,46 +1,18 @@
 # Model Traceability
 
-The package centralizes xMate3 constants in `include/rokae_xmate3_ros2/spec/xmate3_spec.hpp`.
+> 状态：Compatibility Redirect  
+> 角色：旧链接 / 旧脚本锚点 / 历史引用兼容入口  
+> 当前主说明：[`KINEMATICS_AND_MODEL.md`](KINEMATICS_AND_MODEL.md)  
+> 是否为当前主说明：否  
+> 最后校验：2026-04-17
 
-## Source-of-truth split
-- joint limits
-- velocity / acceleration / jerk envelopes
-- direct torque envelopes
-- the manual-table DH representation (`official_dh`)
-- the improved DH helper model with explicit joint offsets (`improved_dh`)
+## 如何使用本页
 
-## Runtime policy
-The runtime no longer treats every kinematics implementation as equivalent.
+- 需要当前有效规则时，直接跳转到 [`KINEMATICS_AND_MODEL.md`](KINEMATICS_AND_MODEL.md)。
+- 只有在旧链接、旧脚本锚点或历史审计引用必须保留时，才继续保留此页。
 
-- **Primary backend (default):** `KDL/URDF`
-- **Auxiliary / fallback backend:** `improved_dh`
-- **Single-request rule:** one FK / Jacobian / IK / trajectory request stays on a single primary backend from start to finish
+## 保留锚点
 
-This keeps Gazebo / URDF consistency on the main path while still preserving the improved-DH branch logic as a deterministic seed and fallback model.
-
-## Consumers
-- URDF joint limits and velocity caps
-- kinematics backends
-- soft-limit defaults
-- joint retimer envelopes
-- runtime validators and plugin fallback limits
-- SDK facade model operations
-
-## Exactness grades
-
-The diagnostics surface now publishes a compact model exactness summary. Current intent is:
-
-- kinematics: simulation-grade
-- jacobian: simulation-grade
-- dynamics / wrench mapping: approximate
-
-This keeps API surface continuity without overstating controller-model parity.
-
-## Canonical description artifact
-
-- Build-time canonical artifact: `<build>/generated/urdf/xMate3.urdf`
-- Build-time provenance metadata: `<build>/generated/urdf/xMate3.description.json`
-- Installed default artifact: `share/rokae_xmate3_ros2/generated/urdf/xMate3.urdf`
-- Installed provenance metadata: `share/rokae_xmate3_ros2/generated/urdf/xMate3.description.json`
-
-`tools/generate_description_metadata.py` records the source xacro path, expansion arguments, file size, and SHA-256 digest so launch-time robot_description expansion and model-loading paths can be audited against the same canonical description contract. Explicit xacro/model overrides are now treated as developer-mode only and require `allow_noncanonical_model:=true`.
+- source-of-truth split
+- exactness grades
+- canonical description artifact

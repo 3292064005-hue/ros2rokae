@@ -43,7 +43,6 @@ if(ROKAE_BUILD_COMPAT_SDK)
     rosidl_runtime_cpp
     unique_identifier_msgs
     action_msgs
-    gazebo_ros
     kdl_parser
   )
   target_link_libraries(xCoreSDK_static
@@ -51,7 +50,6 @@ if(ROKAE_BUILD_COMPAT_SDK)
     "${cpp_typesupport_target}"
     ${EIGEN3_LIBRARIES}
     ${OROCOS_KDL_LIBRARIES}
-    ${GAZEBO_LIBRARIES}
   )
   target_compile_features(xCoreSDK_static PUBLIC cxx_std_17)
   set_target_properties(xCoreSDK_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -86,7 +84,6 @@ if(ROKAE_BUILD_COMPAT_SDK)
     rosidl_runtime_cpp
     unique_identifier_msgs
     action_msgs
-    gazebo_ros
     kdl_parser
   )
   target_link_libraries(xCoreSDK_shared
@@ -94,7 +91,6 @@ if(ROKAE_BUILD_COMPAT_SDK)
     "${cpp_typesupport_target}"
     ${EIGEN3_LIBRARIES}
     ${OROCOS_KDL_LIBRARIES}
-    ${GAZEBO_LIBRARIES}
   )
   target_compile_features(xCoreSDK_shared PUBLIC cxx_std_17)
   rokae_add_rosidl_dependency(xCoreSDK_shared)

@@ -1,4 +1,7 @@
+#include "runtime/motion_extension_contract.hpp"
 #include "runtime/runtime_context.hpp"
+
+#include <stdexcept>
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -10,7 +13,12 @@ RuntimeContext::RuntimeContext()
       program_state_(std::make_shared<ProgramState>()),
       diagnostics_state_(std::make_shared<RuntimeDiagnosticsState>()),
       controller_state_(session_state_, motion_options_state_, tooling_state_, data_store_state_, program_state_),
-      request_coordinator_(*motion_options_state_, *tooling_state_, *session_state_, motion_runtime_) {}
+      request_coordinator_(*motion_options_state_, *tooling_state_, *session_state_, motion_runtime_) {
+  std::string motion_contract_error;
+  if (!validateMotionExtensionContracts(buildMotionExtensionContracts(), motion_contract_error)) {
+    throw std::runtime_error(std::string{"motion extension contract bootstrap failed: "} + motion_contract_error);
+  }
+}
 
 void RuntimeContext::attachBackend(BackendInterface *backend) {
   backend_ = backend;

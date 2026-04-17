@@ -193,6 +193,8 @@ class QueryFacade {
               DataStoreState &data_store_state,
               ProgramState &program_state,
               RuntimeDiagnosticsState &diagnostics_state,
+              MotionRuntime &motion_runtime,
+              MotionRequestCoordinator &request_coordinator,
               gazebo::xMate3Kinematics &kinematics,
               JointStateFetcher joint_state_fetcher,
               TimeProvider time_provider,
@@ -267,12 +269,19 @@ class QueryFacade {
                           rokae_xmate3_ros2::srv::GetEndWrench::Response &res) const;
 
  private:
+  [[nodiscard]] RuntimeView authorityView() const;
+  void readAuthorityJointState(std::array<double, 6> &pos,
+                               std::array<double, 6> &vel,
+                               std::array<double, 6> &tau) const;
+
   SessionState &session_state_;
   MotionOptionsState &motion_options_state_;
   ToolingState &tooling_state_;
   DataStoreState &data_store_state_;
   ProgramState &program_state_;
   RuntimeDiagnosticsState &diagnostics_state_;
+  MotionRuntime &motion_runtime_;
+  MotionRequestCoordinator &request_coordinator_;
   gazebo::xMate3Kinematics &kinematics_;
   JointStateFetcher joint_state_fetcher_;
   TimeProvider time_provider_;
@@ -336,6 +345,11 @@ class IoProgramFacade {
                    rokae_xmate3_ros2::srv::SetAO::Response &res) const;
 
  private:
+  [[nodiscard]] RuntimeView authorityView() const;
+  void readAuthorityJointState(std::array<double, 6> &pos,
+                               std::array<double, 6> &vel,
+                               std::array<double, 6> &tau) const;
+
   SessionState &session_state_;
   DataStoreState &data_store_state_;
   ProgramState &program_state_;
@@ -382,6 +396,11 @@ class PathFacade {
 
 
  private:
+  [[nodiscard]] RuntimeView authorityView() const;
+  void readAuthorityJointState(std::array<double, 6> &pos,
+                               std::array<double, 6> &vel,
+                               std::array<double, 6> &tau) const;
+
   SessionState &session_state_;
   ProgramState &program_state_;
   ToolingState &tooling_state_;

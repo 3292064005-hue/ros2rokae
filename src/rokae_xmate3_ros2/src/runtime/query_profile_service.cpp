@@ -4,6 +4,7 @@
 #include "runtime/runtime_profile_service.hpp"
 #include "runtime/planning_capability_service.hpp"
 #include "runtime/rt_field_registry.hpp"
+#include "runtime/motion_extension_contract.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -12,6 +13,7 @@ void QueryFacade::handleGetProfileCapabilities(
     rokae_xmate3_ros2::srv::GetProfileCapabilities::Response &res) const {
   (void)req;
   const auto snapshot = diagnostics_state_.snapshot();
+  const auto runtime_view = motion_runtime_.view();
   const auto profiles = buildRuntimeProfileCatalog(snapshot.backend_mode, snapshot.active_profile, snapshot.capability_flags);
   const auto options = buildRuntimeOptionCatalog(motion_options_state_, session_state_, data_store_state_);
 
@@ -45,6 +47,13 @@ void QueryFacade::handleGetProfileCapabilities(
   const auto kinematics_backends = buildKinematicsBackendCatalog();
   const auto retimer_policies = buildRetimerPolicyCatalog();
   const auto planner_policies = buildPlannerSelectionCatalog();
+  const auto motion_contracts = buildMotionExtensionContracts();
+  std::string motion_contract_error;
+  if (!validateMotionExtensionContracts(motion_contracts, motion_contract_error)) {
+    res.success = false;
+    res.message = std::string{"motion extension contract invalid: "} + motion_contract_error;
+    return;
+  }
   for (const auto &entry : kinematics_backends) {
     res.kinematics_backend_names.push_back(entry.name);
     res.kinematics_backend_summaries.push_back(entry.summary);
@@ -74,7 +83,9 @@ void QueryFacade::handleGetProfileCapabilities(
   res.success = true;
   res.message = summarizeRuntimeProfileCatalog(profiles) + "; " +
                 summarizePlanningCapabilityCatalog(kinematics_backends, retimer_policies, planner_policies) + "; " +
+                summarizeMotionExtensionContracts(motion_contracts) + "; " +
                 summarizeRtFieldPolicies(defaultRtFieldSet()) +
+                "; query_authority=motion_runtime_view;runtime_phase=" + to_string(runtime_view.status.runtime_phase) +
                 "; rt_policy=best_effort_non_controller_grade";
 }
 

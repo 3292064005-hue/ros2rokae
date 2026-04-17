@@ -21,7 +21,7 @@ add_library(${PROJECT_NAME}_sdk_backend_objects OBJECT
   ${ROKAE_SDK_BACKEND_SOURCES}
 )
 ament_target_dependencies(${PROJECT_NAME}_sdk_backend_objects
-  ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs gazebo_ros kdl_parser
+  ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs kdl_parser
 )
 target_include_directories(${PROJECT_NAME}_sdk_backend_objects
   PUBLIC
@@ -36,7 +36,6 @@ target_link_libraries(${PROJECT_NAME}_sdk_backend_objects
   "${cpp_typesupport_target}"
   ${EIGEN3_LIBRARIES}
   ${OROCOS_KDL_LIBRARIES}
-  ${GAZEBO_LIBRARIES}
 )
 target_compile_features(${PROJECT_NAME}_sdk_backend_objects PUBLIC cxx_std_17)
 set_target_properties(${PROJECT_NAME}_sdk_backend_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -52,7 +51,7 @@ add_library(${PROJECT_NAME}_sdk_backend SHARED
 )
 add_library(${PROJECT_NAME}_sdk ALIAS ${PROJECT_NAME}_sdk_backend)
 ament_target_dependencies(${PROJECT_NAME}_sdk_backend
-  ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs gazebo_ros kdl_parser
+  ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs kdl_parser
 )
 target_include_directories(${PROJECT_NAME}_sdk_backend
   PUBLIC
@@ -66,7 +65,6 @@ target_link_libraries(${PROJECT_NAME}_sdk_backend
   "${cpp_typesupport_target}"
   ${EIGEN3_LIBRARIES}
   ${OROCOS_KDL_LIBRARIES}
-  ${GAZEBO_LIBRARIES}
 )
 target_compile_features(${PROJECT_NAME}_sdk_backend PUBLIC cxx_std_17)
 rokae_add_rosidl_dependency(${PROJECT_NAME}_sdk_backend)

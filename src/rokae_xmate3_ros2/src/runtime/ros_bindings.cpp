@@ -25,6 +25,7 @@ RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
       trajectory_dt_provider_(std::move(trajectory_dt_provider)),
       request_id_generator_(std::move(request_id_generator)),
       rt_ingress_options_(rt_ingress_options),
+      service_exposure_profile_(rt_ingress_options.service_exposure_profile),
       control_facade_(std::make_unique<ControlFacade>(runtime_context_.sessionState(),
                                                       runtime_context_.motionOptionsState(),
                                                       runtime_context_.toolingState(),
@@ -37,6 +38,8 @@ RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
                                                   runtime_context_.dataStoreState(),
                                                   runtime_context_.programState(),
                                                   runtime_context_.diagnosticsState(),
+                                                  runtime_context_.motionRuntime(),
+                                                  runtime_context_.requestCoordinator(),
                                                   kinematics,
                                                   joint_state_fetcher_,
                                                   std::move(time_provider),
@@ -62,7 +65,7 @@ RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
 
 RosBindings::~RosBindings() {
   move_append_shutdown_requested_.store(true);
-  runtime_context_.requestCoordinator().stop("move append worker teardown");
+  runtime_context_.requestCoordinator().abort("move append worker teardown");
   std::lock_guard<std::mutex> lock(move_append_workers_mutex_);
   for (auto &worker : move_append_workers_) {
     if (worker.valid()) {

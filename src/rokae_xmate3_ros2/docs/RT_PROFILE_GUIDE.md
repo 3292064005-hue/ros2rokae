@@ -1,30 +1,18 @@
 # RT / NRT Profile Guide
 
-The project now keeps non-realtime and realtime semantics in separate profiles.
+> 状态：Compatibility Redirect  
+> 角色：旧链接 / 旧脚本锚点 / 历史引用兼容入口  
+> 当前主说明：[`RUNTIME_PROFILES.md`](RUNTIME_PROFILES.md)  
+> 是否为当前主说明：否  
+> 最后校验：2026-04-17
 
-## NRT profile
-File: `config/ros2_control_nrt.yaml`
+## 如何使用本页
 
-Intended for:
-- MoveAbsJ / MoveJ / MoveL / MoveC / MoveCF / MoveSP
-- queued execution
-- blend / zone behaviour
-- replay and RL coordination
+- 需要当前有效规则时，直接跳转到 [`RUNTIME_PROFILES.md`](RUNTIME_PROFILES.md)。
+- 只有在旧链接、旧脚本锚点或历史审计引用必须保留时，才继续保留此页。
 
-## RT profile
-File: `config/ros2_control_rt.yaml`
+## 保留锚点
 
-Intended for:
-- simulated realtime loop facade
-- 1 kHz loop bookkeeping
-- streamed state + owner arbitration
-- loop diagnostics / timing tolerance
-
-## Observability
-`RuntimeDiagnostics` now exposes:
-- `motion_mode`
-- `rt_mode`
-- `active_profile`
-- `loop_hz`
-- `state_stream_hz`
-- `command_latency_ms`
+- NRT profile: `public_xmate6_jtc`
+- RT profile: internal/runtime validation only
+- Observability remains runtime-owned

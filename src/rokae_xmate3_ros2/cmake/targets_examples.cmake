@@ -17,14 +17,6 @@ set(ROKAE_PUBLIC_COMPAT_EXAMPLES
   17_state_stream_cache
   18_toolset_only
   19_diagnostics_and_wrench
-  20_rt_joint_position
-  21_rt_move_commands
-  22_rt_joint_impedance
-  23_rt_cartesian_impedance
-  24_rt_follow_position
-  25_rt_s_line
-  26_rt_torque_control
-  27_rt_1khz_stress
   99_complete_demo
 )
 
@@ -34,6 +26,14 @@ set(ROKAE_INTERNAL_BACKEND_EXAMPLES
   08_path_record_replay
   13_rl_project_workflow
   16_registers_and_runtime_options
+  20_rt_joint_position
+  21_rt_move_commands
+  22_rt_joint_impedance
+  23_rt_cartesian_impedance
+  24_rt_follow_position
+  25_rt_s_line
+  26_rt_torque_control
+  27_rt_1khz_stress
 )
 
 set(EXAMPLE_TARGETS)

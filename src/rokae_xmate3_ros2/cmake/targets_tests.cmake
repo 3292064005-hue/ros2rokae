@@ -276,7 +276,7 @@ if(BUILD_TESTING)
 
 add_test(
   NAME repo_contract
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_repo_contract.py"
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_repo_contract.py" "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
 
@@ -723,7 +723,7 @@ SIMULATION_LAUNCH = r"@CMAKE_CURRENT_SOURCE_DIR@/launch/simulation.launch.py"
 PYTHON_BIN = r"@ROKAE_LAUNCH_TEST_PYTHON@"
 RUNNER = r"@CMAKE_CURRENT_SOURCE_DIR@/test/harness/gazebo_examples_smoke_runner.py"
 EXAMPLE_04 = r"$<TARGET_FILE:example_04_motion_basic>"
-EXAMPLE_05 = r"$<TARGET_FILE:example_05_motion_cartesian>"
+EXAMPLE_15 = r"$<TARGET_FILE:example_15_move_queue_and_events>"
 EXAMPLE_18 = r"$<TARGET_FILE:example_18_toolset_only>"
 PACKAGE_SHARE = r"@CMAKE_CURRENT_SOURCE_DIR@"
 PACKAGE_LIB_DIR = r"$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
@@ -742,7 +742,7 @@ def generate_test_description():
         }.items(),
     )
     runner = ExecuteProcess(
-        cmd=[PYTHON_BIN, RUNNER, EXAMPLE_04, EXAMPLE_05, EXAMPLE_18],
+        cmd=[PYTHON_BIN, RUNNER, EXAMPLE_04, EXAMPLE_15, EXAMPLE_18],
         output="screen",
     )
     shutdown_handler = RegisterEventHandler(
@@ -1043,6 +1043,10 @@ if(BUILD_TESTING)
     test/unit/test_runtime_profile_capabilities_contract.cpp
   )
 
+  ament_add_gtest(test_motion_extension_contract
+    test/unit/test_motion_extension_contract.cpp
+  )
+
   if(TARGET test_runtime_profile_capabilities_contract)
     target_include_directories(test_runtime_profile_capabilities_contract
       PRIVATE
@@ -1056,6 +1060,21 @@ if(BUILD_TESTING)
     )
     target_compile_features(test_runtime_profile_capabilities_contract PUBLIC cxx_std_17)
     rokae_add_rosidl_dependency(test_runtime_profile_capabilities_contract)
+  endif()
+
+  if(TARGET test_motion_extension_contract)
+    target_include_directories(test_motion_extension_contract PUBLIC
+      include
+      ${CMAKE_CURRENT_BINARY_DIR}
+      ${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(test_motion_extension_contract
+      ${PROJECT_NAME}_runtime_test
+      ${PROJECT_NAME}_sdk_backend
+    )
+    target_compile_features(test_motion_extension_contract PUBLIC cxx_std_17)
+    rokae_add_rosidl_dependency(test_motion_extension_contract)
   endif()
 
   if(TARGET test_rt_runtime_profile)
@@ -1100,6 +1119,12 @@ endif()
 
 
 if(BUILD_TESTING)
+  add_test(
+    NAME render_robot_description_install_tree
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_render_robot_description_install_tree.py"
+  )
+  set_tests_properties(render_robot_description_install_tree PROPERTIES LABELS "quick_gate;install_tree;description_gate")
+
   add_test(
     NAME runtime_diag_gate_tools
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_runtime_diag_gate_tools.py"

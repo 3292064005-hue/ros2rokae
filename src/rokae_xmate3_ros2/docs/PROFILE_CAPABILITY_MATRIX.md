@@ -1,23 +1,20 @@
-# Profile capability matrix
+# Profile Capability Matrix
 
-This document hardens the runtime profile model introduced after Pass 5.
+> 状态：Compatibility Redirect  
+> 角色：旧链接 / 旧脚本锚点 / 历史引用兼容入口  
+> 当前主说明：[`RUNTIME_PROFILES.md`](RUNTIME_PROFILES.md)  
+> 是否为当前主说明：否  
+> 最后校验：2026-04-17
 
-## Profiles
+## 如何使用本页
 
-- `nrt_strict_parity`: public xMate6 queued non-realtime strict-parity lane
-- `rt_sim_experimental_best_effort`: simulation-grade RT facade with authoritative runtime servo ownership and decoupled observability
-- `rt_hardened`: authoritative runtime servo profile with legacy RT custom-data fallback disabled
-- `hard_1khz`: daemon-only strict RT contract with SHM-only ingress and fail-fast scheduler requirements
-- `hybrid_bridge`: trajectory + effort arbitration profile
-- `effort_direct`: effort-owner retreat / direct effort profile
-- `jtc_profile`: joint-trajectory-controller backed execution profile
+- 需要当前有效规则时，直接跳转到 [`RUNTIME_PROFILES.md`](RUNTIME_PROFILES.md)。
+- 只有在旧链接、旧脚本锚点或历史审计引用必须保留时，才继续保留此页。
 
-## Rules
+## 保留锚点
 
-1. Public/runtime profiles are runtime-backed and exposed through diagnostics summaries.
-2. `hard_1khz` is only valid on the daemonized runtime host; Gazebo plugin hosting must reject it at startup.
-3. Strict RT profiles may fail fast instead of silently degrading when scheduler or transport contracts are not met.
-4. Profile declarations are test-gated, not README-only claims.
-
-4. On the Gazebo plugin host, `rt_scheduler_state` should report `host_managed(gazebo_update_thread)`; strict scheduler fail-fast only applies to the daemonized runtime host.
-5. Gazebo-hosted observability is timer-driven on the ROS executor and is no longer published directly from the `OnUpdate()` control path.
+- `public_xmate6_jtc`
+- `internal_full`
+- `daemon_hard_rt`
+- unknown launch_profile fail-fast
+- public lane does not expose experimental RT examples

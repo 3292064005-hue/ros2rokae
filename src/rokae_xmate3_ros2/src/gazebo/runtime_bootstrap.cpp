@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <stdexcept>
 #include <utility>
 
@@ -11,6 +12,7 @@
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
 #include "rokae_xmate3_ros2/types.hpp"
 #include "runtime/rt_scheduler.hpp"
+#include "runtime/runtime_host_builder.hpp"
 
 namespace gazebo {
 
@@ -22,12 +24,25 @@ rclcpp::Node::SharedPtr makeBootstrapNode(const RuntimeBootstrap::RosIntegration
   if (options.node) {
     return options.node;
   }
+  rclcpp::NodeOptions node_options;
   if (options.context) {
-    rclcpp::NodeOptions node_options;
     node_options.context(options.context);
-    return std::make_shared<rclcpp::Node>("xcore_gazebo_controller", node_options);
   }
-  return std::make_shared<rclcpp::Node>("xcore_gazebo_controller");
+  for (const auto &parameter : options.parameter_overrides) {
+    node_options.append_parameter_override(parameter.get_name(), parameter.get_parameter_value());
+  }
+  return std::make_shared<rclcpp::Node>("xcore_gazebo_controller", node_options);
+}
+
+std::string getenvOrDefault(const char *name, const std::string &fallback) {
+  if (name == nullptr) {
+    return fallback;
+  }
+  const char *value = std::getenv(name);
+  if (value == nullptr || *value == '\0') {
+    return fallback;
+  }
+  return std::string(value);
 }
 
 }  // namespace
@@ -69,6 +84,7 @@ void RuntimeBootstrap::start() {
   }
 
   node_ = makeBootstrapNode(ros_integration_);
+  host_builder_ = std::make_unique<runtime::RuntimeHostBuilder>(node_);
   trajectory_sample_dt_ = std::clamp(
       node_->declare_parameter("trajectory_sample_dt", kDefaultTrajectorySampleDt),
       kMinTrajectorySampleDt,
@@ -236,16 +252,17 @@ void RuntimeBootstrap::start() {
   const std::string inferred_runtime_profile =
       backend_mode_ == BackendMode::effort ? std::string{"rt_sim_experimental_best_effort"} :
       std::string{"nrt_strict_parity"};
+  const std::string requested_service_exposure_profile =
+      node_->declare_parameter("service_exposure_profile", getenvOrDefault("ROKAE_SERVICE_EXPOSURE_PROFILE", to_string(defaultServiceExposureProfile())));
+  service_exposure_profile_ = parseServiceExposureProfile(requested_service_exposure_profile);
   const std::string requested_runtime_profile = node_->declare_parameter("runtime_profile", inferred_runtime_profile);
-  rt_profile_config_ = runtime::resolveRuntimeRtProfile(requested_runtime_profile, runtime::RuntimeHostKind::gazebo_plugin);
-  if (!rt_profile_config_.supported) {
-    throw std::runtime_error(rt_profile_config_.startup_error);
-  }
-  runtime_context_->diagnosticsState().configure(
+  auto host_bootstrap = host_builder_->resolveBootstrap(
+      requested_runtime_profile,
+      runtime::RuntimeHostKind::gazebo_plugin,
       toString(backend_mode_),
-      diagnosticCapabilityFlags(backend_mode_),
-      rt_profile_config_.effective_profile);
-  runtime_context_->diagnosticsState().setRuntimeOptionSummary(runtime::summarizeRuntimeRtProfile(rt_profile_config_));
+      diagnosticCapabilityFlags(backend_mode_));
+  rt_profile_config_ = host_bootstrap.rt_profile;
+  host_builder_->configureContext(*runtime_context_, host_bootstrap, true);
   const bool rt_scheduler_enable = node_->declare_parameter<bool>("rt_scheduler.enable", true);
   const std::string rt_scheduler_policy = node_->declare_parameter<std::string>("rt_scheduler.policy", "fifo");
   const int rt_scheduler_priority = node_->declare_parameter<int>("rt_scheduler.priority", 80);
@@ -263,58 +280,41 @@ void RuntimeBootstrap::start() {
   } else {
     runtime_context_->diagnosticsState().setRtSchedulerState("disabled");
   }
-  control_bridge_config.authoritative_servo_clock = rt_profile_config_.authoritative_servo_clock;
-  control_bridge_config.authoritative_servo_period_sec = rt_profile_config_.servo_period_sec;
-  control_bridge_config.allow_topic_rt_transport = rt_profile_config_.allow_topic_rt_ingress;
-  control_bridge_config.allow_legacy_rt_custom_data = rt_profile_config_.allow_legacy_rt_custom_data;
-  control_bridge_config.require_shm_rt_transport = rt_profile_config_.require_shm_transport;
-  control_bridge_config.fail_on_rt_deadline_miss = rt_profile_config_.fail_on_rt_deadline_miss;
+  host_bootstrap.control_bridge_config.rt_default_fields = control_bridge_config.rt_default_fields;
+  host_bootstrap.control_bridge_config.rt_use_state_data_in_loop = control_bridge_config.rt_use_state_data_in_loop;
+  host_bootstrap.control_bridge_config.rt_network_tolerance_configured = control_bridge_config.rt_network_tolerance_configured;
+  host_bootstrap.control_bridge_config.collision_nominal_thresholds = control_bridge_config.collision_nominal_thresholds;
+  host_bootstrap.control_bridge_config.collision_slow_scale = control_bridge_config.collision_slow_scale;
+  host_bootstrap.control_bridge_config.collision_retreat_distance = control_bridge_config.collision_retreat_distance;
   runtime_context_->diagnosticsState().setSessionModes(
       runtime_context_->sessionState().motionMode(),
       runtime_context_->sessionState().rtControlMode());
   attachExecutorNode();
-  initRuntimeBindings(control_bridge_config);
+  initRuntimeBindings(host_bootstrap);
   initPrepareShutdownService();
   startExecutorThread();
 
   RCLCPP_INFO(
       node_->get_logger(),
-      "runtime diagnostics ready: backend=%s requested_profile=%s effective_profile=%s rt_level=best_effort_non_controller_grade aliases=[get_joint_torque,get_end_torque] "
-      "services=[/xmate3/internal/validate_motion,/xmate3/internal/get_runtime_diagnostics] "
+      "runtime diagnostics ready: backend=%s requested_profile=%s effective_profile=%s service_exposure_profile=%s rt_level=best_effort_non_controller_grade aliases=[get_joint_torque,get_end_torque] "
+      "services=[/xmate3/internal/get_runtime_diagnostics] "
       "topic=[/xmate3/internal/runtime_status] profile_summary=%s",
       toString(backend_mode_),
       requested_runtime_profile.c_str(),
       rt_profile_config_.effective_profile.c_str(),
+      to_string(service_exposure_profile_),
       runtime::summarizeRuntimeRtProfile(rt_profile_config_).c_str());
 }
 
 
 void RuntimeBootstrap::attachExecutorNode() {
-  if (ros_integration_.executor && ros_integration_.attach_to_executor) {
-    executor_ = ros_integration_.executor;
-    auto node_base = node_->get_node_base_interface();
-    const bool already_associated =
-        node_base && node_base->get_associated_with_executor_atomic().load();
-    if (already_associated) {
-      attached_external_executor_ = true;
-      executor_node_added_by_bootstrap_ = false;
-      return;
-    }
-    executor_->add_node(node_);
-    attached_external_executor_ = true;
-    executor_node_added_by_bootstrap_ = true;
-    return;
-  }
-  if (rt_profile_config_.executor_threads <= 1) {
-    executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
-  } else {
-    executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>(rclcpp::ExecutorOptions(), rt_profile_config_.executor_threads);
-  }
-  executor_->add_node(node_);
-  executor_node_added_by_bootstrap_ = true;
+  executor_state_ = host_builder_->attachExecutor(
+      ros_integration_.executor,
+      ros_integration_.attach_to_executor,
+      rt_profile_config_.executor_threads);
 }
 
-void RuntimeBootstrap::initRuntimeBindings(const runtime::RuntimeControlBridgeConfig &control_bridge_config) {
+void RuntimeBootstrap::initRuntimeBindings(const runtime::RuntimeHostBootstrapConfig &host_bootstrap) {
   auto time_provider = [this]() { return node_->get_clock()->now(); };
   auto trajectory_dt_provider = [this]() { return trajectory_sample_dt_; };
   auto request_id_generator = [this](const std::string &prefix) {
@@ -322,9 +322,8 @@ void RuntimeBootstrap::initRuntimeBindings(const runtime::RuntimeControlBridgeCo
   };
 
   initPublishers();
-  publish_bridge_ = std::make_unique<runtime::RuntimePublishBridge>(*runtime_context_);
-  ros_bindings_ = std::make_unique<runtime::RosBindings>(
-      node_,
+  publish_bridge_ = host_builder_->createPublishBridge(*runtime_context_);
+  ros_bindings_ = host_builder_->createRosBindings(
       *runtime_context_,
       publish_bridge_.get(),
       *kinematics_,
@@ -332,8 +331,9 @@ void RuntimeBootstrap::initRuntimeBindings(const runtime::RuntimeControlBridgeCo
       time_provider,
       trajectory_dt_provider,
       request_id_generator,
-      runtime::RosBindingsRtIngressOptions{rt_profile_config_.allow_topic_rt_ingress});
-  control_bridge_ = std::make_unique<runtime::RuntimeControlBridge>(*runtime_context_, control_bridge_config);
+      service_exposure_profile_,
+      rt_profile_config_);
+  control_bridge_ = host_builder_->createControlBridge(*runtime_context_, host_bootstrap);
   initPublishTimer();
 }
 
@@ -342,48 +342,20 @@ void RuntimeBootstrap::initPublishTimer() {
   if (!node_ || !publish_bridge_) {
     return;
   }
-  const auto publish_period_ms = std::max<int>(
-      1,
-      static_cast<int>(std::lround(std::min({rt_profile_config_.publish_rates.joint_state_period_sec,
-                                             rt_profile_config_.publish_rates.operation_state_period_sec,
-                                             rt_profile_config_.publish_rates.diagnostics_period_sec}) *
-                                   1000.0)));
-  publish_timer_ = node_->create_wall_timer(std::chrono::milliseconds(publish_period_ms), [this]() {
-    if (shutting_down_.load() || !publish_bridge_ || !joint_state_pub_ || !operation_state_pub_) {
-      return;
-    }
-
-    static_cast<void>(collectShutdownContractState(false));
-    std::array<double, 6> position{};
-    std::array<double, 6> velocity{};
-    std::array<double, 6> torque{};
-    if (joint_state_fetcher_) {
-      joint_state_fetcher_(position, velocity, torque);
-    }
-
-    runtime::PublisherTickInput tick_input;
-    tick_input.stamp = node_->now();
-    tick_input.frame_id = "base_link";
-    tick_input.joint_names = joint_names_;
-    tick_input.position = position;
-    tick_input.velocity = velocity;
-    tick_input.torque = torque;
-    tick_input.min_publish_period_sec = 0.0;
-    tick_input.joint_state_publish_period_sec = rt_profile_config_.publish_rates.joint_state_period_sec;
-    tick_input.operation_state_publish_period_sec = rt_profile_config_.publish_rates.operation_state_period_sec;
-    tick_input.diagnostics_publish_period_sec = rt_profile_config_.publish_rates.diagnostics_period_sec;
-
-    const auto publish_tick = publish_bridge_->buildPublisherTick(tick_input);
-    if (publish_tick.publish_joint_state) {
-      joint_state_pub_->publish(publish_tick.joint_state);
-    }
-    if (publish_tick.publish_operation_state) {
-      operation_state_pub_->publish(publish_tick.operation_state);
-    }
-    if (publish_tick.publish_runtime_diagnostics && runtime_diagnostics_pub_ != nullptr) {
-      runtime_diagnostics_pub_->publish(publish_bridge_->buildRuntimeDiagnosticsMessage());
-    }
-  });
+  publish_timer_ = host_builder_->createPublishTimer(
+      *publish_bridge_,
+      host_publishers_,
+      joint_names_,
+      joint_state_fetcher_,
+      rt_profile_config_,
+      [this]() {
+        if (shutting_down_.load() || !publish_bridge_ || !host_publishers_.joint_state_pub ||
+            !host_publishers_.operation_state_pub) {
+          return false;
+        }
+        static_cast<void>(collectShutdownContractState(false));
+        return true;
+      });
 }
 
 void RuntimeBootstrap::initPrepareShutdownService() {
@@ -428,36 +400,13 @@ void RuntimeBootstrap::initPrepareShutdownService() {
 }
 
 void RuntimeBootstrap::startExecutorThread() {
-  if (attached_external_executor_ || !executor_) {
-    return;
-  }
-  executor_thread_ = std::thread([this]() {
-    try {
-      executor_->spin();
-    } catch (const std::exception &e) {
-      RCLCPP_ERROR(node_->get_logger(), "ROS executor stopped unexpectedly: %s", e.what());
-    }
-  });
+  host_builder_->startExecutor(executor_state_);
 }
 
 void RuntimeBootstrap::releaseExecutorNode() {
-  if (executor_ && !attached_external_executor_) {
-    executor_->cancel();
+  if (host_builder_) {
+    host_builder_->releaseExecutor(executor_state_);
   }
-  if (executor_thread_.joinable()) {
-    executor_thread_.join();
-  }
-  if (executor_ && node_ && executor_node_added_by_bootstrap_) {
-    try {
-      auto node_base = node_->get_node_base_interface();
-      if (node_base && node_base->get_associated_with_executor_atomic().load()) {
-        executor_->remove_node(node_);
-      }
-    } catch (const std::exception &) {
-    }
-  }
-  attached_external_executor_ = false;
-  executor_node_added_by_bootstrap_ = false;
 }
 
 void RuntimeBootstrap::shutdown(const std::string &reason) {
@@ -527,10 +476,7 @@ runtime::ShutdownContractView RuntimeBootstrap::collectShutdownContractState(boo
 }
 
 void RuntimeBootstrap::initPublishers() {
-  joint_state_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>("/xmate3/joint_states", 10);
-  operation_state_pub_ = node_->create_publisher<rokae_xmate3_ros2::msg::OperationState>("/xmate3/cobot/operation_state", 10);
-  runtime_diagnostics_pub_ =
-      node_->create_publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>("/xmate3/internal/runtime_status", 10);
+  host_publishers_ = host_builder_->createPublishers();
 }
 
 }  // namespace gazebo

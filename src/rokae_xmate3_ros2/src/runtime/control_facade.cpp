@@ -362,8 +362,14 @@ void ControlFacade::handleMoveStart(const rokae_xmate3_ros2::srv::MoveStart::Req
       return;
     }
   }
-  res.success = true;
-  res.message = "move start accepted";
+  if (request_coordinator_ == nullptr) {
+    res.success = false;
+    res.message = "runtime request coordinator unavailable";
+    return;
+  }
+  const auto start = request_coordinator_->startQueuedRequest();
+  res.success = start.success;
+  res.message = start.message;
 }
 
 void ControlFacade::handleStop(const rokae_xmate3_ros2::srv::Stop::Request &req,
@@ -372,7 +378,18 @@ void ControlFacade::handleStop(const rokae_xmate3_ros2::srv::Stop::Request &req,
   if (!requireConnected(session_state_, res.success, res.message)) {
     return;
   }
-  stopRuntime("stop service called");
+  if (backend_ != nullptr) {
+    const auto snapshot = backend_->readSnapshot();
+    if (request_coordinator_ != nullptr) {
+      request_coordinator_->pause(snapshot.joint_position, "stop service called");
+    } else if (motion_runtime_ != nullptr) {
+      motion_runtime_->pause(snapshot, "stop service called");
+    }
+  } else if (motion_runtime_ != nullptr) {
+    motion_runtime_->pause("stop service called");
+  } else {
+    stopRuntime("stop service called");
+  }
   clearBackendControl();
   res.success = true;
   res.message = "stop accepted";

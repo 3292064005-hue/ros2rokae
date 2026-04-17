@@ -1,11 +1,11 @@
 @PACKAGE_INIT@
 include(CMakeFindDependencyMacro)
 
-# The compatibility package is still ROS2/Gazebo-linked internally. Both public targets are real install-facing
-# libraries, and the install contract is frozen to the xMate6 compatibility lane. The static target
-# still packages the compatibility facade together with the internal runtime/backend object code.
-# Downstream consumers therefore need the same ROS2/Gazebo dependency set that the shipped
-# compatibility implementation links against.
+# The install-facing compatibility package exports the frozen xMate6 public lane only.
+# Gazebo plugin/runtime integrations remain source-tree/private-target only.
+# Runtime-host / Gazebo integration remains available from the source-tree package and private targets,
+# but downstream find_package(xCoreSDK) consumers resolve only the public dependency surface needed by
+# the shipped compatibility libraries.
 find_dependency(Eigen3 REQUIRED NO_MODULE)
 find_dependency(ament_index_cpp REQUIRED CONFIG)
 find_dependency(rclcpp REQUIRED CONFIG)
@@ -18,7 +18,6 @@ find_dependency(trajectory_msgs REQUIRED CONFIG)
 find_dependency(rosidl_runtime_cpp REQUIRED CONFIG)
 find_dependency(unique_identifier_msgs REQUIRED CONFIG)
 find_dependency(action_msgs REQUIRED CONFIG)
-find_dependency(gazebo_ros REQUIRED CONFIG)
 find_dependency(kdl_parser REQUIRED CONFIG)
 
 # The install-facing compatibility targets currently link against this package's generated

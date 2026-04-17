@@ -22,6 +22,7 @@ void QueryFacade::handleGetRuntimeDiagnostics(
     rokae_xmate3_ros2::srv::GetRuntimeDiagnostics::Response &res) const {
   (void)req;
   const auto snapshot = diagnostics_state_.snapshot();
+  const auto runtime_view = motion_runtime_.view();
   res.diagnostics.backend_mode = snapshot.backend_mode;
   res.diagnostics.control_owner = snapshot.control_owner;
   res.diagnostics.runtime_phase = snapshot.runtime_phase;
@@ -79,7 +80,7 @@ void QueryFacade::handleGetRuntimeDiagnostics(
   res.diagnostics.project_catalog_size = snapshot.project_catalog_size;
   res.diagnostics.register_catalog_size = snapshot.register_catalog_size;
   res.success = true;
-  res.message.clear();
+  res.message = "query_authority=diagnostics_snapshot;runtime_phase=" + to_string(runtime_view.status.runtime_phase) + ";active_request=" + runtime_view.status.request_id;
 }
 
 void QueryFacade::handleGetEndEffectorTorque(const rokae_xmate3_ros2::srv::GetEndEffectorTorque::Request &req,
@@ -88,7 +89,7 @@ void QueryFacade::handleGetEndEffectorTorque(const rokae_xmate3_ros2::srv::GetEn
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> tau_array{};
-  joint_state_fetcher_(pos, vel, tau_array);
+  readAuthorityJointState(pos, vel, tau_array);
   const auto joints = detail::snapshot_joints(pos);
   const auto toolset = tooling_state_.toolset();
   const auto model_facade = detail::make_runtime_model_facade(kinematics_, toolset);
@@ -112,7 +113,7 @@ void QueryFacade::handleGetEndWrench(const rokae_xmate3_ros2::srv::GetEndWrench:
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> measured{};
-  joint_state_fetcher_(pos, vel, measured);
+  readAuthorityJointState(pos, vel, measured);
   rokae_xmate3_ros2::srv::GetEndEffectorTorque::Request legacy_req;
   rokae_xmate3_ros2::srv::GetEndEffectorTorque::Response legacy_res;
   handleGetEndEffectorTorque(legacy_req, legacy_res);

@@ -203,8 +203,18 @@ RuntimePublishBridge::buildMoveAppendFeedbackMessage(const FeedbackSnapshot &sna
 }
 
 std::shared_ptr<rokae_xmate3_ros2::action::MoveAppend::Result>
-RuntimePublishBridge::buildMoveAppendResult(const std::string &request_id,
-                                            const RuntimeStatus &status) const {
+RuntimePublishBridge::buildMoveAppendQueuedResult(const std::string &request_id,
+                                                  const std::string &message) const {
+  auto result = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
+  result->success = true;
+  result->cmd_id = request_id;
+  result->message = message.empty() ? std::string{"queued awaiting moveStart"} : message;
+  return result;
+}
+
+std::shared_ptr<rokae_xmate3_ros2::action::MoveAppend::Result>
+RuntimePublishBridge::buildMoveAppendTerminalResult(const std::string &request_id,
+                                                    const RuntimeStatus &status) const {
   auto result = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
   result->success = (status.state == ExecutionState::completed ||
                      status.state == ExecutionState::completed_relaxed) &&
@@ -212,56 +222,6 @@ RuntimePublishBridge::buildMoveAppendResult(const std::string &request_id,
   result->cmd_id = request_id;
   result->message = status.message.empty() ? to_string(status.state) : status.message;
   return result;
-}
-
-void RuntimePublishBridge::driveMoveAppendGoal(
-    const std::shared_ptr<MoveAppendGoalHandle> &goal_handle,
-    const std::string &request_id) {
-  std::string last_state;
-  std::size_t last_completed = std::numeric_limits<std::size_t>::max();
-  std::uint64_t last_revision = 0;
-
-  while (rclcpp::ok()) {
-    if (goal_handle->is_canceling()) {
-      runtime_context_.requestCoordinator().stop("move append canceled");
-      auto result = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
-      result->success = false;
-      result->cmd_id = request_id;
-      result->message = "Canceled";
-      goal_handle->canceled(result);
-      return;
-    }
-
-    const auto status = waitForRequestUpdate(request_id, last_revision, std::chrono::milliseconds(100));
-    if (status.revision > last_revision) {
-      last_revision = status.revision;
-    }
-
-    const auto feedback_snapshot = buildMoveAppendFeedback(status, last_completed, last_state);
-    if (feedback_snapshot.should_publish) {
-      goal_handle->publish_feedback(buildMoveAppendFeedbackMessage(feedback_snapshot));
-      last_completed = status.completed_segments;
-      last_state = status.message;
-    }
-
-    if (status.terminal()) {
-      auto result = buildMoveAppendResult(request_id, status);
-      if (result->success) {
-        goal_handle->succeed(result);
-      } else if (goal_handle->is_canceling()) {
-        goal_handle->canceled(result);
-      } else {
-        goal_handle->abort(result);
-      }
-      return;
-    }
-  }
-
-  auto result = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
-  result->success = false;
-  result->cmd_id = request_id;
-  result->message = "MoveAppend interrupted";
-  goal_handle->abort(result);
 }
 
 FeedbackSnapshot buildMoveAppendFeedback(const RuntimeStatus &status,

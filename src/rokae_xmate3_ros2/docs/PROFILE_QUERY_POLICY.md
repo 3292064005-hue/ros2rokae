@@ -1,16 +1,18 @@
 # Profile Query Policy
 
-`GetProfileCapabilities` is the preferred runtime surface for discovering:
+> 状态：Compatibility Redirect  
+> 角色：旧链接 / 旧脚本锚点 / 历史引用兼容入口  
+> 当前主说明：[`RUNTIME_PROFILES.md`](RUNTIME_PROFILES.md)  
+> 是否为当前主说明：否  
+> 最后校验：2026-04-17
 
-- active runtime profile
-- available profile descriptors
-- runtime option descriptors
+## 如何使用本页
 
-This service is intentionally **read-only**. It must never become a state-changing API.
+- 需要当前有效规则时，直接跳转到 [`RUNTIME_PROFILES.md`](RUNTIME_PROFILES.md)。
+- 只有在旧链接、旧脚本锚点或历史审计引用必须保留时，才继续保留此页。
 
-## Design rules
+## 保留锚点
 
-1. profile truth comes from runtime, not from wrapper-side heuristics
-2. option descriptors come from the runtime option catalog
-3. diagnostics summaries and query results must agree
-4. preferred contract is `GetProfileCapabilities`; summaries in diagnostics are convenience projections
+- runtime_request_coordinator is the query authority
+- joint-state reads must project from authoritative runtime snapshots
+- raw fetchers are not public truth surfaces

@@ -7,9 +7,10 @@
   <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>
   <xacro:arg name="mesh_root" default="package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/"/>
   <xacro:arg name="package_share" default="."/>
-  <xacro:arg name="enable_ros2_control" default="false"/>
+  <xacro:arg name="enable_ros2_control" default="true"/>
   <xacro:arg name="enable_xcore_plugin" default="true"/>
-  <xacro:arg name="backend_mode" default="hybrid"/>
+  <xacro:arg name="backend_mode" default="jtc"/>
+  <xacro:arg name="service_exposure_profile" default="public_xmate6_only"/>
   <xacro:arg name="joint_damping" default="0.5"/>
   <xacro:arg name="joint_friction" default="0.1"/>
   <xacro:arg name="flange_to_tool0_xyz" default="0 0 0"/>
@@ -22,6 +23,7 @@
   <xacro:property name="ros2_control_enabled" value="$(arg enable_ros2_control)"/>
   <xacro:property name="xcore_plugin_enabled" value="$(arg enable_xcore_plugin)"/>
   <xacro:property name="backend_mode_value" value="$(arg backend_mode)"/>
+  <xacro:property name="service_exposure_profile_value" value="$(arg service_exposure_profile)"/>
   <xacro:property name="joint_damping_value" value="$(arg joint_damping)"/>
   <xacro:property name="joint_friction_value" value="$(arg joint_friction)"/>
 
@@ -288,11 +290,12 @@
     <xacro:xMate3_ros2_control package_share="$(arg package_share)" backend_mode="$(arg backend_mode)"/>
   </xacro:if>
 
-  <!-- xCore SDK 服务插件 - 直接控制关节，提供完整SDK功能 -->
-  <xacro:if value="${str(xcore_plugin_enabled).lower() == 'true' and str(backend_mode_value) != 'jtc'}">
+  <!-- xCore SDK 服务插件 - 提供 xCore SDK 兼容服务与 runtime，jtc 模式下仅让执行权保持在外部 JTC -->
+  <xacro:if value="${str(xcore_plugin_enabled).lower() == 'true'}">
     <gazebo>
       <plugin name="xcore_controller_gazebo_plugin" filename="libxcore_controller_gazebo_plugin.so">
         <backend_mode>${backend_mode_value}</backend_mode>
+        <service_exposure_profile>${service_exposure_profile_value}</service_exposure_profile>
       </plugin>
     </gazebo>
   </xacro:if>

@@ -2,6 +2,7 @@ import os
 import sys
 
 import launch
+import launch_ros
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -14,6 +15,7 @@ from _simulation_support import (
     build_rviz_node,
     build_spawn_entity_action,
     build_spawn_exit_handler,
+    build_runtime_host_group,
     declare_arguments,
     resolve_package_lib_dir,
     resolve_package_share,
@@ -53,13 +55,13 @@ def generate_launch_description():
 
     return launch.LaunchDescription(
         declared_arguments
-        + [
-            launch.actions.LogInfo(msg="正在启动 xMate3 纯 Gazebo 仿真环境..."),
-            *env_actions,
+        + build_runtime_host_group(
+            pkg_share,
             robot_state_publisher_node,
+            env_actions,
             gazebo_launch,
             spawn_entity_node,
             on_spawn_exit,
             rviz_node,
-        ]
+        )
     )

@@ -10,12 +10,14 @@ namespace rokae_xmate3_ros2::runtime {
 
 enum class RuntimeEventType {
   reset,
+  request_queued,
   planning_requested,
   planning_rejected,
   plan_queued,
   execution_started,
   progress_updated,
   trajectory_retimed,
+  paused,
   watchdog_triggered,
   completed,
   completed_relaxed,

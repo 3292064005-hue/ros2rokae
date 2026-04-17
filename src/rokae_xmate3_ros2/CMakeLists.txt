@@ -80,7 +80,8 @@ add_custom_command(
           mesh_root:=model://rokae_xmate3_ros2/meshes/
           enable_ros2_control:=true
           enable_xcore_plugin:=true
-          backend_mode:=hybrid
+          backend_mode:=jtc
+          service_exposure_profile:=public_xmate6_only
   COMMAND "${ROKAE_SYSTEM_PYTHON}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_description_metadata.py"
           --urdf "${ROKAE_GENERATED_XMATE3_URDF}"
@@ -88,7 +89,9 @@ add_custom_command(
           --source-xacro "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
           --enable-ros2-control true
           --enable-xcore-plugin true
-          --backend-mode hybrid
+          --backend-mode jtc
+          --service-exposure-profile public_xmate6_only
+          --source-xacro-package-relative urdf/xMate3.xacro
   DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
     "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.ros2_control.xacro"
@@ -139,7 +142,7 @@ if(ROKAE_BUILD_COMPAT_SDK)
   set(ROKAE_SDK_ARTIFACT_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/xcoresdk_artifact")
   add_custom_target(assemble_sdk_artifact
     COMMAND "${CMAKE_COMMAND}" -E rm -rf "${ROKAE_SDK_ARTIFACT_STAGE}" "${ROKAE_SDK_ARTIFACT_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" --install "${CMAKE_CURRENT_BINARY_DIR}" --prefix "${ROKAE_SDK_ARTIFACT_STAGE}"
+    COMMAND "${CMAKE_COMMAND}" --install "${CMAKE_CURRENT_BINARY_DIR}" --prefix "${ROKAE_SDK_ARTIFACT_STAGE}" --component public_sdk
     COMMAND "${ROKAE_SYSTEM_PYTHON}"
             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/assemble_sdk_artifact.py"
             --staging-prefix "${ROKAE_SDK_ARTIFACT_STAGE}"

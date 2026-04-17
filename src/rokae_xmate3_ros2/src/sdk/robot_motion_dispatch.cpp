@@ -110,50 +110,27 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
         active_goal_handles_.push_back(goal_handle);
     }
 
-    // 【关键】等待直到operation state变为MOVING，确保运动真正开始
-    const bool has_complex_cartesian =
-        !goal_to_send.c_cmds.empty() || !goal_to_send.cf_cmds.empty() || !goal_to_send.sp_cmds.empty();
-    const auto start_timeout = has_complex_cartesian ? std::chrono::seconds(15) : std::chrono::seconds(5);
-    RCLCPP_INFO(node_->get_logger(), "等待运动开始...");
-    auto start_wait = std::chrono::steady_clock::now();
-    bool motion_started = false;
-    bool action_completed_during_wait = false;
-    while (std::chrono::steady_clock::now() - start_wait < start_timeout) {
+    // MoveAppend 在 public xMate6 lane 中只负责“排队”，真正启动由 moveStart() 提交。
+    // 因此此处只检测是否出现即时排队失败，而不等待 operation state 变为 MOVING。
+    constexpr auto queue_ack_timeout = std::chrono::milliseconds(250);
+    auto queue_ack_start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - queue_ack_start < queue_ack_timeout) {
         pump_callbacks();
         if (checkMoveAppendFailure(ec)) {
             return false;
         }
         {
-            std::lock_guard<std::mutex> lock(state_mutex_);
-            if (last_operation_state_.state == rokae_xmate3_ros2::msg::OperationState::MOVING) {
-                motion_started = true;
+            std::lock_guard<std::mutex> lock(action_mutex_);
+            if (move_append_result_ready_ && move_append_result_code_ == rclcpp_action::ResultCode::SUCCEEDED &&
+                move_append_result_success_) {
                 break;
             }
-        }
-        {
-            std::lock_guard<std::mutex> lock(action_mutex_);
-            action_completed_during_wait =
-                move_append_result_ready_ &&
-                move_append_result_code_ == rclcpp_action::ResultCode::SUCCEEDED &&
-                move_append_result_success_;
-        }
-        if (action_completed_during_wait) {
-            break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    if (motion_started) {
-        RCLCPP_INFO(node_->get_logger(), "运动已开始!");
-    } else {
-        if (checkMoveAppendFailure(ec)) {
-            return false;
-        }
-        if (action_completed_during_wait) {
-            RCLCPP_INFO(node_->get_logger(), "运动在等待窗口内已完成，跳过开始检测");
-        } else {
-            RCLCPP_WARN(node_->get_logger(), "等待运动开始超时，继续执行...");
-        }
+    if (checkMoveAppendFailure(ec)) {
+        return false;
     }
 
     ec.clear();

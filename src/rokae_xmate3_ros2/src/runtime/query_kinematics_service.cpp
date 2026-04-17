@@ -45,7 +45,7 @@ void QueryFacade::handleCalcIk(const rokae_xmate3_ros2::srv::CalcIk::Request &re
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> tau{};
-  joint_state_fetcher_(pos, vel, tau);
+  readAuthorityJointState(pos, vel, tau);
   const auto current = detail::snapshot_joints(pos);
   auto candidates = kinematics_.inverseKinematicsMultiSolution(target, current);
   const auto seeded_fast = kinematics_.inverseKinematicsSeededFast(target, current);
@@ -228,7 +228,7 @@ void QueryFacade::handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMot
     std::array<double, 6> pos{};
     std::array<double, 6> vel{};
     std::array<double, 6> tau{};
-    joint_state_fetcher_(pos, vel, tau);
+    readAuthorityJointState(pos, vel, tau);
     start_joints = detail::snapshot_joints(pos);
   }
 

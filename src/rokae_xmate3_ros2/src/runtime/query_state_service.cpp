@@ -22,9 +22,11 @@ namespace rokae_xmate3_ros2::runtime {
 void QueryFacade::handleGetPowerState(const rokae_xmate3_ros2::srv::GetPowerState::Request &req,
                                       rokae_xmate3_ros2::srv::GetPowerState::Response &res) const {
   (void)req;
-  res.state.state = session_state_.powerOn() ? rokae_xmate3_ros2::msg::PowerState::ON
-                                                : rokae_xmate3_ros2::msg::PowerState::OFF;
+  const auto authority = authorityView();
+  res.state.state = authority.power_on ? rokae_xmate3_ros2::msg::PowerState::ON
+                                       : rokae_xmate3_ros2::msg::PowerState::OFF;
   res.success = true;
+  res.message = "query_authority=runtime_request_coordinator";
 }
 
 void QueryFacade::handleGetInfo(const rokae_xmate3_ros2::srv::GetInfo::Request &req,
@@ -37,6 +39,7 @@ void QueryFacade::handleGetInfo(const rokae_xmate3_ros2::srv::GetInfo::Request &
   res.sdk_version = rokae_xmate3_ros2::spec::xmate3::controlSystemVersion();
   res.joint_num = static_cast<int32_t>(rokae_xmate3_ros2::spec::xmate3::kDoF);
   res.success = true;
+  res.message = "query_authority=runtime_request_coordinator";
 }
 
 void QueryFacade::handleGetRuntimeStateSnapshot(
@@ -47,17 +50,18 @@ void QueryFacade::handleGetRuntimeStateSnapshot(
     std::array<double, 6> pos{};
     std::array<double, 6> vel{};
     std::array<double, 6> tau{};
-    joint_state_fetcher_(pos, vel, tau);
+    readAuthorityJointState(pos, vel, tau);
 
     const auto toolset = tooling_state_.toolset();
     const auto diagnostics = diagnostics_state_.snapshot();
+    const auto runtime_view = authorityView();
 
-    res.connected = session_state_.connected();
-    res.power_on = session_state_.powerOn();
-    res.drag_mode = session_state_.dragMode();
+    res.connected = runtime_view.connected;
+    res.power_on = runtime_view.power_on;
+    res.drag_mode = runtime_view.drag_mode;
     res.simulation_mode = session_state_.simulationMode();
     res.collision_detection_enabled = session_state_.collisionDetectionEnabled();
-    res.motion_mode = session_state_.motionMode();
+    res.motion_mode = runtime_view.motion_mode;
     res.operate_mode = session_state_.operateMode().mode;
     res.rt_mode = session_state_.rtControlMode();
     res.joint_position = pos;
@@ -77,7 +81,7 @@ void QueryFacade::handleGetRuntimeStateSnapshot(
     res.tool_com = toolset.tool_com;
     res.backend_mode = diagnostics.backend_mode;
     res.active_profile = diagnostics.active_profile;
-    res.runtime_phase = diagnostics.runtime_phase;
+    res.runtime_phase = to_string(runtime_view.status.runtime_phase);
     res.control_owner = diagnostics.control_owner;
     res.rt_subscription_plan = diagnostics.rt_subscription_plan;
     res.profile_capability_summary = diagnostics.profile_capability_summary;
@@ -86,7 +90,7 @@ void QueryFacade::handleGetRuntimeStateSnapshot(
     res.model_exactness_summary = diagnostics.model_exactness_summary;
     res.catalog_provenance_summary = diagnostics.catalog_provenance_summary;
     res.success = true;
-    res.message = "runtime-owned read snapshot";
+    res.message = "runtime-owned read snapshot; query_authority=runtime_request_coordinator";
   } catch (const std::exception &ex) {
     res.success = false;
     res.message = std::string{"runtime snapshot failed: "} + ex.what();
@@ -122,11 +126,12 @@ void QueryFacade::handleGetJointPos(const rokae_xmate3_ros2::srv::GetJointPos::R
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> tau{};
-  joint_state_fetcher_(pos, vel, tau);
+  readAuthorityJointState(pos, vel, tau);
   for (int i = 0; i < 6 && i < joint_num_; ++i) {
     res.joint_positions[i] = pos[i];
   }
   res.success = true;
+  res.message = "query_authority=runtime_request_coordinator";
 }
 
 void QueryFacade::handleGetJointVel(const rokae_xmate3_ros2::srv::GetJointVel::Request &req,
@@ -135,11 +140,12 @@ void QueryFacade::handleGetJointVel(const rokae_xmate3_ros2::srv::GetJointVel::R
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> tau{};
-  joint_state_fetcher_(pos, vel, tau);
+  readAuthorityJointState(pos, vel, tau);
   for (int i = 0; i < 6 && i < joint_num_; ++i) {
     res.joint_vel[i] = vel[i];
   }
   res.success = true;
+  res.message = "query_authority=runtime_request_coordinator";
 }
 
 void QueryFacade::handleGetJointTorques(const rokae_xmate3_ros2::srv::GetJointTorques::Request &req,
@@ -148,11 +154,12 @@ void QueryFacade::handleGetJointTorques(const rokae_xmate3_ros2::srv::GetJointTo
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> tau{};
-  joint_state_fetcher_(pos, vel, tau);
+  readAuthorityJointState(pos, vel, tau);
   for (int i = 0; i < 6 && i < joint_num_; ++i) {
     res.joint_torque[i] = tau[i];
   }
   res.success = true;
+  res.message = "query_authority=runtime_request_coordinator";
 }
 
 void QueryFacade::handleGetPosture(const rokae_xmate3_ros2::srv::GetPosture::Request &req,
@@ -166,14 +173,14 @@ void QueryFacade::handleGetPosture(const rokae_xmate3_ros2::srv::GetPosture::Req
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> tau{};
-  joint_state_fetcher_(pos, vel, tau);
+  readAuthorityJointState(pos, vel, tau);
   const auto flange_pose = kinematics_.forwardKinematicsRPY(detail::snapshot_joints(pos));
   const auto pose = detail::resolve_pose_for_coordinate(flange_pose, tooling_state_.toolset(), req.coordinate_type);
   for (int i = 0; i < 6; ++i) {
     res.posture[i] = pose[i];
   }
   res.success = true;
-  res.message.clear();
+  res.message = "query_authority=runtime_request_coordinator";
 }
 
 void QueryFacade::handleGetCartPosture(const rokae_xmate3_ros2::srv::GetCartPosture::Request &req,
@@ -187,7 +194,7 @@ void QueryFacade::handleGetCartPosture(const rokae_xmate3_ros2::srv::GetCartPost
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> tau{};
-  joint_state_fetcher_(pos, vel, tau);
+  readAuthorityJointState(pos, vel, tau);
   const auto flange_pose = kinematics_.forwardKinematicsRPY(detail::snapshot_joints(pos));
   const auto pose = detail::resolve_pose_for_coordinate(flange_pose, tooling_state_.toolset(), req.coordinate_type);
   res.x = pose[0];
@@ -197,7 +204,7 @@ void QueryFacade::handleGetCartPosture(const rokae_xmate3_ros2::srv::GetCartPost
   res.ry = pose[4];
   res.rz = pose[5];
   res.success = true;
-  res.message.clear();
+  res.message = "query_authority=runtime_request_coordinator";
 }
 
 void QueryFacade::handleGetBaseFrame(const rokae_xmate3_ros2::srv::GetBaseFrame::Request &req,
@@ -208,6 +215,7 @@ void QueryFacade::handleGetBaseFrame(const rokae_xmate3_ros2::srv::GetBaseFrame:
     res.base_frame[i] = base_pose[i];
   }
   res.success = true;
+  res.message = "query_authority=runtime_request_coordinator";
 }
 
 void QueryFacade::handleGetToolset(const rokae_xmate3_ros2::srv::GetToolset::Request &req,
@@ -219,6 +227,7 @@ void QueryFacade::handleGetToolset(const rokae_xmate3_ros2::srv::GetToolset::Req
   res.tool_pose = toolset.tool_pose;
   res.wobj_pose = toolset.wobj_pose;
   res.success = true;
+  res.message = "query_authority=runtime_request_coordinator";
 }
 
 void QueryFacade::handleGetSoftLimit(const rokae_xmate3_ros2::srv::GetSoftLimit::Request &req,
@@ -231,6 +240,7 @@ void QueryFacade::handleGetSoftLimit(const rokae_xmate3_ros2::srv::GetSoftLimit:
     res.limits[i * 2 + 1] = soft_limit.limits[i][1];
   }
   res.success = true;
+  res.message = "query_authority=runtime_request_coordinator";
 }
 
 void QueryFacade::handleGetRtJointData(const rokae_xmate3_ros2::srv::GetRtJointData::Request &req,
@@ -245,7 +255,7 @@ void QueryFacade::handleGetRtJointData(const rokae_xmate3_ros2::srv::GetRtJointD
   std::array<double, 6> pos{};
   std::array<double, 6> vel{};
   std::array<double, 6> tau{};
-  joint_state_fetcher_(pos, vel, tau);
+  readAuthorityJointState(pos, vel, tau);
   for (int i = 0; i < 6 && i < joint_num_; ++i) {
     res.joint_position[i] = pos[i];
     res.joint_velocity[i] = vel[i];
@@ -254,7 +264,7 @@ void QueryFacade::handleGetRtJointData(const rokae_xmate3_ros2::srv::GetRtJointD
   res.stamp = detail::ToBuiltinTime(time_provider_());
   res.success = true;
   res.error_code = 0;
-  res.error_msg.clear();
+  res.error_msg = "query_authority=runtime_request_coordinator";
 }
 
 void QueryFacade::handleGetAvoidSingularity(

@@ -54,16 +54,19 @@ def main() -> int:
     for name in ("libxCoreSDK_static.a", "libxCoreSDK_shared.so"):
         copy_required(staging_prefix / "lib" / name, output_dir / "lib" / name, required=False)
 
-    copy_required(
-        staging_prefix / "share" / "rokae_xmate3_ros2" / "docs",
-        output_dir / "share" / "rokae_xmate3_ros2" / "docs",
-        required=False,
-    )
-    copy_required(
-        staging_prefix / "share" / "rokae_xmate3_ros2" / "examples" / "cpp",
-        output_dir / "share" / "rokae_xmate3_ros2" / "examples" / "cpp",
-        required=False,
-    )
+    for rel in [
+        (Path('share/rokae_xmate3_ros2/docs'), Path('share/rokae_xmate3_ros2/docs')),
+        (Path('share/rokae_xmate3_ros2/examples'), Path('share/rokae_xmate3_ros2/examples')),
+        (Path('share/rokae_xmate3_ros2/launch'), Path('share/rokae_xmate3_ros2/launch')),
+        (Path('share/rokae_xmate3_ros2/config'), Path('share/rokae_xmate3_ros2/config')),
+        (Path('share/rokae_xmate3_ros2/generated'), Path('share/rokae_xmate3_ros2/generated')),
+        (Path('share/rokae_xmate3_ros2/meshes'), Path('share/rokae_xmate3_ros2/meshes')),
+        (Path('share/rokae_xmate3_ros2/models'), Path('share/rokae_xmate3_ros2/models')),
+        (Path('share/rokae_xmate3_ros2/tools'), Path('share/rokae_xmate3_ros2/tools')),
+        (Path('share/rokae_xmate3_ros2/urdf'), Path('share/rokae_xmate3_ros2/urdf')),
+        (Path('share/rokae_xmate3_ros2/worlds'), Path('share/rokae_xmate3_ros2/worlds')),
+    ]:
+        copy_required(staging_prefix / rel[0], output_dir / rel[1], required=False)
 
     entries = []
     for path in sorted(output_dir.rglob("*")):

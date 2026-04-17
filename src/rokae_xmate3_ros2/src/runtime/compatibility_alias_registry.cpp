@@ -9,18 +9,21 @@
 
 namespace rokae_xmate3_ros2::runtime {
 
-std::vector<ServiceRegistrationDescriptor> buildCompatibilityAliasDescriptors() {
+std::vector<ServiceRegistrationDescriptor> buildCompatibilityAliasDescriptors(ServiceExposureProfile profile) {
   std::vector<ServiceRegistrationDescriptor> descriptors;
 #define ROKAE_ADD_ALIAS(ServiceT, domain, name, facade_accessor, method) \
   descriptors.push_back(makeServiceRegistrationDescriptor<ServiceT>(domain, name, true, facade_accessor, method));
-  ROKAE_COMPATIBILITY_ALIAS_CONTRACTS(ROKAE_ADD_ALIAS)
+  ROKAE_PUBLIC_XMATE6_COMPATIBILITY_ALIAS_CONTRACTS(ROKAE_ADD_ALIAS)
+  if (profile == ServiceExposureProfile::internal_full) {
+    ROKAE_INTERNAL_BACKEND_COMPATIBILITY_ALIAS_CONTRACTS(ROKAE_ADD_ALIAS)
+  }
 #undef ROKAE_ADD_ALIAS
   return descriptors;
 }
 
 void RosBindings::registerCompatibilityAliases() {
-  const auto descriptors = buildCompatibilityAliasDescriptors();
-  const auto primary = buildPrimaryServiceDescriptors();
+  const auto descriptors = buildCompatibilityAliasDescriptors(service_exposure_profile_);
+  const auto primary = buildPrimaryServiceDescriptors(service_exposure_profile_);
   std::string error_message;
   if (!validateServiceDescriptorSets(primary, descriptors, error_message)) {
     throw std::runtime_error(error_message);

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "runtime/ros_service_registry.hpp"
+#include "runtime/service_exposure_profile.hpp"
 #include "runtime/service_registration.hpp"
 
 using rokae_xmate3_ros2::runtime::ServiceRegistrationDescriptor;
@@ -40,15 +41,19 @@ TEST(ServiceRegistrationDescriptorTest, RejectsEmptyNames) {
 }
 
 TEST(ServiceRegistrationDescriptorTest, PublishesControlQueryManifestForPrimaryAndCompatibilitySurfaces) {
-  auto primary = buildPrimaryServiceDescriptors();
-  auto aliases = buildCompatibilityAliasDescriptors();
+  auto primary = buildPrimaryServiceDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::public_xmate6_only);
+  auto aliases = buildCompatibilityAliasDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::public_xmate6_only);
+  auto internal_aliases = buildCompatibilityAliasDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::internal_full);
   ASSERT_FALSE(primary.empty());
-  ASSERT_FALSE(aliases.empty());
+  ASSERT_TRUE(aliases.empty());
+  ASSERT_FALSE(internal_aliases.empty());
 
   std::string error;
   EXPECT_TRUE(validateServiceDescriptors(primary, error)) << error;
   error.clear();
   EXPECT_TRUE(validateServiceDescriptors(aliases, error)) << error;
+  error.clear();
+  EXPECT_TRUE(validateServiceDescriptors(internal_aliases, error)) << error;
 
   const auto set_toolset = std::find_if(primary.begin(), primary.end(), [](const auto &descriptor) {
     return std::string(descriptor.name) == "/xmate3/cobot/set_toolset";
@@ -69,10 +74,12 @@ TEST(ServiceRegistrationDescriptorTest, PublishesControlQueryManifestForPrimaryA
   ASSERT_NE(runtime_snapshot, primary.end());
   EXPECT_STREQ(runtime_snapshot->domain, "query");
 
-  const auto sim_alias = std::find_if(aliases.begin(), aliases.end(), [](const auto &descriptor) {
+  EXPECT_TRUE(aliases.empty());
+
+  const auto sim_alias = std::find_if(internal_aliases.begin(), internal_aliases.end(), [](const auto &descriptor) {
     return std::string(descriptor.name) == "/xmate3/cobot/set_simulation_mode";
   });
-  ASSERT_NE(sim_alias, aliases.end());
+  ASSERT_NE(sim_alias, internal_aliases.end());
   EXPECT_TRUE(sim_alias->compatibility_alias);
   EXPECT_STREQ(sim_alias->domain, "compatibility");
 }

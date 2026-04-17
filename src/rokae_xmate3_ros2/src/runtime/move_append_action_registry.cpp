@@ -27,7 +27,8 @@ void RosBindings::initActionServers() {
       },
       [this](const std::shared_ptr<rclcpp_action::ServerGoalHandle<rokae_xmate3_ros2::action::MoveAppend>> goal_handle) {
         (void)goal_handle;
-        runtime_context_.requestCoordinator().stop("move append canceled");
+        // Defer cancellation side effects to executeMoveAppend() so queue-only goals do not
+        // abort unrelated runtime work before the request_id is known.
         return rclcpp_action::CancelResponse::ACCEPT;
       },
       [this](const std::shared_ptr<rclcpp_action::ServerGoalHandle<rokae_xmate3_ros2::action::MoveAppend>> goal_handle) {
@@ -45,10 +46,20 @@ void RosBindings::initActionServers() {
       });
 }
 
+/**
+ * @brief Queue a public-lane NRT MoveAppend request and return as soon as the runtime accepts it.
+ * @param goal_handle Accepted ROS action goal handle.
+ * @throws None. All runtime and transport failures are converted into deterministic action aborts.
+ * @note Boundary behavior: in the public xMate6 lane MoveAppend is queue-only. This action must not
+ *       wait for execution terminal states; moveStart() remains the sole start/resume authority and
+ *       terminal execution outcomes are observed through runtime state / event surfaces afterwards.
+ */
 void RosBindings::executeMoveAppend(
     const std::shared_ptr<rclcpp_action::ServerGoalHandle<rokae_xmate3_ros2::action::MoveAppend>> &goal_handle) {
+  const auto goal = goal_handle->get_goal();
+  const auto request_id = request_id_generator_("move_");
+  bool queue_accepted = false;
   try {
-    const auto goal = goal_handle->get_goal();
     auto result = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
 
     std::array<double, 6> cached_pos{};
@@ -56,21 +67,28 @@ void RosBindings::executeMoveAppend(
     std::array<double, 6> cached_torque{};
     joint_state_fetcher_(cached_pos, cached_vel, cached_torque);
 
-    const auto request_id = request_id_generator_("move_");
     SubmissionResult submission;
     constexpr auto kSubmissionRetryTimeout = std::chrono::milliseconds(1200);
     constexpr auto kSubmissionRetrySleep = std::chrono::milliseconds(10);
-    constexpr auto kGoalPollTimeout = std::chrono::milliseconds(100);
     const auto retry_deadline = std::chrono::steady_clock::now() + kSubmissionRetryTimeout;
 
     while (!move_append_shutdown_requested_.load()) {
+      if (goal_handle->is_canceling()) {
+        auto canceled = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
+        canceled->success = false;
+        canceled->cmd_id = request_id;
+        canceled->message = "Canceled before queue acceptance";
+        goal_handle->canceled(canceled);
+        return;
+      }
       joint_state_fetcher_(cached_pos, cached_vel, cached_torque);
-      submission = runtime_context_.requestCoordinator().submitMoveAppend(
+      submission = runtime_context_.requestCoordinator().queueMoveAppend(
           *goal,
           cached_pos,
           trajectory_dt_provider_(),
           request_id);
       if (submission.success) {
+        queue_accepted = true;
         break;
       }
       if (!detail::is_retryable_submission_failure(submission.message) ||
@@ -104,61 +122,49 @@ void RosBindings::executeMoveAppend(
       return;
     }
 
-    std::string last_state;
-    std::size_t last_completed = std::numeric_limits<std::size_t>::max();
-    std::uint64_t last_revision = 0;
-
-    while (!move_append_shutdown_requested_.load() && rclcpp::ok()) {
-      if (goal_handle->is_canceling()) {
-        runtime_context_.requestCoordinator().stop("move append canceled");
-        auto canceled = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
-        canceled->success = false;
-        canceled->cmd_id = request_id;
-        canceled->message = "Canceled";
-        goal_handle->canceled(canceled);
-        return;
-      }
-
-      const auto status = publish_bridge_->waitForRequestUpdate(request_id, last_revision, kGoalPollTimeout);
-      if (status.revision > last_revision) {
-        last_revision = status.revision;
-      }
-
-      const auto feedback_snapshot = buildMoveAppendFeedback(status, last_completed, last_state);
-      if (feedback_snapshot.should_publish) {
-        goal_handle->publish_feedback(publish_bridge_->buildMoveAppendFeedbackMessage(feedback_snapshot));
-        last_completed = status.completed_segments;
-        last_state = status.message;
-      }
-
-      if (status.terminal()) {
-        auto terminal = publish_bridge_->buildMoveAppendResult(request_id, status);
-        if (terminal->success) {
-          goal_handle->succeed(terminal);
-        } else if (goal_handle->is_canceling()) {
-          goal_handle->canceled(terminal);
-        } else {
-          goal_handle->abort(terminal);
-        }
-        return;
-      }
+    const auto queued_status = runtime_context_.requestCoordinator().waitForUpdate(
+        request_id,
+        0,
+        std::chrono::milliseconds(0));
+    const auto feedback_snapshot = buildMoveAppendFeedback(
+        queued_status,
+        std::numeric_limits<std::size_t>::max(),
+        std::string{});
+    if (feedback_snapshot.should_publish) {
+      goal_handle->publish_feedback(publish_bridge_->buildMoveAppendFeedbackMessage(feedback_snapshot));
     }
 
-    runtime_context_.requestCoordinator().stop("move append shutdown requested");
-    result->success = false;
-    result->cmd_id = request_id;
-    result->message = move_append_shutdown_requested_.load() ? "MoveAppend shutdown requested" : "MoveAppend interrupted";
-    goal_handle->abort(result);
+    // Once the runtime has accepted the request into the queue, MoveAppend is complete in the
+    // public xMate6 lane. Late cancellations do not mutate runtime state or retract the queued work.
+    goal_handle->succeed(publish_bridge_->buildMoveAppendQueuedResult(request_id, submission.message));
   } catch (const std::exception &ex) {
-    runtime_context_.requestCoordinator().stop("move append exception");
+    if (queue_accepted) {
+      try {
+        if (publish_bridge_ != nullptr && !goal_handle->is_canceling()) {
+          goal_handle->succeed(publish_bridge_->buildMoveAppendQueuedResult(request_id, "queued awaiting moveStart"));
+          return;
+        }
+      } catch (...) {
+      }
+    }
     auto failed = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
     failed->success = false;
+    failed->cmd_id = request_id;
     failed->message = std::string{"MoveAppend internal exception: "} + ex.what();
     goal_handle->abort(failed);
   } catch (...) {
-    runtime_context_.requestCoordinator().stop("move append unknown exception");
+    if (queue_accepted) {
+      try {
+        if (publish_bridge_ != nullptr && !goal_handle->is_canceling()) {
+          goal_handle->succeed(publish_bridge_->buildMoveAppendQueuedResult(request_id, "queued awaiting moveStart"));
+          return;
+        }
+      } catch (...) {
+      }
+    }
     auto failed = std::make_shared<rokae_xmate3_ros2::action::MoveAppend::Result>();
     failed->success = false;
+    failed->cmd_id = request_id;
     failed->message = "MoveAppend internal exception: unknown";
     goal_handle->abort(failed);
   }
