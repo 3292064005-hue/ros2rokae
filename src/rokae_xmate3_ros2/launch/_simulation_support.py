@@ -45,10 +45,7 @@ def resolve_canonical_model(pkg_share):
 
 
 def resolve_canonical_metadata(pkg_share):
-    canonical = os.path.join(pkg_share, "generated", "urdf", "xMate3.description.json")
-    if os.path.isfile(canonical):
-        return canonical
-    return ""
+    return os.path.join(pkg_share, "generated", "urdf", "xMate3.description.json")
 
 
 def declare_arguments(pkg_share):

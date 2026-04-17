@@ -125,7 +125,7 @@ rclcpp::TimerBase::SharedPtr RuntimeHostBuilder::createPublishTimer(
                                    joint_names,
                                    joint_state_fetcher = std::move(joint_state_fetcher),
                                    rt_profile,
-                                   should_publish = std::move(should_publish)]() mutable {
+                                   should_publish = std::move(should_publish)]() {
     if (should_publish && !should_publish()) {
       return;
     }

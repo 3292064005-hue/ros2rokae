@@ -20,7 +20,7 @@ int main() {
   if (!connectRobot(robot, ec)) {
     return 1;
   }
-  if (!prepareAutomaticNrt(robot, ec, 20, 5)) {
+  if (!prepareAutomaticNrt(robot, ec, 60, 2)) {
     cleanupRobot(robot);
     return 1;
   }
@@ -69,9 +69,9 @@ int main() {
   }
 
   const std::vector<MoveAbsJCommand> cmds{
-      MoveAbsJCommand({0.00, 0.35, 0.00, 0.00, 0.65, 0.00}, 20, 5),
-      MoveAbsJCommand({0.10, 0.45, 0.05, 0.00, 0.75, -0.10}, 20, 5),
-      MoveAbsJCommand({-0.10, 0.40, 0.00, 0.00, 0.70, 0.10}, 20, 0),
+      MoveAbsJCommand({0.00, 0.35, 0.00, 0.00, 0.65, 0.00}, 60, 2),
+      MoveAbsJCommand({0.04, 0.38, 0.02, 0.00, 0.68, -0.04}, 60, 2),
+      MoveAbsJCommand({-0.04, 0.36, 0.00, 0.00, 0.66, 0.04}, 60, 0),
   };
 
   std::string cmd_id;
@@ -91,7 +91,7 @@ int main() {
                             cmd_id,
                             static_cast<int>(cmds.size()) - 1,
                             ec,
-                            std::chrono::seconds(20))) {
+                            std::chrono::seconds(30))) {
     reportError("waitForCommandOrIdle", ec);
     cleanupRobot(robot);
     return 1;

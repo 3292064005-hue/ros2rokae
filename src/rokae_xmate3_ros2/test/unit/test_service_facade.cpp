@@ -382,6 +382,13 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
     velocity = {0.10, -0.05, 0.03, 0.0, 0.0, 0.0};
     torque = {1.0, 1.1, 1.2, 1.3, 1.4, 1.5};
   };
+  rt::MotionRuntime motion_runtime;
+  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, session_state, motion_runtime);
+  FakeBackend backend;
+  backend.snapshot.joint_position = joints;
+  backend.snapshot.joint_velocity = {0.10, -0.05, 0.03, 0.0, 0.0, 0.0};
+  backend.snapshot.joint_torque = {1.0, 1.1, 1.2, 1.3, 1.4, 1.5};
+  motion_runtime.attachBackend(&backend);
 
   rt::QueryFacade facade(session_state,
                          motion_options_state,
@@ -389,6 +396,8 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
                          data_store_state,
                          program_state,
                          diagnostics_state,
+                         motion_runtime,
+                         coordinator,
                          kinematics,
                          joint_state_fetcher,
                          []() { return rclcpp::Time(0); },
@@ -706,6 +715,8 @@ TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMate6Lane) {
                                data_store_state,
                                program_state,
                                diagnostics_state,
+                               motion_runtime,
+                               coordinator,
                                kinematics,
                                [](std::array<double, 6> &position,
                                   std::array<double, 6> &velocity,

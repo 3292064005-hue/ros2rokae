@@ -5,7 +5,7 @@ namespace rokae_xmate3_ros2::runtime {
 RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
   const auto snapshot = backend.readSnapshot();
 
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::unique_lock<std::mutex> lock(mutex_);
   if (active_request_id_.empty() && !staged_request_) {
     (void)syncOwnerLocked(backend, ControlOwner::none, "idle");
     if (using_backend_trajectory_) {
@@ -162,7 +162,14 @@ RuntimeStatus MotionRuntime::tick(BackendInterface &backend, double dt) {
                           active_status_.message.empty() ? "queued" : active_status_.message);
     backend.clearControl();
     rememberStatus(active_status_);
-    return active_status_;
+    const auto waiting_status = active_status_;
+    const bool planner_pending = pending_request_.has_value();
+    lock.unlock();
+    if (planner_pending) {
+      planner_cv_.notify_one();
+    }
+    std::this_thread::yield();
+    return waiting_status;
   }
 
   if (using_backend_trajectory_) {

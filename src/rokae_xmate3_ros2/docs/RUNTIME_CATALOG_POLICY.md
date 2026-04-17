@@ -17,3 +17,7 @@
 - tool / wobj
 - diagnostics provenance
 - runtime remains the only preferred surface
+- runtime is the only source of truth
+- GetToolCatalog
+- both default to strict runtime authority
+- ROKAE_SDK_LEGACY_CATALOG_FALLBACK=true

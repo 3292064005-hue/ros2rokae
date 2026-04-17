@@ -56,6 +56,7 @@ def build_runtime_env(
     if package_lib_dir:
         env.setdefault("ROKAE_XMATE3_ROS2_LIB_DIR", package_lib_dir)
     env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
 
     if rosidl_python_path:
         existing_pythonpath = env.get("PYTHONPATH", "")

@@ -15,3 +15,12 @@
 
 - 记录当前实现面审计结论
 - 作为 release / review 的维护辅助资料
+
+## 保留锚点
+
+- not yet a controller-grade parity implementation
+- 4.5 Realtime control
+- Not fully closed
+- Simulation-grade
+- ReadRegisterEx
+- GetEndWrench

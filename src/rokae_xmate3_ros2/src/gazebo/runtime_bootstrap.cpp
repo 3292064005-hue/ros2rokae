@@ -253,8 +253,12 @@ void RuntimeBootstrap::start() {
       backend_mode_ == BackendMode::effort ? std::string{"rt_sim_experimental_best_effort"} :
       std::string{"nrt_strict_parity"};
   const std::string requested_service_exposure_profile =
-      node_->declare_parameter("service_exposure_profile", getenvOrDefault("ROKAE_SERVICE_EXPOSURE_PROFILE", to_string(defaultServiceExposureProfile())));
-  service_exposure_profile_ = parseServiceExposureProfile(requested_service_exposure_profile);
+      node_->declare_parameter(
+          "service_exposure_profile",
+          getenvOrDefault(
+              "ROKAE_SERVICE_EXPOSURE_PROFILE",
+              runtime::to_string(runtime::defaultServiceExposureProfile())));
+  service_exposure_profile_ = runtime::parseServiceExposureProfile(requested_service_exposure_profile);
   const std::string requested_runtime_profile = node_->declare_parameter("runtime_profile", inferred_runtime_profile);
   auto host_bootstrap = host_builder_->resolveBootstrap(
       requested_runtime_profile,
@@ -302,7 +306,7 @@ void RuntimeBootstrap::start() {
       toString(backend_mode_),
       requested_runtime_profile.c_str(),
       rt_profile_config_.effective_profile.c_str(),
-      to_string(service_exposure_profile_),
+      runtime::to_string(service_exposure_profile_),
       runtime::summarizeRuntimeRtProfile(rt_profile_config_).c_str());
 }
 

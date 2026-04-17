@@ -55,11 +55,10 @@ if(ROKAE_BUILD_COMPAT_SDK)
     xCoreSDK_shared
     xCoreSDK_static
     EXPORT xCoreSDKTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT public_sdk
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT public_sdk
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT public_sdk
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    COMPONENT public_sdk
   )
 endif()
 
@@ -103,9 +102,9 @@ install(FILES
 )
 install(DIRECTORY meshes models urdf config worlds
   DESTINATION share/${PROJECT_NAME}/
+  COMPONENT public_sdk
   PATTERN "__pycache__" EXCLUDE
   PATTERN "*.pyc" EXCLUDE
-  COMPONENT public_sdk
 )
 install(FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/render_robot_description.py
@@ -115,9 +114,9 @@ install(FILES
 
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}/
+  COMPONENT internal_runtime
   PATTERN "__pycache__" EXCLUDE
   PATTERN "*.pyc" EXCLUDE
-  COMPONENT internal_runtime
 )
 
 set(ROKAE_PUBLIC_COMPAT_EXAMPLE_SOURCE_FILES)

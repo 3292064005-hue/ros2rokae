@@ -4,6 +4,7 @@
 #include <cmath>
 #include <numeric>
 #include <optional>
+#include <string>
 #include <utility>
 
 #include <Eigen/Dense>
@@ -80,7 +81,9 @@ void QueryFacade::handleGetRuntimeDiagnostics(
   res.diagnostics.project_catalog_size = snapshot.project_catalog_size;
   res.diagnostics.register_catalog_size = snapshot.register_catalog_size;
   res.success = true;
-  res.message = "query_authority=diagnostics_snapshot;runtime_phase=" + to_string(runtime_view.status.runtime_phase) + ";active_request=" + runtime_view.status.request_id;
+  res.message = std::string{"query_authority=diagnostics_snapshot;runtime_phase="} +
+                to_string(runtime_view.status.runtime_phase) +
+                ";active_request=" + runtime_view.status.request_id;
 }
 
 void QueryFacade::handleGetEndEffectorTorque(const rokae_xmate3_ros2::srv::GetEndEffectorTorque::Request &req,

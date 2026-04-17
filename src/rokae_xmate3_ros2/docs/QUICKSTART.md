@@ -11,6 +11,7 @@
 - xMate 六轴 public compatibility lane
 - canonical launch
 - 非实时主链和 public examples
+- ROS2/Gazebo-backed install-facing compatibility lane
 
 不覆盖：
 - 标定
@@ -77,6 +78,7 @@ ros2 run rokae_xmate3_ros2 example_99_complete_demo
 find_package(xCoreSDK CONFIG REQUIRED)
 add_executable(app main.cpp)
 target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_static)
+target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_shared)
 ```
 
 只使用公共头：
@@ -88,6 +90,8 @@ target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_static)
 #include <rokae/data_types.h>
 #include <rokae/utility.h>
 ```
+
+不要把 `rokae/sdk_shim*.hpp` 当作安装态 public contract；这些头属于兼容实现细节。
 
 ## 7. 先记住这 4 条语义
 
@@ -102,3 +106,4 @@ target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_static)
 - profile / query authority：[`RUNTIME_PROFILES.md`](RUNTIME_PROFILES.md)
 - public contract：[`COMPATIBILITY.md`](COMPATIBILITY.md)
 - 示例分层：[`EXAMPLES.md`](EXAMPLES.md)
+- 诊断门限派生工具：`tools/derive_runtime_diag_gate.py`

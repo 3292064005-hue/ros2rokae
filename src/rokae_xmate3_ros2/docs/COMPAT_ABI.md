@@ -20,3 +20,9 @@
 - `calibrateFrame()` remains `function_not_supported`
 - single-source manifest
 - strict 1kHz fail-fast RT profile
+- `RtCompatFields::samplePeriod_s`
+- ROS2/Gazebo-backed install-facing compatibility lane
+- install-facing targets: `xCoreSDK::xCoreSDK_shared`, `xCoreSDK::xCoreSDK_static`
+- runtime execution still requires the ROS2/Gazebo-backed runtime stack
+- `xCoreSDK::xCoreSDK_static` is a native static library
+- `rokae/sdk_shim*.hpp` is not installed as part of the public SDK surface

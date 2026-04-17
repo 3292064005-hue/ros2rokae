@@ -23,6 +23,10 @@ if(BUILD_TESTING)
   set(ROKAE_LAUNCH_TEST_PYTHON "${Python3_EXECUTABLE}")
   set(ROKAE_RUNTIME_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 
+  function(rokae_disable_test_python_bytecode test_name)
+    set_property(TEST "${test_name}" APPEND PROPERTY ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+  endfunction()
+
   ament_add_gtest(test_motion_planner_core
     test/unit/test_motion_planner_core.cpp
   )
@@ -279,6 +283,7 @@ add_test(
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_repo_contract.py" "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
+rokae_disable_test_python_bytecode(repo_contract)
 
   if(TARGET test_controller_state)
     target_include_directories(test_controller_state
@@ -545,6 +550,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
     set(py_lines
       "        SetEnvironmentVariable(\"ROKAE_XMATE3_ROS2_SHARE_DIR\", PACKAGE_SHARE),"
       "        SetEnvironmentVariable(\"ROKAE_XMATE3_ROS2_LIB_DIR\", PACKAGE_LIB_DIR),"
+      "        SetEnvironmentVariable(\"PYTHONDONTWRITEBYTECODE\", \"1\"),"
       "        SetEnvironmentVariable(\"PYTHONPATH\", [ROSIDL_PY_PATH, \":\", EnvironmentVariable(\"PYTHONPATH\", default_value=\"\")]),"
       "        SetEnvironmentVariable(\"LD_LIBRARY_PATH\", [RUNTIME_LIB_DIR, \":\", EnvironmentVariable(\"LD_LIBRARY_PATH\", default_value=\"\")]),"
     )
@@ -553,6 +559,7 @@ set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
     set(${env_out}
       "ROKAE_XMATE3_ROS2_SHARE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
       "ROKAE_XMATE3_ROS2_LIB_DIR=$<TARGET_FILE_DIR:xcore_controller_gazebo_plugin>"
+      "PYTHONDONTWRITEBYTECODE=1"
       "PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_py:$ENV{PYTHONPATH}"
       "LD_LIBRARY_PATH=${ROKAE_RUNTIME_LIB_DIR}:$ENV{LD_LIBRARY_PATH}"
       PARENT_SCOPE
@@ -633,6 +640,7 @@ class TestGazeboSdkRegression(unittest.TestCase):
     PYTHON_EXECUTABLE "${ROKAE_LAUNCH_TEST_PYTHON}"
   )
   set_tests_properties(gazebo_sdk_regression PROPERTIES RUN_SERIAL TRUE LABELS "quick_gate")
+  rokae_disable_test_python_bytecode(gazebo_sdk_regression)
 
   if(ROKAE_ENABLE_GAZEBO_STRICT_TESTS)
     set(GAZEBO_SDK_PRECISION_LAUNCH_TEST "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/gazebo_sdk_precision_launch_test.py")
@@ -705,6 +713,7 @@ class TestGazeboSdkPrecision(unittest.TestCase):
       PYTHON_EXECUTABLE "${ROKAE_LAUNCH_TEST_PYTHON}"
     )
     set_tests_properties(gazebo_sdk_precision PROPERTIES RUN_SERIAL TRUE)
+    rokae_disable_test_python_bytecode(gazebo_sdk_precision)
   endif()
 
   set(GAZEBO_EXAMPLES_LAUNCH_TEST "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/gazebo_examples_smoke_launch_test.py")
@@ -785,6 +794,7 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
     PYTHON_EXECUTABLE "${ROKAE_LAUNCH_TEST_PYTHON}"
   )
   set_tests_properties(gazebo_examples_smoke PROPERTIES RUN_SERIAL TRUE LABELS "quick_gate")
+  rokae_disable_test_python_bytecode(gazebo_examples_smoke)
 
   if(ROKAE_ENABLE_GAZEBO_FULL_EXAMPLES_TESTS)
     set(GAZEBO_EXAMPLES_FULL_COMMAND
@@ -815,6 +825,7 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
       LABELS "gazebo_integration_examples_full;release_gate"
       TIMEOUT 1800
     )
+    rokae_disable_test_python_bytecode(gazebo_examples_full)
   endif()
 
   if(ROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS)
@@ -839,6 +850,7 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
       LABELS "gazebo_teardown_quality;release_gate"
       TIMEOUT 240
     )
+    rokae_disable_test_python_bytecode(gazebo_teardown_quality)
 
     add_test(
       NAME gazebo_teardown_quality_repeat
@@ -862,6 +874,7 @@ class TestGazeboExamplesSmoke(unittest.TestCase):
       LABELS "gazebo_teardown_quality_repeat"
       TIMEOUT 1800
     )
+    rokae_disable_test_python_bytecode(gazebo_teardown_quality_repeat)
   endif()
 
   if(ROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS)
@@ -949,6 +962,7 @@ class TestGazeboBackendModeSmoke(unittest.TestCase):
         PYTHON_EXECUTABLE "${ROKAE_LAUNCH_TEST_PYTHON}"
       )
       set_tests_properties("gazebo_backend_mode_${GAZEBO_BACKEND_MODE}_smoke" PROPERTIES RUN_SERIAL TRUE)
+      rokae_disable_test_python_bytecode("gazebo_backend_mode_${GAZEBO_BACKEND_MODE}_smoke")
     endforeach()
   endif()
 
@@ -1027,6 +1041,7 @@ class TestGazeboAliasSmoke(unittest.TestCase):
     PYTHON_EXECUTABLE "${ROKAE_LAUNCH_TEST_PYTHON}"
   )
   set_tests_properties(gazebo_alias_smoke PROPERTIES RUN_SERIAL TRUE)
+  rokae_disable_test_python_bytecode(gazebo_alias_smoke)
 endif()
 
 
@@ -1124,12 +1139,14 @@ if(BUILD_TESTING)
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_render_robot_description_install_tree.py"
   )
   set_tests_properties(render_robot_description_install_tree PROPERTIES LABELS "quick_gate;install_tree;description_gate")
+  rokae_disable_test_python_bytecode(render_robot_description_install_tree)
 
   add_test(
     NAME runtime_diag_gate_tools
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_runtime_diag_gate_tools.py"
   )
   set_tests_properties(runtime_diag_gate_tools PROPERTIES LABELS "quick_gate;semantic_gate")
+  rokae_disable_test_python_bytecode(runtime_diag_gate_tools)
 
   if(ROKAE_ENABLE_RT_1KHZ_STRESS_TEST AND TARGET example_27_rt_1khz_stress)
     math(EXPR ROKAE_RT_1KHZ_STRESS_TIMEOUT "${ROKAE_RT_1KHZ_STRESS_DURATION_SEC} + 240")
@@ -1147,6 +1164,7 @@ if(BUILD_TESTING)
       TIMEOUT "${ROKAE_RT_1KHZ_STRESS_TIMEOUT}"
       LABELS "rt_stress;release_gate"
     )
+    rokae_disable_test_python_bytecode(rt_1khz_stress)
   endif()
 endif()
 
@@ -1156,12 +1174,14 @@ if(BUILD_TESTING AND ROKAE_BUILD_COMPAT_SDK)
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_compat_public_abi.py"
   )
   set_tests_properties(compat_public_abi PROPERTIES LABELS "quick_gate;abi_gate")
+  rokae_disable_test_python_bytecode(compat_public_abi)
 
   add_test(
     NAME xmate6_official_alignment
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_xmate6_official_alignment.py"
   )
   set_tests_properties(xmate6_official_alignment PROPERTIES LABELS "quick_gate;abi_gate")
+  rokae_disable_test_python_bytecode(xmate6_official_alignment)
 
   add_test(
     NAME compat_install_tree_consumer
@@ -1172,6 +1192,7 @@ if(BUILD_TESTING AND ROKAE_BUILD_COMPAT_SDK)
             --staging-prefix "${CMAKE_CURRENT_BINARY_DIR}/compat_install_tree_stage"
   )
   set_tests_properties(compat_install_tree_consumer PROPERTIES LABELS "abi_gate;install_tree" TIMEOUT 600)
+  rokae_disable_test_python_bytecode(compat_install_tree_consumer)
 
   add_test(
     NAME compat_no_ros_env_external_consumer
@@ -1182,6 +1203,7 @@ if(BUILD_TESTING AND ROKAE_BUILD_COMPAT_SDK)
             --staging-prefix "${CMAKE_CURRENT_BINARY_DIR}/compat_no_ros_env_stage"
   )
   set_tests_properties(compat_no_ros_env_external_consumer PROPERTIES LABELS "abi_gate;install_tree" TIMEOUT 600)
+  rokae_disable_test_python_bytecode(compat_no_ros_env_external_consumer)
 
   add_test(
     NAME compat_exported_symbols
@@ -1190,4 +1212,5 @@ if(BUILD_TESTING AND ROKAE_BUILD_COMPAT_SDK)
             --library "$<TARGET_FILE:xCoreSDK_shared>"
   )
   set_tests_properties(compat_exported_symbols PROPERTIES LABELS "abi_gate;symbol_gate")
+  rokae_disable_test_python_bytecode(compat_exported_symbols)
 endif()

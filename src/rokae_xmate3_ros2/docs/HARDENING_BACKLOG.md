@@ -15,3 +15,12 @@
 
 - 记录后续硬化项
 - 不作为 public contract 主说明
+
+## 保留锚点
+
+- single-primary-backend requests
+- Planner preflight reporting
+- RT subsystem hardening
+- Runtime catalog normalization
+- preferred vs legacy contract split
+- rt_field_registry

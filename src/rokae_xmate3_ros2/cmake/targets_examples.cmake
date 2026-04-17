@@ -26,7 +26,7 @@ set(ROKAE_INTERNAL_BACKEND_EXAMPLES
   08_path_record_replay
   13_rl_project_workflow
   16_registers_and_runtime_options
-  20_rt_joint_position
+20_rt_joint_position
   21_rt_move_commands
   22_rt_joint_impedance
   23_rt_cartesian_impedance

@@ -117,7 +117,7 @@ void RuntimeStateMachine::apply(RuntimeStatus &status,
       status.current_segment_index = event.current_segment_index;
       status.execution_backend = ExecutionBackend::none;
       status.message = event.message.empty() ? std::string{"queued"} : event.message;
-      runtime_phase = RuntimePhase::idle;
+      runtime_phase = RuntimePhase::planning;
       status.runtime_phase = runtime_phase;
       return;
     case RuntimeEventType::execution_started:

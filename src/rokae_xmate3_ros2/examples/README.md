@@ -4,3 +4,11 @@
 > 当前有效主说明：[`../docs/EXAMPLES.md`](../docs/EXAMPLES.md)
 
 该目录下的示例说明已统一收敛到 [`docs/EXAMPLES.md`](../docs/EXAMPLES.md)。
+
+## Public examples
+
+Public examples are install-facing compatibility examples documented in [`docs/EXAMPLES.md`](../docs/EXAMPLES.md).
+
+## Internal/backend examples
+
+Internal/backend examples are expert-only runtime/backend examples documented in [`docs/EXAMPLES.md`](../docs/EXAMPLES.md).

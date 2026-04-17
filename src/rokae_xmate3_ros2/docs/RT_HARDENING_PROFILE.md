@@ -16,3 +16,6 @@
 - strict 1kHz fail-fast RT profile
 - current runtime profile contract
 - simulation-grade remains explicit
+- RT field registry
+- rt_watchdog
+- no silent NRT fallback
