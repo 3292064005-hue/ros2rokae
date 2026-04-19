@@ -45,7 +45,9 @@ class RosBindings {
   [[nodiscard]] const rclcpp::Node::SharedPtr &node() const noexcept { return node_; }
   [[nodiscard]] ControlFacade *controlFacade() const noexcept { return control_facade_.get(); }
   [[nodiscard]] QueryFacade *queryFacade() const noexcept { return query_facade_.get(); }
+#if ROKAE_ENABLE_INTERNAL_SURFACE
   [[nodiscard]] IoProgramFacade *ioProgramFacade() const noexcept { return io_program_facade_.get(); }
+#endif
   [[nodiscard]] PathFacade *pathFacade() const noexcept { return path_facade_.get(); }
 
  private:
@@ -68,7 +70,9 @@ class RosBindings {
 
   std::unique_ptr<ControlFacade> control_facade_;
   std::unique_ptr<QueryFacade> query_facade_;
+#if ROKAE_ENABLE_INTERNAL_SURFACE
   std::unique_ptr<IoProgramFacade> io_program_facade_;
+#endif
   std::unique_ptr<PathFacade> path_facade_;
 
   std::vector<rclcpp::ServiceBase::SharedPtr> services_;

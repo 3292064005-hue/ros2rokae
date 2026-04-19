@@ -1,3 +1,4 @@
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 #include "runtime/service_facade.hpp"
 
 #include "runtime/runtime_catalog_service.hpp"
@@ -59,3 +60,5 @@ void QueryFacade::handleGetWobjCatalog(const rokae_xmate3_ros2::srv::GetWobjCata
 }
 
 }  // namespace rokae_xmate3_ros2::runtime
+
+#endif

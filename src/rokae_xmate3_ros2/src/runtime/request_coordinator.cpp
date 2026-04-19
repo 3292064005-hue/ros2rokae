@@ -129,8 +129,17 @@ SubmissionResult MotionRequestCoordinator::submitReplayPath(
     return result;
   }
 
+  ReplayPathReportSummary replay_report{};
+  std::string replay_report_error;
+  const bool report_ready = buildReplayPathReportSummary(replay_asset, replay_report, &replay_report_error);
+
   result.success = true;
   result.message = "submitted";
+  if (report_ready) {
+    result.message += "; report_summary=" + replay_report.summary;
+  } else if (!replay_report_error.empty()) {
+    result.message += "; report_status=" + replay_report_error;
+  }
   return result;
 }
 

@@ -72,6 +72,10 @@ void QueryFacade::handleGetRuntimeDiagnostics(
   res.diagnostics.last_result_source = snapshot.last_result_source;
   res.diagnostics.rt_dispatch_mode = snapshot.rt_dispatch_mode;
   res.diagnostics.rt_state_source = snapshot.rt_state_source;
+  res.diagnostics.query_authority = snapshot.query_authority;
+  res.diagnostics.fidelity_class = snapshot.fidelity_class;
+  res.diagnostics.model_revision = snapshot.model_revision;
+  res.diagnostics.canonical_identity = snapshot.canonical_identity;
   res.diagnostics.model_exactness_summary = snapshot.model_exactness_summary;
   res.diagnostics.model_primary_backend = snapshot.model_primary_backend;
   res.diagnostics.model_fallback_used = snapshot.model_fallback_used;
@@ -83,7 +87,10 @@ void QueryFacade::handleGetRuntimeDiagnostics(
   res.success = true;
   res.message = std::string{"query_authority=diagnostics_snapshot;runtime_phase="} +
                 to_string(runtime_view.status.runtime_phase) +
-                ";active_request=" + runtime_view.status.request_id;
+                "; contract_authority=" + snapshot.query_authority +
+                "; fidelity_class=" + snapshot.fidelity_class +
+                "; model_revision=" + snapshot.model_revision +
+                "; active_request=" + runtime_view.status.request_id;
 }
 
 void QueryFacade::handleGetEndEffectorTorque(const rokae_xmate3_ros2::srv::GetEndEffectorTorque::Request &req,

@@ -323,10 +323,18 @@ TEST(RuntimeRequestAdapterTest, ReplayAssetPreservesMetadataAndToolingContext) {
 
   rt::ReplayPathAsset asset;
   ASSERT_TRUE(program_state.getReplayAsset("asset_demo", asset));
-  EXPECT_EQ(asset.metadata.version, "v1");
-  EXPECT_EQ(asset.metadata.robot, "xMate3");
+  EXPECT_EQ(asset.metadata.version, "v2");
+  EXPECT_EQ(asset.metadata.robot, rt::kRecordedPathRobotFamily);
+  EXPECT_EQ(asset.metadata.robot_model, rt::kRecordedPathRobotModel);
+  EXPECT_EQ(asset.metadata.canonical_identity, rt::kRecordedPathCanonicalIdentity);
   EXPECT_EQ(asset.metadata.source, "unit_test_record");
   EXPECT_DOUBLE_EQ(asset.metadata.created_at_sec, 10.0);
+  EXPECT_DOUBLE_EQ(asset.metadata.monotonic_step_sec, rt::kRecordedPathMonotonicStepSec);
+  ASSERT_EQ(asset.samples.size(), 2u);
+  EXPECT_EQ(asset.samples.front().task_phase, rt::kRecordedPathDefaultTaskPhase);
+  EXPECT_EQ(asset.samples.front().source_id, "unit_test_record");
+  EXPECT_FALSE(asset.samples.front().has_end_pose);
+  EXPECT_FALSE(asset.samples.front().has_contact_force);
   EXPECT_EQ(asset.toolset.tool_name, "tcp_demo");
   EXPECT_EQ(asset.toolset.wobj_name, "fixture_demo");
   EXPECT_DOUBLE_EQ(asset.toolset.wobj_pose[0], 0.2);
@@ -864,4 +872,123 @@ TEST(RuntimeArchiveVerificationTest, PackagingScriptCreatesVerifiedCleanArchiveF
 
   std::error_code cleanup_error;
   std::filesystem::remove_all(temp_root, cleanup_error);
+}
+
+TEST(RuntimeRequestAdapterTest, ReplayRequestAcceptsLegacyV1SchemaByNormalizingToV2) {
+  rt::ReplayPathAsset asset;
+  asset.metadata.version = rt::kRecordedPathLegacySchemaVersion;
+  asset.metadata.source = "legacy_source";
+  asset.samples = {
+      {0.0, {0.0, 0.1, 1.5, 0.0, 1.3, 3.14}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}},
+      {0.2, {0.1, 0.2, 1.4, 0.0, 1.2, 3.10}, {0.2, 0.2, -0.1, 0.0, -0.1, -0.1}},
+  };
+
+  rt::MotionRequestContext context;
+  context.request_id = "legacy_replay";
+  context.start_joints.assign(asset.samples.front().joint_position.begin(), asset.samples.front().joint_position.end());
+  context.default_speed = 50;
+  context.default_zone = 5;
+  context.trajectory_dt = 0.02;
+
+  rt::MotionRequest request;
+  std::string error;
+  ASSERT_TRUE(rt::build_replay_request(asset, 1.0, context, request, error)) << error;
+  ASSERT_EQ(request.commands.size(), 1u);
+  EXPECT_EQ(request.commands.front().kind, rt::MotionKind::move_absj);
+}
+
+TEST(RuntimeRequestAdapterTest, ReplayPathConsumptionReportTracksCoverageAndCanonicalIdentity) {
+  rt::ReplayPathAsset asset;
+  asset.metadata.version = rt::kRecordedPathSchemaVersion;
+  asset.metadata.source = "record_unit";
+  rt::RecordedPathSample first;
+  first.time_from_start_sec = 0.1;
+  first.joint_position = {0.0, 0.1, 1.5, 0.0, 1.3, 3.14};
+  first.joint_velocity = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  first.has_end_pose = true;
+  first.end_pose = {0.2, 0.1, 0.3, 0.0, 0.0, 0.0};
+  first.has_contact_force = true;
+  first.contact_force = 3.5;
+  first.contact_established = true;
+  first.image_frame_id = "frame_001";
+  first.task_phase = "scan_entry";
+  first.source_id = "record_unit";
+  rt::RecordedPathSample second = first;
+  second.time_from_start_sec = 0.2;
+  second.image_frame_id.clear();
+  second.has_contact_force = false;
+  second.contact_force = 0.0;
+  second.contact_established = false;
+  second.task_phase = "scan_follow";
+  asset.samples = {first, second};
+
+  const auto report = rt::buildReplayPathConsumptionReport(asset);
+  EXPECT_TRUE(report.ready_for_replay);
+  EXPECT_FALSE(report.ready_for_analysis);
+  EXPECT_FALSE(report.ready_for_report);
+  EXPECT_EQ(report.sample_count, 2u);
+  EXPECT_EQ(report.samples_with_end_pose, 2u);
+  EXPECT_EQ(report.samples_with_contact_force, 1u);
+  EXPECT_EQ(report.samples_with_image_frame_id, 1u);
+  EXPECT_EQ(report.phase_transition_count, 1u);
+  EXPECT_NE(report.summary.find("canonical_identity=xCoreSDK:xmate6"), std::string::npos);
+}
+
+TEST(RuntimeRequestAdapterTest, ReplayPathConsumptionReportRejectsNonMonotonicTimeline) {
+  rt::ReplayPathAsset asset;
+  asset.metadata.version = rt::kRecordedPathSchemaVersion;
+  asset.samples = {
+      {0.1, {0.0, 0.1, 1.5, 0.0, 1.3, 3.14}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}},
+      {0.1, {0.1, 0.2, 1.4, 0.0, 1.2, 3.10}, {0.2, 0.2, -0.1, 0.0, -0.1, -0.1}},
+  };
+
+  const auto report = rt::buildReplayPathConsumptionReport(asset);
+  EXPECT_FALSE(report.ready_for_replay);
+  EXPECT_NE(report.error_message.find("strictly monotonic"), std::string::npos);
+
+  std::string error;
+  EXPECT_FALSE(rt::validateReplayPathAssetForConsumption(asset, rt::ReplayPathConsumptionTarget::replay, &error));
+  EXPECT_EQ(error, report.error_message);
+}
+
+
+TEST(RuntimeRequestAdapterTest, ReplayPathAnalysisAndReportBuildersRequireCompleteCoverage) {
+  rt::ReplayPathAsset asset;
+  asset.metadata.version = rt::kRecordedPathSchemaVersion;
+  asset.metadata.source = "record_unit";
+  rt::RecordedPathSample sample;
+  sample.time_from_start_sec = 0.1;
+  sample.joint_position = {0.0, 0.1, 1.5, 0.0, 1.3, 3.14};
+  sample.joint_velocity = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  sample.has_end_pose = true;
+  sample.end_pose = {0.2, 0.1, 0.3, 0.0, 0.0, 0.0};
+  sample.has_contact_force = true;
+  sample.contact_force = 3.5;
+  sample.contact_established = true;
+  sample.image_frame_id = "frame_001";
+  sample.task_phase = "scan_entry";
+  sample.source_id = "record_unit";
+  asset.samples = {sample};
+
+  rt::ReplayPathAnalysisInput analysis;
+  std::string error;
+  ASSERT_TRUE(rt::buildReplayPathAnalysisInput(asset, analysis, &error)) << error;
+  ASSERT_EQ(analysis.samples.size(), 1u);
+  EXPECT_EQ(analysis.samples.front().image_frame_id, "frame_001");
+
+  rt::ReplayPathReportSummary summary;
+  ASSERT_TRUE(rt::buildReplayPathReportSummary(asset, summary, &error)) << error;
+  EXPECT_EQ(summary.sample_count, 1u);
+  EXPECT_EQ(summary.phase_count, 1u);
+
+  asset.samples.front().image_frame_id.clear();
+  const auto incomplete_report = rt::buildReplayPathConsumptionReport(asset);
+  EXPECT_TRUE(incomplete_report.ready_for_replay);
+  EXPECT_FALSE(incomplete_report.ready_for_analysis);
+  EXPECT_FALSE(incomplete_report.ready_for_report);
+  EXPECT_FALSE(rt::buildReplayPathAnalysisInput(asset, analysis, &error));
+  EXPECT_NE(error.find("not ready for analysis"), std::string::npos);
+  EXPECT_FALSE(rt::validateReplayPathAssetForConsumption(asset, rt::ReplayPathConsumptionTarget::analysis, &error));
+  EXPECT_FALSE(rt::validateReplayPathAssetForConsumption(asset, rt::ReplayPathConsumptionTarget::report, &error));
+  EXPECT_TRUE(rt::validateReplayPathAssetForConsumption(asset, rt::ReplayPathConsumptionTarget::replay, &error));
 }

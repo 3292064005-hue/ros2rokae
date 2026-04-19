@@ -1,0 +1,67 @@
+{
+  "schema": "recorded_path_v2",
+  "public_lane": "xMate6",
+  "robot_model": "xMate3",
+  "canonical_identity": "xCoreSDK:xmate6",
+  "legacy_versions": [
+    "v1"
+  ],
+  "metadata": {
+    "version": "v2",
+    "robot": "xMate6",
+    "robot_model": "xMate3",
+    "canonical_identity": "xCoreSDK:xmate6",
+    "source": "producer label",
+    "created_at_sec": "first accepted sample timestamp",
+    "monotonic_step_sec": 0.01
+  },
+  "sample": {
+    "time_from_start_sec": "strictly monotonic",
+    "joint_position": 6,
+    "joint_velocity": 6,
+    "has_end_pose": true,
+    "end_pose": 6,
+    "has_contact_force": true,
+    "contact_force": "optional scalar",
+    "contact_established": true,
+    "image_frame_id": "optional string",
+    "task_phase": "required string",
+    "source_id": "required string"
+  },
+  "compatibility": {
+    "consumer_accepts_versions": [
+      "v1",
+      "v2"
+    ],
+    "normalize_legacy_to": "v2"
+  },
+  "source_of_truth": [
+    "src/runtime/runtime_snapshots.hpp",
+    "src/runtime/program_state.cpp",
+    "src/runtime/path_facade.cpp",
+    "src/runtime/request_adapter.cpp",
+    "test/unit/test_runtime_adapters.cpp"
+  ],
+  "consumer_chain": {
+    "replay": [
+      "src/runtime/request_adapter.cpp",
+      "src/runtime/path_facade.cpp",
+      "src/runtime/unified_retimer.cpp"
+    ],
+    "analysis": [
+      "src/runtime/runtime_snapshots.hpp:buildReplayPathAnalysisInput",
+      "src/runtime/path_facade.cpp:build_consumption_suffix"
+    ],
+    "report": [
+      "src/runtime/runtime_snapshots.hpp:buildReplayPathReportSummary",
+      "src/runtime/request_coordinator.cpp:submitReplayPath",
+      "src/runtime/path_facade.cpp:build_consumption_suffix"
+    ]
+  },
+  "consumption_targets": [
+    "replay",
+    "analysis",
+    "report",
+    "all"
+  ]
+}

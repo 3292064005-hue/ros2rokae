@@ -18,7 +18,7 @@ std::string readText(const std::filesystem::path &path) {
 const std::filesystem::path kProjectRoot = ROKAE_TEST_PROJECT_ROOT;
 
 TEST(ImplementationAudit, AuditDocExistsAndIsHonestAboutCoverage) {
-  const auto audit = readText(kProjectRoot / "docs" / "IMPLEMENTATION_AUDIT.md");
+  const auto audit = readText(kProjectRoot / "docs" / "archive" / "audits" / "IMPLEMENTATION_AUDIT.md");
   EXPECT_NE(audit.find("not yet a controller-grade parity implementation"), std::string::npos);
   EXPECT_NE(audit.find("4.5 Realtime control"), std::string::npos);
   EXPECT_NE(audit.find("Not fully closed"), std::string::npos);
@@ -28,7 +28,7 @@ TEST(ImplementationAudit, AuditDocExistsAndIsHonestAboutCoverage) {
 }
 
 TEST(ImplementationAudit, HardeningBacklogCapturesRemainingHighRiskWork) {
-  const auto backlog = readText(kProjectRoot / "docs" / "HARDENING_BACKLOG.md");
+  const auto backlog = readText(kProjectRoot / "docs" / "release" / "HARDENING_BACKLOG.md");
   EXPECT_NE(backlog.find("single-primary-backend requests"), std::string::npos);
   EXPECT_NE(backlog.find("Planner preflight reporting"), std::string::npos);
   EXPECT_NE(backlog.find("RT subsystem hardening"), std::string::npos);
@@ -39,9 +39,9 @@ TEST(ImplementationAudit, HardeningBacklogCapturesRemainingHighRiskWork) {
 
 TEST(ImplementationAudit, ReadmeLinksToAuditAndBacklog) {
   const auto readme = readText(kProjectRoot / "README.md");
-  EXPECT_NE(readme.find("docs/IMPLEMENTATION_AUDIT.md"), std::string::npos);
-  EXPECT_NE(readme.find("docs/HARDENING_BACKLOG.md"), std::string::npos);
-  EXPECT_NE(readme.find("## 实现审计"), std::string::npos);
+  EXPECT_NE(readme.find("docs/archive/audits/IMPLEMENTATION_AUDIT.md"), std::string::npos);
+  EXPECT_NE(readme.find("docs/release/HARDENING_BACKLOG.md"), std::string::npos);
+  EXPECT_NE(readme.find("## 维护与审计入口"), std::string::npos);
   EXPECT_NE(readme.find("<build>/generated/urdf/xMate3.urdf"), std::string::npos);
   EXPECT_EQ(readme.find("│   ├── xMate3.urdf"), std::string::npos);
   EXPECT_EQ(readme.find("├── generated/"), std::string::npos);
@@ -59,18 +59,17 @@ TEST(ImplementationAudit, RuntimeStateMachineAndPlannerPreflightExist) {
 }
 
 TEST(ImplementationAudit, RuntimeCatalogPolicyDocExists) {
-  const auto policy = readText(kProjectRoot / "docs" / "RUNTIME_CATALOG_POLICY.md");
-  EXPECT_NE(policy.find("runtime is the only source of truth"), std::string::npos);
-  EXPECT_NE(policy.find("GetToolCatalog"), std::string::npos);
-  EXPECT_NE(policy.find("both default to strict runtime authority"), std::string::npos);
-  EXPECT_NE(policy.find("ROKAE_SDK_LEGACY_CATALOG_FALLBACK=true"), std::string::npos);
+  const auto policy = readText(kProjectRoot / "docs" / "architecture" / "PROVIDER_BOUNDARY.md");
+  EXPECT_NE(policy.find("RuntimeBackendProviderHost -> RuntimeBackendProvider -> BackendInterface"), std::string::npos);
+  EXPECT_NE(policy.find("RuntimeBackendFactoryRequest"), std::string::npos);
+  EXPECT_NE(policy.find("不能"), std::string::npos);
 }
 
 TEST(ImplementationAudit, RtHardeningProfileDocExists) {
-  const auto profile = readText(kProjectRoot / "docs" / "RT_HARDENING_PROFILE.md");
-  EXPECT_NE(profile.find("RT field registry"), std::string::npos);
-  EXPECT_NE(profile.find("rt_watchdog"), std::string::npos);
-  EXPECT_NE(profile.find("no silent NRT fallback"), std::string::npos);
+  const auto profile = readText(kProjectRoot / "docs" / "public" / "RUNTIME_PROFILES.md");
+  EXPECT_NE(profile.find("strict 1kHz fail-fast RT profile"), std::string::npos);
+  EXPECT_NE(profile.find("simulation-grade"), std::string::npos);
+  EXPECT_NE(profile.find("runtime_request_coordinator"), std::string::npos);
 }
 
 TEST(ImplementationAudit, QueryAndSdkStateDomainsStaySplitOnDisk) {

@@ -28,17 +28,38 @@
 #include "rokae_xmate3_ros2/srv/enable_collision_detection.hpp"
 #include "rokae_xmate3_ros2/srv/enable_drag.hpp"
 #include "rokae_xmate3_ros2/srv/generate_s_trajectory.hpp"
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 #include "rokae_xmate3_ros2/srv/get_ai.hpp"
 #include "rokae_xmate3_ros2/srv/get_avoid_singularity.hpp"
-#include "rokae_xmate3_ros2/srv/get_base_frame.hpp"
-#include "rokae_xmate3_ros2/srv/get_cart_posture.hpp"
 #include "rokae_xmate3_ros2/srv/get_di.hpp"
 #include "rokae_xmate3_ros2/srv/get_do.hpp"
-#include "rokae_xmate3_ros2/srv/get_end_effector_torque.hpp"
-#include "rokae_xmate3_ros2/srv/get_end_wrench.hpp"
+#include "rokae_xmate3_ros2/srv/get_profile_capabilities.hpp"
 #include "rokae_xmate3_ros2/srv/get_rl_project_info.hpp"
 #include "rokae_xmate3_ros2/srv/get_tool_catalog.hpp"
 #include "rokae_xmate3_ros2/srv/get_wobj_catalog.hpp"
+#include "rokae_xmate3_ros2/srv/load_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/pause_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/read_register.hpp"
+#include "rokae_xmate3_ros2/srv/read_register_ex.hpp"
+#include "rokae_xmate3_ros2/srv/register_data_callback.hpp"
+#include "rokae_xmate3_ros2/srv/send_custom_data.hpp"
+#include "rokae_xmate3_ros2/srv/set_ao.hpp"
+#include "rokae_xmate3_ros2/srv/set_avoid_singularity.hpp"
+#include "rokae_xmate3_ros2/srv/set_di.hpp"
+#include "rokae_xmate3_ros2/srv/set_do.hpp"
+#include "rokae_xmate3_ros2/srv/set_project_running_opt.hpp"
+#include "rokae_xmate3_ros2/srv/set_simulation_mode.hpp"
+#include "rokae_xmate3_ros2/srv/set_x_panel_vout.hpp"
+#include "rokae_xmate3_ros2/srv/start_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/stop_rl_project.hpp"
+#include "rokae_xmate3_ros2/srv/validate_motion.hpp"
+#include "rokae_xmate3_ros2/srv/write_register.hpp"
+#include "rokae_xmate3_ros2/srv/write_register_ex.hpp"
+#endif
+#include "rokae_xmate3_ros2/srv/get_base_frame.hpp"
+#include "rokae_xmate3_ros2/srv/get_cart_posture.hpp"
+#include "rokae_xmate3_ros2/srv/get_end_effector_torque.hpp"
+#include "rokae_xmate3_ros2/srv/get_end_wrench.hpp"
 #include "rokae_xmate3_ros2/srv/get_info.hpp"
 #include "rokae_xmate3_ros2/srv/get_joint_pos.hpp"
 #include "rokae_xmate3_ros2/srv/get_joint_torques.hpp"
@@ -48,49 +69,30 @@
 #include "rokae_xmate3_ros2/srv/get_power_state.hpp"
 #include "rokae_xmate3_ros2/srv/get_runtime_diagnostics.hpp"
 #include "rokae_xmate3_ros2/srv/get_runtime_state_snapshot.hpp"
-#include "rokae_xmate3_ros2/srv/get_profile_capabilities.hpp"
 #include "rokae_xmate3_ros2/srv/get_rt_joint_data.hpp"
 #include "rokae_xmate3_ros2/srv/get_soft_limit.hpp"
 #include "rokae_xmate3_ros2/srv/get_toolset.hpp"
-#include "rokae_xmate3_ros2/srv/load_rl_project.hpp"
 #include "rokae_xmate3_ros2/srv/map_cartesian_to_joint_torque.hpp"
 #include "rokae_xmate3_ros2/srv/move_reset.hpp"
 #include "rokae_xmate3_ros2/srv/move_start.hpp"
 #include "rokae_xmate3_ros2/srv/query_controller_log.hpp"
 #include "rokae_xmate3_ros2/srv/query_path_lists.hpp"
-#include "rokae_xmate3_ros2/srv/read_register.hpp"
-#include "rokae_xmate3_ros2/srv/read_register_ex.hpp"
-#include "rokae_xmate3_ros2/srv/register_data_callback.hpp"
 #include "rokae_xmate3_ros2/srv/remove_path.hpp"
 #include "rokae_xmate3_ros2/srv/replay_path.hpp"
 #include "rokae_xmate3_ros2/srv/save_record_path.hpp"
-#include "rokae_xmate3_ros2/srv/send_custom_data.hpp"
-#include "rokae_xmate3_ros2/srv/set_ao.hpp"
-#include "rokae_xmate3_ros2/srv/set_avoid_singularity.hpp"
 #include "rokae_xmate3_ros2/srv/set_default_conf_opt.hpp"
 #include "rokae_xmate3_ros2/srv/set_default_speed.hpp"
 #include "rokae_xmate3_ros2/srv/set_default_zone.hpp"
-#include "rokae_xmate3_ros2/srv/set_di.hpp"
-#include "rokae_xmate3_ros2/srv/set_do.hpp"
 #include "rokae_xmate3_ros2/srv/set_motion_control_mode.hpp"
 #include "rokae_xmate3_ros2/srv/set_operate_mode.hpp"
 #include "rokae_xmate3_ros2/srv/set_power_state.hpp"
 #include "rokae_xmate3_ros2/srv/set_rt_control_mode.hpp"
-#include "rokae_xmate3_ros2/srv/set_simulation_mode.hpp"
 #include "rokae_xmate3_ros2/srv/set_soft_limit.hpp"
 #include "rokae_xmate3_ros2/srv/set_toolset.hpp"
 #include "rokae_xmate3_ros2/srv/set_toolset_by_name.hpp"
 #include "rokae_xmate3_ros2/srv/start_record_path.hpp"
-#include "rokae_xmate3_ros2/srv/pause_rl_project.hpp"
-#include "rokae_xmate3_ros2/srv/set_project_running_opt.hpp"
-#include "rokae_xmate3_ros2/srv/set_x_panel_vout.hpp"
-#include "rokae_xmate3_ros2/srv/start_rl_project.hpp"
 #include "rokae_xmate3_ros2/srv/stop.hpp"
 #include "rokae_xmate3_ros2/srv/stop_record_path.hpp"
-#include "rokae_xmate3_ros2/srv/stop_rl_project.hpp"
-#include "rokae_xmate3_ros2/srv/validate_motion.hpp"
-#include "rokae_xmate3_ros2/srv/write_register.hpp"
-#include "rokae_xmate3_ros2/srv/write_register_ex.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -159,8 +161,11 @@ class ControlFacade {
                                rokae_xmate3_ros2::srv::AdjustSpeedOnline::Response &res) const;
   void handleSetRtControlMode(const rokae_xmate3_ros2::srv::SetRtControlMode::Request &req,
                               rokae_xmate3_ros2::srv::SetRtControlMode::Response &res) const;
+#if ROKAE_ENABLE_INTERNAL_SURFACE
+
   void handleSetSimulationMode(const rokae_xmate3_ros2::srv::SetSimulationMode::Request &req,
                                rokae_xmate3_ros2::srv::SetSimulationMode::Response &res) const;
+#endif
   void handleSetToolset(const rokae_xmate3_ros2::srv::SetToolset::Request &req,
                         rokae_xmate3_ros2::srv::SetToolset::Response &res) const;
   void handleSetToolsetByName(const rokae_xmate3_ros2::srv::SetToolsetByName::Request &req,
@@ -169,8 +174,11 @@ class ControlFacade {
                         rokae_xmate3_ros2::srv::EnableDrag::Response &res) const;
   void handleDisableDrag(const rokae_xmate3_ros2::srv::DisableDrag::Request &req,
                          rokae_xmate3_ros2::srv::DisableDrag::Response &res) const;
+#if ROKAE_ENABLE_INTERNAL_SURFACE
+
   void handleSetAvoidSingularity(const rokae_xmate3_ros2::srv::SetAvoidSingularity::Request &req,
                                  rokae_xmate3_ros2::srv::SetAvoidSingularity::Response &res) const;
+#endif
 
  private:
   void stopRuntime(const std::string &message) const;
@@ -217,8 +225,11 @@ class QueryFacade {
    */
   void handleGetRuntimeStateSnapshot(const rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot::Request &req,
                                      rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot::Response &res) const;
+#if ROKAE_ENABLE_INTERNAL_SURFACE
+
   void handleGetProfileCapabilities(const rokae_xmate3_ros2::srv::GetProfileCapabilities::Request &req,
                                      rokae_xmate3_ros2::srv::GetProfileCapabilities::Response &res) const;
+#endif
   void handleGetInfo(const rokae_xmate3_ros2::srv::GetInfo::Request &req,
                      rokae_xmate3_ros2::srv::GetInfo::Response &res) const;
   void handleGetOperateMode(const rokae_xmate3_ros2::srv::GetOperateMode::Request &req,
@@ -247,20 +258,35 @@ class QueryFacade {
                           rokae_xmate3_ros2::srv::GetSoftLimit::Response &res) const;
   void handleGetRtJointData(const rokae_xmate3_ros2::srv::GetRtJointData::Request &req,
                             rokae_xmate3_ros2::srv::GetRtJointData::Response &res) const;
+#if ROKAE_ENABLE_INTERNAL_SURFACE
+
   void handleGetAvoidSingularity(const rokae_xmate3_ros2::srv::GetAvoidSingularity::Request &req,
                                  rokae_xmate3_ros2::srv::GetAvoidSingularity::Response &res) const;
+#endif
+#if ROKAE_ENABLE_INTERNAL_SURFACE
+
   void handleGetRlProjectInfo(const rokae_xmate3_ros2::srv::GetRlProjectInfo::Request &req,
                               rokae_xmate3_ros2::srv::GetRlProjectInfo::Response &res) const;
+#endif
+#if ROKAE_ENABLE_INTERNAL_SURFACE
+
   void handleGetToolCatalog(const rokae_xmate3_ros2::srv::GetToolCatalog::Request &req,
                             rokae_xmate3_ros2::srv::GetToolCatalog::Response &res) const;
+#endif
+#if ROKAE_ENABLE_INTERNAL_SURFACE
+
   void handleGetWobjCatalog(const rokae_xmate3_ros2::srv::GetWobjCatalog::Request &req,
                             rokae_xmate3_ros2::srv::GetWobjCatalog::Response &res) const;
+#endif
   void handleCalcJointTorque(const rokae_xmate3_ros2::srv::CalcJointTorque::Request &req,
                              rokae_xmate3_ros2::srv::CalcJointTorque::Response &res) const;
   void handleGenerateSTrajectory(const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &req,
                                  rokae_xmate3_ros2::srv::GenerateSTrajectory::Response &res) const;
+#if ROKAE_ENABLE_INTERNAL_SURFACE
+
   void handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMotion::Request &req,
                             rokae_xmate3_ros2::srv::ValidateMotion::Response &res) const;
+#endif
   void handleMapCartesianToJointTorque(const rokae_xmate3_ros2::srv::MapCartesianToJointTorque::Request &req,
                                        rokae_xmate3_ros2::srv::MapCartesianToJointTorque::Response &res) const;
   void handleGetEndEffectorTorque(const rokae_xmate3_ros2::srv::GetEndEffectorTorque::Request &req,
@@ -289,6 +315,9 @@ class QueryFacade {
   int joint_num_;
 };
 
+class IoProgramFacade;
+
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 class IoProgramFacade {
  public:
   /**
@@ -356,6 +385,7 @@ class IoProgramFacade {
   ToolingState &tooling_state_;
   TimeProvider time_provider_;
 };
+#endif
 
 class PathFacade {
  public:

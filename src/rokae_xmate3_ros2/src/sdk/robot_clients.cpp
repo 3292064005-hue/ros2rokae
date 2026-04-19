@@ -64,7 +64,9 @@ void xMateRobot::Impl::init_clients() {
     xmate3_robot_connect_client_ = node_->create_client<rokae_xmate3_ros2::srv::Connect>("/xmate3/cobot/connect");
     xmate3_robot_disconnect_client_ = node_->create_client<rokae_xmate3_ros2::srv::Disconnect>("/xmate3/cobot/disconnect");
     xmate3_robot_get_info_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetInfo>("/xmate3/cobot/get_info");
+#if ROKAE_ENABLE_INTERNAL_SURFACE
     xmate3_internal_get_profile_capabilities_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetProfileCapabilities>("/xmate3/internal/get_profile_capabilities");
+#endif
     xmate3_internal_get_runtime_state_snapshot_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot>("/xmate3/internal/get_runtime_state_snapshot");
     xmate3_robot_get_power_state_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetPowerState>("/xmate3/cobot/get_power_state");
     xmate3_robot_set_power_state_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetPowerState>("/xmate3/cobot/set_power_state");
@@ -111,6 +113,7 @@ void xMateRobot::Impl::init_clients() {
         rt_fast_shm_writer_ = std::make_unique<rokae_xmate3_ros2::runtime::RtFastShmRingWriter>(
             rokae_xmate3_ros2::runtime::rt_topics::kFastShmName);
     }
+#if ROKAE_ENABLE_INTERNAL_SURFACE
     xmate3_comm_send_custom_data_client_ = node_->create_client<rokae_xmate3_ros2::srv::SendCustomData>("/xmate3/cobot/send_custom_data");
     xmate3_comm_register_data_callback_client_ = node_->create_client<rokae_xmate3_ros2::srv::RegisterDataCallback>("/xmate3/cobot/register_data_callback");
     xmate3_comm_read_register_client_ = node_->create_client<rokae_xmate3_ros2::srv::ReadRegister>("/xmate3/cobot/read_register");
@@ -128,6 +131,7 @@ void xMateRobot::Impl::init_clients() {
     xmate3_io_set_ao_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetAO>("/xmate3/io/set_ao");
 
     xmate3_io_set_simulation_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetSimulationMode>("/xmate3/io/set_simulation_mode");
+#endif
     // RL project, path-recording, and advanced dynamics clients are initialized lazily so
     // light-weight wrappers do not pre-connect seldom-used control surfaces.
 
@@ -152,6 +156,9 @@ void xMateRobot::Impl::ensureToolingClients() {
 
 
 void xMateRobot::Impl::ensureProjectClients() {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+    return;
+#else
     std::lock_guard<std::mutex> lock(client_init_mutex_);
     if (!xmate3_rl_load_project_client_) {
         xmate3_rl_load_project_client_ = node_->create_client<rokae_xmate3_ros2::srv::LoadRLProject>("/xmate3/cobot/load_rl_project");
@@ -177,6 +184,7 @@ void xMateRobot::Impl::ensureProjectClients() {
     if (!xmate3_rl_get_wobjs_info_client_) {
         xmate3_rl_get_wobjs_info_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetWobjCatalog>("/xmate3/cobot/get_wobjs_info");
     }
+#endif
 }
 
 void xMateRobot::Impl::ensurePathClients() {
@@ -212,12 +220,14 @@ void xMateRobot::Impl::ensurePathClients() {
 
 void xMateRobot::Impl::ensureDynamicsClients() {
     std::lock_guard<std::mutex> lock(client_init_mutex_);
+#if ROKAE_ENABLE_INTERNAL_SURFACE
     if (!xmate3_cobot_set_avoid_singularity_client_) {
         xmate3_cobot_set_avoid_singularity_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetAvoidSingularity>("/xmate3/cobot/set_avoid_singularity");
     }
     if (!xmate3_cobot_get_avoid_singularity_client_) {
         xmate3_cobot_get_avoid_singularity_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetAvoidSingularity>("/xmate3/cobot/get_avoid_singularity");
     }
+#endif
     if (!xmate3_cobot_get_end_torque_client_) {
         xmate3_cobot_get_end_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetEndEffectorTorque>("/xmate3/cobot/get_end_torque");
     }
@@ -380,6 +390,10 @@ void xMateRobot::Impl::applyCatalogPolicyOverride(const std::optional<SdkCatalog
 }
 
 void xMateRobot::Impl::publishCatalogProvenance(const std::string& provenance) const {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+    (void)provenance;
+    return;
+#else
     if (!connected_ || !xmate3_comm_send_custom_data_client_) {
         return;
     }
@@ -392,6 +406,7 @@ void xMateRobot::Impl::publishCatalogProvenance(const std::string& provenance) c
     request->custom_data = provenance;
     auto future = xmate3_comm_send_custom_data_client_->async_send_request(request);
     (void)const_cast<Impl*>(this)->wait_for_future(future, std::chrono::seconds(1));
+#endif
 }
 
 bool xMateRobot::Impl::allowCatalogFallback(std::error_code& ec, bool fallback_available, const char* operation) {

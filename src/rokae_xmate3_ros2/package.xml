@@ -3,7 +3,7 @@
 <package format="3">
   <name>rokae_xmate3_ros2</name>
   <version>2.1.0</version>
-  <description>ROKAE xMate6 public SDK compatibility lane (package name retained as legacy rokae_xmate3_ros2 alias). Install-facing public_sdk artifacts are separated from internal_runtime / internal_devel assets; canonical launch/profile selection and query authority are explicitly gated.</description>
+  <description>ROKAE xMate6 public SDK compatibility lane (package name retained as legacy rokae_xmate3_ros2 alias). Install-facing public_sdk artifacts are separated from internal_runtime / internal_devel assets; canonical install-facing identity is xCoreSDK while this package name remains the legacy source-tree alias; launch/profile selection and query authority are explicitly gated.</description>
   <maintainer email="support@rokae.com">ROKAE Support</maintainer>
   <license>Apache-2.0</license>
 

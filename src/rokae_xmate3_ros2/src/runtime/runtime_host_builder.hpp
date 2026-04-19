@@ -15,6 +15,7 @@
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "rokae_xmate3_ros2/msg/operation_state.hpp"
 #include "rokae_xmate3_ros2/msg/runtime_diagnostics.hpp"
+#include "runtime/backend_contract_catalog.hpp"
 #include "runtime/ros_bindings.hpp"
 #include "runtime/runtime_context.hpp"
 #include "runtime/runtime_control_bridge.hpp"
@@ -24,6 +25,7 @@
 namespace rokae_xmate3_ros2::runtime {
 
 struct RuntimeHostBootstrapConfig {
+  BackendContractDescriptor backend_contract{};
   std::string backend_label{"unknown"};
   std::vector<std::string> capability_flags;
   RuntimeRtProfileConfig rt_profile{};
@@ -55,7 +57,7 @@ using RuntimeHostShouldPublish = std::function<bool()>;
  * @brief Build the single runtime-host bootstrap contract used by daemon and plugin hosts.
  * @param requested_profile Requested runtime profile string.
  * @param host_kind Runtime host ownership shape.
- * @param backend_label Stable diagnostics backend label.
+ * @param backend_contract Provider/backend contract selected for this host.
  * @param capability_flags Capability flags advertised by the host/backend.
  * @return Fully resolved runtime-profile + control-bridge bootstrap contract.
  * @throws std::runtime_error when the requested profile is unsupported for the selected host.
@@ -63,7 +65,7 @@ using RuntimeHostShouldPublish = std::function<bool()>;
 [[nodiscard]] RuntimeHostBootstrapConfig buildRuntimeHostBootstrapConfig(
     const std::string &requested_profile,
     RuntimeHostKind host_kind,
-    std::string backend_label,
+    BackendContractDescriptor backend_contract,
     std::vector<std::string> capability_flags);
 
 /**
@@ -81,7 +83,7 @@ class RuntimeHostBuilder {
   [[nodiscard]] RuntimeHostBootstrapConfig resolveBootstrap(
       const std::string &requested_profile,
       RuntimeHostKind host_kind,
-      std::string backend_label,
+      BackendContractDescriptor backend_contract,
       std::vector<std::string> capability_flags) const;
 
   void configureContext(RuntimeContext &runtime_context,

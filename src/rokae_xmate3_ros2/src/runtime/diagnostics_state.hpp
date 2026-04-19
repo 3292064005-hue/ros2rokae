@@ -47,6 +47,18 @@ class RuntimeDiagnosticsState {
                           const std::string &result_source,
                           const std::string &rt_dispatch_mode);
   void setRtStateSource(const std::string &source);
+  /**
+   * @brief Publishes the contract metadata attached to diagnostics and profile queries.
+   * @param query_authority Runtime owner of the reported values.
+   * @param fidelity_class Semantic fidelity visible to consumers.
+   * @param model_revision Model/catalog revision backing the values.
+   * @param canonical_identity Canonical install-facing package identity.
+   * @note Empty inputs are ignored so callers can update metadata incrementally without erasing prior state.
+   */
+  void setContractMetadata(const std::string &query_authority,
+                           const std::string &fidelity_class,
+                           const std::string &model_revision,
+                           const std::string &canonical_identity);
   void setModelExactnessSummary(const std::string &summary);
   void setModelBackendInfo(const std::string &primary_backend, bool fallback_used);
   void setCatalogProvenanceSummary(const std::string &summary);

@@ -23,6 +23,44 @@ void initializeNrtQueue(rt::MotionRuntime &runtime) {
   runtime.reset();
 }
 
+void advanceTrajectoryGoal(const rt::TrajectoryExecutionGoal &goal,
+                           double elapsed_sec,
+                           rt::RobotSnapshot &snapshot,
+                           rt::TrajectoryExecutionState &state) {
+  if (goal.points.empty()) {
+    return;
+  }
+
+  const auto *previous = &goal.points.front();
+  const auto *next = &goal.points.back();
+  for (const auto &point : goal.points) {
+    if (point.time_from_start + 1e-9 < elapsed_sec) {
+      previous = &point;
+      continue;
+    }
+    next = &point;
+    break;
+  }
+
+  const double dt = std::max(next->time_from_start - previous->time_from_start, 1e-9);
+  const double alpha = std::clamp((elapsed_sec - previous->time_from_start) / dt, 0.0, 1.0);
+  std::array<double, 6> acceleration{};
+  for (std::size_t i = 0; i < 6; ++i) {
+    const double p0 = i < previous->position.size() ? previous->position[i] : 0.0;
+    const double p1 = i < next->position.size() ? next->position[i] : p0;
+    snapshot.joint_position[i] = p0 + (p1 - p0) * alpha;
+    const double v0 = i < previous->velocity.size() ? previous->velocity[i] : 0.0;
+    const double v1 = i < next->velocity.size() ? next->velocity[i] : v0;
+    const double a0 = i < previous->acceleration.size() ? previous->acceleration[i] : 0.0;
+    const double a1 = i < next->acceleration.size() ? next->acceleration[i] : a0;
+    snapshot.joint_velocity[i] = v0 + (v1 - v0) * alpha;
+    acceleration[i] = a0 + (a1 - a0) * alpha;
+  }
+  state.actual_position = arrayToVector(snapshot.joint_position);
+  state.actual_velocity = arrayToVector(snapshot.joint_velocity);
+  state.actual_acceleration = arrayToVector(acceleration);
+}
+
 }  // namespace
 
 class FakeBackend final : public rt::BackendInterface {
@@ -31,7 +69,20 @@ class FakeBackend final : public rt::BackendInterface {
     snapshot_.power_on = true;
   }
 
-  rt::RobotSnapshot readSnapshot() const override { return snapshot_; }
+  rt::RobotSnapshot readSnapshot() const override {
+    if (trajectory_state_.active && !trajectory_goal_.points.empty()) {
+      elapsed_sec_ = std::min(elapsed_sec_ + tick_sec_, trajectory_goal_.points.back().time_from_start);
+      advanceTrajectoryGoal(trajectory_goal_, elapsed_sec_, snapshot_, trajectory_state_);
+      trajectory_state_.desired_time_from_start = elapsed_sec_;
+      if (elapsed_sec_ + 1e-9 >= trajectory_goal_.points.back().time_from_start) {
+        trajectory_state_.active = false;
+        trajectory_state_.completed = true;
+        trajectory_state_.succeeded = true;
+        trajectory_state_.message = "trajectory completed";
+      }
+    }
+    return snapshot_;
+  }
 
   void applyControl(const rt::ControlCommand &command) override {
     const auto previous_position = snapshot_.joint_position;
@@ -54,10 +105,41 @@ class FakeBackend final : public rt::BackendInterface {
     snapshot_.joint_torque.fill(0.0);
   }
 
+  void setControlOwner(rt::ControlOwner owner) override { control_owner_ = owner; }
+  [[nodiscard]] rt::ControlOwner controlOwner() const override { return control_owner_; }
+
+  [[nodiscard]] bool supportsTrajectoryExecution() const override { return true; }
+
+  bool startTrajectoryExecution(const rt::TrajectoryExecutionGoal &goal, std::string &message) override {
+    if (goal.points.empty()) {
+      message = "trajectory goal is empty";
+      return false;
+    }
+    trajectory_goal_ = goal;
+    elapsed_sec_ = 0.0;
+    trajectory_state_ = rt::TrajectoryExecutionState{};
+    trajectory_state_.request_id = goal.request_id;
+    trajectory_state_.accepted = true;
+    trajectory_state_.active = true;
+    trajectory_state_.message = "trajectory accepted";
+    for (std::size_t i = 0; i < 6 && i < goal.points.front().position.size(); ++i) {
+      snapshot_.joint_position[i] = goal.points.front().position[i];
+    }
+    message.clear();
+    return true;
+  }
+
+  [[nodiscard]] rt::TrajectoryExecutionState readTrajectoryExecutionState() const override { return trajectory_state_; }
+
  private:
-  rt::RobotSnapshot snapshot_{};
+  mutable rt::RobotSnapshot snapshot_{};
   std::array<double, 6> target_{};
   std::array<double, 6> last_position_{};
+  mutable rt::TrajectoryExecutionState trajectory_state_{};
+  rt::TrajectoryExecutionGoal trajectory_goal_{};
+  mutable double elapsed_sec_ = 0.0;
+  double tick_sec_ = 0.01;
+  rt::ControlOwner control_owner_ = rt::ControlOwner::none;
 };
 
 TEST(MotionRuntimeStateTest, TransitionsPlanningToCompletedForPreplannedMotion) {
@@ -99,7 +181,6 @@ TEST(MotionRuntimeStateTest, TransitionsPlanningToCompletedForPreplannedMotion) 
                       first_update.state == rt::ExecutionState::planning;
   bool saw_queued = false;
   bool saw_executing = false;
-  bool saw_settling = false;
   bool saw_completed = false;
 
   for (int i = 0; i < 200; ++i) {
@@ -116,9 +197,7 @@ TEST(MotionRuntimeStateTest, TransitionsPlanningToCompletedForPreplannedMotion) 
     saw_planning = saw_planning || status.state == rt::ExecutionState::planning;
     saw_queued = saw_queued || status.state == rt::ExecutionState::queued;
     saw_executing = saw_executing || status.state == rt::ExecutionState::executing;
-    saw_settling = saw_settling || status.state == rt::ExecutionState::settling;
-    if (status.state == rt::ExecutionState::completed ||
-        status.state == rt::ExecutionState::completed_relaxed) {
+    if (status.state == rt::ExecutionState::completed) {
       saw_completed = true;
       break;
     }
@@ -128,25 +207,18 @@ TEST(MotionRuntimeStateTest, TransitionsPlanningToCompletedForPreplannedMotion) 
   EXPECT_TRUE(saw_planning);
   EXPECT_TRUE(saw_queued);
   EXPECT_TRUE(saw_executing);
-  EXPECT_TRUE(saw_settling);
   EXPECT_TRUE(saw_completed);
 
   const auto cached_status = runtime.status(request.request_id);
-  EXPECT_TRUE(cached_status.state == rt::ExecutionState::completed ||
-              cached_status.state == rt::ExecutionState::completed_relaxed);
-  EXPECT_EQ(cached_status.execution_backend, rt::ExecutionBackend::effort);
-  if (cached_status.state == rt::ExecutionState::completed_relaxed) {
-    EXPECT_FALSE(cached_status.terminal_success);
-  } else {
-    EXPECT_TRUE(cached_status.terminal_success);
-  }
+  EXPECT_EQ(cached_status.state, rt::ExecutionState::completed);
+  EXPECT_EQ(cached_status.execution_backend, rt::ExecutionBackend::jtc);
+  EXPECT_TRUE(cached_status.terminal_success);
 
   const auto completed_view = runtime.view();
   EXPECT_FALSE(completed_view.has_request);
   EXPECT_TRUE(completed_view.can_accept_request);
   EXPECT_TRUE(completed_view.terminal);
-  EXPECT_TRUE(completed_view.status.state == rt::ExecutionState::completed ||
-              completed_view.status.state == rt::ExecutionState::completed_relaxed);
+  EXPECT_EQ(completed_view.status.state, rt::ExecutionState::completed);
 }
 
 
@@ -154,16 +226,62 @@ class StaticBackend final : public rt::BackendInterface {
  public:
   StaticBackend() { snapshot_.power_on = true; }
 
-  rt::RobotSnapshot readSnapshot() const override { return snapshot_; }
-  void applyControl(const rt::ControlCommand &command) override { last_command_ = command; }
-  void clearControl() override {}
+  rt::RobotSnapshot readSnapshot() const override {
+    if (trajectory_state_.active && !trajectory_goal_.points.empty()) {
+      elapsed_sec_ = std::min(elapsed_sec_ + tick_sec_, trajectory_goal_.points.back().time_from_start);
+      advanceTrajectoryGoal(trajectory_goal_, elapsed_sec_, snapshot_, trajectory_state_);
+      trajectory_state_.desired_time_from_start = elapsed_sec_;
+      if (elapsed_sec_ + 1e-9 >= trajectory_goal_.points.back().time_from_start) {
+        trajectory_state_.active = false;
+        trajectory_state_.completed = true;
+        trajectory_state_.succeeded = true;
+        trajectory_state_.message = "trajectory completed";
+      }
+    }
+    return snapshot_;
+  }
+  void applyControl(const rt::ControlCommand &command) override {
+    ++apply_count_;
+    last_command_ = command;
+  }
+  void clearControl() override { ++clear_count_; }
   void setControlOwner(rt::ControlOwner owner) override { control_owner_ = owner; }
   [[nodiscard]] rt::ControlOwner controlOwner() const override { return control_owner_; }
+  [[nodiscard]] bool supportsTrajectoryExecution() const override { return true; }
+  bool startTrajectoryExecution(const rt::TrajectoryExecutionGoal &goal, std::string &message) override {
+    if (goal.points.empty()) {
+      message = "trajectory goal is empty";
+      return false;
+    }
+    trajectory_goal_ = goal;
+    elapsed_sec_ = 0.0;
+    ++start_count_;
+    trajectory_state_ = rt::TrajectoryExecutionState{};
+    trajectory_state_.request_id = goal.request_id;
+    trajectory_state_.accepted = true;
+    trajectory_state_.active = true;
+    trajectory_state_.message = "trajectory accepted";
+    for (std::size_t i = 0; i < 6 && i < goal.points.front().position.size(); ++i) {
+      snapshot_.joint_position[i] = goal.points.front().position[i];
+    }
+    message.clear();
+    return true;
+  }
+  [[nodiscard]] rt::TrajectoryExecutionState readTrajectoryExecutionState() const override { return trajectory_state_; }
+  int startCount() const { return start_count_; }
+  int applyCount() const { return apply_count_; }
 
  private:
-  rt::RobotSnapshot snapshot_{};
+  mutable rt::RobotSnapshot snapshot_{};
   rt::ControlCommand last_command_{};
   rt::ControlOwner control_owner_ = rt::ControlOwner::none;
+  mutable rt::TrajectoryExecutionState trajectory_state_{};
+  rt::TrajectoryExecutionGoal trajectory_goal_{};
+  mutable double elapsed_sec_ = 0.0;
+  double tick_sec_ = 0.01;
+  int start_count_ = 0;
+  int apply_count_ = 0;
+  int clear_count_ = 0;
 };
 
 TEST(MotionRuntimeStateTest, ActiveSpeedScaleChangesTrajectoryProgressRate) {
@@ -642,7 +760,7 @@ TEST(MotionRuntimeStateTest, IdleTickClearsControlWithoutEffortOwnership) {
   EXPECT_GT(backend.clearControlCount(), 0);
 }
 
-TEST(MotionRuntimeStateTest, SettleTimeoutCompletesRelaxedWithoutTerminalSuccess) {
+TEST(MotionRuntimeStateTest, NrtRequestFailsWhenTrajectoryBackendIsUnavailable) {
   rt::MotionRuntime runtime;
   initializeNrtQueue(runtime);
   StalledBackend backend;
@@ -667,16 +785,18 @@ TEST(MotionRuntimeStateTest, SettleTimeoutCompletesRelaxedWithoutTerminalSuccess
   std::string message;
   ASSERT_TRUE(runtime.submit(request, message)) << message;
 
-  for (int i = 0; i < 3000; ++i) {
+  for (int i = 0; i < 200; ++i) {
     const auto status = runtime.tick(backend, 0.01);
-    if (status.state == rt::ExecutionState::completed_relaxed) {
+    if (status.terminal()) {
+      EXPECT_EQ(status.state, rt::ExecutionState::failed);
       EXPECT_FALSE(status.terminal_success);
-      EXPECT_EQ(status.execution_backend, rt::ExecutionBackend::effort);
+      EXPECT_EQ(status.execution_backend, rt::ExecutionBackend::jtc);
+      EXPECT_NE(status.message.find("joint_trajectory_controller"), std::string::npos);
       return;
     }
   }
 
-  FAIL() << "expected completed_relaxed state";
+  FAIL() << "expected failed state";
 }
 
 TEST(MotionRuntimeStateTest, UsesTrajectoryBackendWhenAvailable) {
@@ -784,7 +904,7 @@ TEST(MotionRuntimeStateTest, TrajectoryBackendRetimesOnSpeedScaleChange) {
   EXPECT_GT(velocity_norm, 1e-6);
 }
 
-TEST(MotionRuntimeStateTest, RejectedTrajectoryBackendFallsBackToEffortOncePerRequest) {
+TEST(MotionRuntimeStateTest, RejectedTrajectoryBackendFailsWithoutEffortFallback) {
   rt::MotionRuntime runtime;
   initializeNrtQueue(runtime);
   const std::array<double, 6> target = {0.14, -0.10, 0.08, 0.0, 0.0, 0.0};
@@ -811,21 +931,20 @@ TEST(MotionRuntimeStateTest, RejectedTrajectoryBackendFallsBackToEffortOncePerRe
   std::string message;
   ASSERT_TRUE(runtime.submit(request, message)) << message;
 
-  bool saw_effort_execution = false;
+  bool reached_terminal = false;
   for (int i = 0; i < 2000; ++i) {
     const auto status = runtime.tick(backend, 0.01);
-    if (status.state == rt::ExecutionState::executing) {
-      saw_effort_execution = saw_effort_execution || status.execution_backend == rt::ExecutionBackend::effort;
-    }
     if (status.terminal()) {
-      EXPECT_TRUE(status.execution_backend == rt::ExecutionBackend::effort ||
-                  status.state == rt::ExecutionState::completed_relaxed);
+      EXPECT_EQ(status.state, rt::ExecutionState::failed);
+      EXPECT_EQ(status.execution_backend, rt::ExecutionBackend::jtc);
       EXPECT_EQ(status.control_owner, rt::ControlOwner::none);
+      EXPECT_NE(status.message.find("trajectory backend rejected goal"), std::string::npos);
+      reached_terminal = true;
       break;
     }
   }
 
-  EXPECT_TRUE(saw_effort_execution);
+  EXPECT_TRUE(reached_terminal);
   EXPECT_EQ(backend.startCount(), 1);
-  EXPECT_GT(backend.applyControlCount(), 0);
+  EXPECT_EQ(backend.applyControlCount(), 0);
 }

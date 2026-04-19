@@ -326,6 +326,8 @@ TEST(ServiceFacadeTest, PathFacadeSubmitsReplayRequestsThroughCoordinator) {
   facade.handleReplayPath(req, res);
 
   ASSERT_TRUE(res.success) << res.message;
+  EXPECT_NE(res.message.find("submitted;"), std::string::npos);
+  EXPECT_NE(res.message.find("analysis_ready=false"), std::string::npos);
   const auto view = coordinator.currentView();
   EXPECT_TRUE(view.has_request);
   EXPECT_EQ(view.status.request_id, "replay_demo_path_001");
@@ -652,7 +654,8 @@ TEST(ServiceFacadeTest, PathFacadeSaveRequiresRecordedDataAndSupportsRenameOnlyW
   program_state.stopRecordingPath();
   facade.handleSaveRecordPath(save_req, save_res);
   ASSERT_TRUE(save_res.success);
-  EXPECT_EQ(save_res.message, "path saved");
+  EXPECT_NE(save_res.message.find("path saved; samples=1"), std::string::npos);
+  EXPECT_NE(save_res.message.find("analysis_ready=false"), std::string::npos);
 
   rokae_xmate3_ros2::srv::SaveRecordPath::Request save_as_req;
   rokae_xmate3_ros2::srv::SaveRecordPath::Response save_as_res;
@@ -663,7 +666,7 @@ TEST(ServiceFacadeTest, PathFacadeSaveRequiresRecordedDataAndSupportsRenameOnlyW
   save_as_req.save_as = "saved_with_save_as";
   facade.handleSaveRecordPath(save_as_req, save_as_res);
   ASSERT_TRUE(save_as_res.success);
-  EXPECT_EQ(save_as_res.message, "path saved");
+  EXPECT_NE(save_as_res.message.find("path saved; samples=1"), std::string::npos);
 
   rt::ReplayPathAsset pending_asset;
   EXPECT_FALSE(program_state.getReplayAsset("ignored_pending_name", pending_asset));
@@ -682,6 +685,7 @@ TEST(ServiceFacadeTest, PathFacadeSaveRequiresRecordedDataAndSupportsRenameOnlyW
   EXPECT_TRUE(program_state.getReplayAsset("renamed_path", asset));
 }
 
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMate6Lane) {
   rt::SessionState session_state;
   rt::MotionOptionsState motion_options_state;
@@ -735,3 +739,4 @@ TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMate6Lane) {
   EXPECT_FALSE(get_res.enabled);
   EXPECT_EQ(get_res.message, "avoid singularity is not supported on the xMate6 compatibility lane");
 }
+#endif

@@ -49,6 +49,8 @@ add_library(${PROJECT_NAME}_runtime_state OBJECT
   src/runtime/rt_runtime_profile.cpp
   src/runtime/rt_scheduler.cpp
   src/runtime/runtime_host_builder.cpp
+  src/runtime/backend_contract_catalog.cpp
+  src/runtime/backend_provider.cpp
   src/runtime/planning_capability_service.cpp
   src/runtime/motion_extension_contract.cpp
   src/runtime/controller_state.cpp
@@ -56,17 +58,25 @@ add_library(${PROJECT_NAME}_runtime_state OBJECT
   src/runtime/operation_state_adapter.cpp
 )
 
-add_library(${PROJECT_NAME}_runtime_facade OBJECT
+set(ROKAE_RUNTIME_FACADE_SOURCES
   src/runtime/service_facade_utils.cpp
   src/runtime/control_facade.cpp
   src/runtime/query_facade.cpp
   src/runtime/query_state_service.cpp
   src/runtime/query_kinematics_service.cpp
   src/runtime/query_diagnostics_service.cpp
-  src/runtime/query_catalog_service.cpp
-  src/runtime/query_profile_service.cpp
-  src/runtime/io_program_facade.cpp
   src/runtime/path_facade.cpp
+)
+if(ROKAE_ENABLE_INTERNAL_SURFACE)
+  list(APPEND ROKAE_RUNTIME_FACADE_SOURCES
+    src/runtime/query_catalog_service.cpp
+    src/runtime/query_profile_service.cpp
+    src/runtime/io_program_facade.cpp
+  )
+endif()
+
+add_library(${PROJECT_NAME}_runtime_facade OBJECT
+  ${ROKAE_RUNTIME_FACADE_SOURCES}
 )
 
 add_library(${PROJECT_NAME}_runtime_ros_bridge OBJECT
@@ -147,6 +157,7 @@ ament_target_dependencies(${PROJECT_NAME}_runtime_core
   kdl_parser
 )
 target_link_libraries(${PROJECT_NAME}_runtime_core
+  ${GAZEBO_LIBRARIES}
   ${EIGEN3_LIBRARIES}
   ${OROCOS_KDL_LIBRARIES}
   "${cpp_typesupport_target}"
@@ -186,6 +197,7 @@ ament_target_dependencies(rokae_sim_runtime
   kdl_parser
 )
 target_link_libraries(rokae_sim_runtime
+  ${GAZEBO_LIBRARIES}
   "${cpp_typesupport_target}"
   ${EIGEN3_LIBRARIES}
   ${OROCOS_KDL_LIBRARIES}
@@ -245,6 +257,7 @@ if(BUILD_TESTING)
   )
   target_compile_definitions(${PROJECT_NAME}_runtime_test PRIVATE ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}")
   target_link_libraries(${PROJECT_NAME}_runtime_test
+    ${GAZEBO_LIBRARIES}
     "${cpp_typesupport_target}"
     ${EIGEN3_LIBRARIES}
     ${OROCOS_KDL_LIBRARIES}

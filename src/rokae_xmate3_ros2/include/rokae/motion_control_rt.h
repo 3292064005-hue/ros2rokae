@@ -48,7 +48,7 @@ class XCORE_API BaseMotionControl {
 
 /**
  * @brief Official-shaped realtime command specialization.
- * @note Deprecated helpers are retained for source compatibility and return deterministic `not_implemented`.
+ * @note Deprecated helpers are retained for source compatibility and now forward to the robot-scoped RT state stream on the xMate6 public lane. They remain deprecated because the authoritative API lives on BaseRobot/Robot_T.
  */
 template <>
 class XCORE_API MotionControl<MotionControlMode::RtCommand> : public BaseMotionControl {
@@ -71,15 +71,41 @@ class XCORE_API MotionControl<MotionControlMode::RtCommand> : public BaseMotionC
   void stopLoop();
   void stopMove();
 
+  /**
+   * @brief Deprecated RT state-stream helper that forwards to the robot-scoped state channel.
+   * @param fields Requested RT field names.
+   * @throws RealtimeControlException If the backend rejects the subscription.
+   * @note This wrapper always uses a 1 ms interval so legacy RT loops preserve their timing contract.
+   */
   [[deprecated("Use Robot_T::startReceiveRobotState(interval, fields) instead")]]
   void startReceiveRobotState(const std::vector<std::string> &fields);
+  /**
+   * @brief Stops the robot-scoped RT state stream used by deprecated RT helper code.
+   * @note Safe to call when the stream is already inactive.
+   */
   [[deprecated("Use BaseRobot::stopReceiveRobotState() instead")]]
   void stopReceiveRobotState() noexcept;
+  /**
+   * @brief Pulls one RT state frame through the robot-scoped state channel.
+   * @throws RealtimeControlException If transport/update fails.
+   * @note The legacy wrapper keeps a fixed 1 ms timeout to match the public RT compatibility lane.
+   */
   [[deprecated("Use BaseRobot::updateRobotState() instead")]]
   void updateRobotState();
   template <typename R>
   [[deprecated("Use BaseRobot::getStateData(fieldName, data) instead")]]
-  int getStateData(const std::string &, R &) {
+  int getStateData(const std::string &field_name, R &data) noexcept {
+    if constexpr (std::is_same_v<R, std::array<double, 6>>) {
+      return getStateDataArray6(field_name, data);
+    } else if constexpr (std::is_same_v<R, std::array<double, 3>>) {
+      return getStateDataArray3(field_name, data);
+    } else if constexpr (std::is_same_v<R, std::array<double, 16>>) {
+      return getStateDataMatrix16(field_name, data);
+    } else if constexpr (std::is_same_v<R, double>) {
+      return getStateDataScalarDouble(field_name, data);
+    } else if constexpr (std::is_same_v<R, bool>) {
+      return getStateDataBool(field_name, data);
+    }
     return -1;
   }
   [[deprecated("no longer maintained function")]]
@@ -87,6 +113,16 @@ class XCORE_API MotionControl<MotionControlMode::RtCommand> : public BaseMotionC
 
  protected:
   explicit MotionControl(std::shared_ptr<detail::CompatRtControllerHandle6> impl) noexcept;
+  /** Typed legacy readers used by deprecated getStateData(field, data) dispatch.
+   *  Return value: 0 on success, -1 when the field is absent or the requested type does not match.
+   *  Boundary behavior: these helpers never throw for simple cache misses; transport failures are surfaced
+   *  by the state update calls that precede them.
+   */
+  int getStateDataArray6(const std::string &field_name, std::array<double, 6> &data) noexcept;
+  int getStateDataArray3(const std::string &field_name, std::array<double, 3> &data) noexcept;
+  int getStateDataMatrix16(const std::string &field_name, std::array<double, 16> &data) noexcept;
+  int getStateDataScalarDouble(const std::string &field_name, double &data) noexcept;
+  int getStateDataBool(const std::string &field_name, bool &data) noexcept;
 };
 
 /**

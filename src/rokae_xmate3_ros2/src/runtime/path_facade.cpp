@@ -14,6 +14,29 @@ bool reject_if_not_connected(const SessionState &session_state, std::string &mes
   return false;
 }
 
+std::string build_consumption_suffix(const ReplayPathAsset &asset) {
+  const auto report = buildReplayPathConsumptionReport(asset);
+  std::string suffix = "; " + report.summary;
+
+  ReplayPathAnalysisInput analysis{};
+  std::string analysis_error;
+  if (buildReplayPathAnalysisInput(asset, analysis, &analysis_error)) {
+    suffix += "; analysis_samples=" + std::to_string(analysis.samples.size());
+  } else if (!analysis_error.empty()) {
+    suffix += "; analysis_status=" + analysis_error;
+  }
+
+  ReplayPathReportSummary report_summary{};
+  std::string report_error;
+  if (buildReplayPathReportSummary(asset, report_summary, &report_error)) {
+    suffix += "; report_phase_count=" + std::to_string(report_summary.phase_count);
+    suffix += "; report_source=" + report_summary.source;
+  } else if (!report_error.empty()) {
+    suffix += "; report_status=" + report_error;
+  }
+  return suffix;
+}
+
 }  // namespace
 
 PathFacade::PathFacade(SessionState &session_state,
@@ -115,9 +138,20 @@ void PathFacade::handleSaveRecordPath(const rokae_xmate3_ros2::srv::SaveRecordPa
       res.message = "path target name must not be empty";
       return;
     }
-    program_state_.saveRecordedPath(target_name);
+    std::string save_error;
+    if (!program_state_.saveRecordedPath(target_name, &save_error)) {
+      res.success = false;
+      res.message = save_error.empty() ? std::string{"failed to save recorded path"} : save_error;
+      return;
+    }
+    ReplayPathAsset saved_asset;
+    if (!program_state_.getReplayAsset(target_name, saved_asset)) {
+      res.success = false;
+      res.message = "path saved but could not be reloaded for consumption summary";
+      return;
+    }
     res.success = true;
-    res.message = "path saved";
+    res.message = "path saved" + build_consumption_suffix(saved_asset);
     return;
   }
   if (req.save_as.empty()) {
@@ -172,9 +206,17 @@ void PathFacade::handleReplayPath(const rokae_xmate3_ros2::srv::ReplayPath::Requ
     res.message = "Path not found";
     return;
   }
-  if (replay_asset.samples.empty()) {
+  if (!isReplayPathSchemaVersionSupported(replay_asset.metadata.version)) {
     res.success = false;
-    res.message = "Path is empty";
+    res.message = "Path schema version is not supported";
+    return;
+  }
+  normalizeReplayPathAssetForConsumption(replay_asset);
+  const auto consumption_report = buildReplayPathConsumptionReport(replay_asset);
+  if (!consumption_report.ready_for_replay) {
+    res.success = false;
+    res.message = consumption_report.error_message.empty() ? std::string{"Path failed replay contract validation"}
+                                                           : consumption_report.error_message;
     return;
   }
   if (request_coordinator_ == nullptr) {
@@ -203,7 +245,7 @@ void PathFacade::handleReplayPath(const rokae_xmate3_ros2::srv::ReplayPath::Requ
       trajectory_dt_provider_(),
       request_id_generator_(std::string("replay_") + req.name));
   res.success = submission.success;
-  res.message = submission.message;
+  res.message = submission.message + build_consumption_suffix(replay_asset);
 }
 
 void PathFacade::handleRemovePath(const rokae_xmate3_ros2::srv::RemovePath::Request &req,

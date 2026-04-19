@@ -43,15 +43,17 @@ TEST(ServiceRegistrationDescriptorTest, RejectsEmptyNames) {
 TEST(ServiceRegistrationDescriptorTest, PublishesControlQueryManifestForPrimaryAndCompatibilitySurfaces) {
   auto primary = buildPrimaryServiceDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::public_xmate6_only);
   auto aliases = buildCompatibilityAliasDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::public_xmate6_only);
+  auto internal_primary = buildPrimaryServiceDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::internal_full);
   auto internal_aliases = buildCompatibilityAliasDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::internal_full);
   ASSERT_FALSE(primary.empty());
   ASSERT_TRUE(aliases.empty());
-  ASSERT_FALSE(internal_aliases.empty());
 
   std::string error;
   EXPECT_TRUE(validateServiceDescriptors(primary, error)) << error;
   error.clear();
   EXPECT_TRUE(validateServiceDescriptors(aliases, error)) << error;
+  error.clear();
+  EXPECT_TRUE(validateServiceDescriptors(internal_primary, error)) << error;
   error.clear();
   EXPECT_TRUE(validateServiceDescriptors(internal_aliases, error)) << error;
 
@@ -76,12 +78,27 @@ TEST(ServiceRegistrationDescriptorTest, PublishesControlQueryManifestForPrimaryA
 
   EXPECT_TRUE(aliases.empty());
 
+#if ROKAE_ENABLE_INTERNAL_SURFACE
+  EXPECT_GT(internal_primary.size(), primary.size());
+  ASSERT_FALSE(internal_aliases.empty());
+
+  const auto internal_register = std::find_if(internal_primary.begin(), internal_primary.end(), [](const auto &descriptor) {
+    return std::string(descriptor.name) == "/xmate3/cobot/read_register_ex";
+  });
+  ASSERT_NE(internal_register, internal_primary.end());
+  EXPECT_FALSE(internal_register->compatibility_alias);
+  EXPECT_STREQ(internal_register->domain, "io_program");
+
   const auto sim_alias = std::find_if(internal_aliases.begin(), internal_aliases.end(), [](const auto &descriptor) {
     return std::string(descriptor.name) == "/xmate3/cobot/set_simulation_mode";
   });
   ASSERT_NE(sim_alias, internal_aliases.end());
   EXPECT_TRUE(sim_alias->compatibility_alias);
   EXPECT_STREQ(sim_alias->domain, "compatibility");
+#else
+  EXPECT_EQ(internal_primary.size(), primary.size());
+  EXPECT_TRUE(internal_aliases.empty());
+#endif
 }
 
 

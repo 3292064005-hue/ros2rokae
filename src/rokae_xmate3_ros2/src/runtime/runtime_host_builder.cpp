@@ -13,10 +13,11 @@ namespace rokae_xmate3_ros2::runtime {
 RuntimeHostBootstrapConfig buildRuntimeHostBootstrapConfig(
     const std::string &requested_profile,
     RuntimeHostKind host_kind,
-    std::string backend_label,
+    BackendContractDescriptor backend_contract,
     std::vector<std::string> capability_flags) {
   RuntimeHostBootstrapConfig config;
-  config.backend_label = std::move(backend_label);
+  config.backend_contract = std::move(backend_contract);
+  config.backend_label = config.backend_contract.backend_mode;
   config.capability_flags = std::move(capability_flags);
   config.rt_profile = resolveRuntimeRtProfile(requested_profile, host_kind);
   if (!config.rt_profile.supported) {
@@ -39,12 +40,12 @@ RuntimeHostBuilder::RuntimeHostBuilder(rclcpp::Node::SharedPtr node) : node_(std
 RuntimeHostBootstrapConfig RuntimeHostBuilder::resolveBootstrap(
     const std::string &requested_profile,
     RuntimeHostKind host_kind,
-    std::string backend_label,
+    BackendContractDescriptor backend_contract,
     std::vector<std::string> capability_flags) const {
   return buildRuntimeHostBootstrapConfig(
       requested_profile,
       host_kind,
-      std::move(backend_label),
+      std::move(backend_contract),
       std::move(capability_flags));
 }
 
@@ -52,7 +53,7 @@ void RuntimeHostBuilder::configureContext(RuntimeContext &runtime_context,
                                           const RuntimeHostBootstrapConfig &host_bootstrap,
                                           bool simulation_mode) const {
   runtime_context.diagnosticsState().configure(
-      host_bootstrap.backend_label,
+      host_bootstrap.backend_contract.backend_mode,
       host_bootstrap.capability_flags,
       host_bootstrap.rt_profile.effective_profile);
   runtime_context.diagnosticsState().setRuntimeOptionSummary(

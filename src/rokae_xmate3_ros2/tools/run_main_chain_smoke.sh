@@ -10,7 +10,14 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-WORKSPACE_ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+if [[ -f "${PACKAGE_ROOT}/CMakeLists.txt" ]]; then
+  DEFAULT_WORKSPACE_ROOT="$(cd "${PACKAGE_ROOT}/../.." && pwd)"
+else
+  DEFAULT_WORKSPACE_ROOT="$(cd "${PACKAGE_ROOT}/../../../.." && pwd)"
+fi
+WORKSPACE_ROOT="${1:-${DEFAULT_WORKSPACE_ROOT}}"
 if [[ ! -d "${WORKSPACE_ROOT}" ]]; then
   echo "main_chain_smoke: workspace root not found: ${WORKSPACE_ROOT}" >&2
   exit 1
@@ -48,7 +55,7 @@ mkdir -p "$(dirname "${LOG_FILE}")"
 
 MODEL_PATH="${WORKSPACE_ROOT}/install/rokae_xmate3_ros2/share/rokae_xmate3_ros2/urdf/xMate3.xacro"
 if [[ ! -f "${MODEL_PATH}" ]]; then
-  MODEL_PATH="${WORKSPACE_ROOT}/src/rokae_xmate3_ros2/urdf/xMate3.xacro"
+  MODEL_PATH="${PACKAGE_ROOT}/urdf/xMate3.xacro"
 fi
 if [[ ! -f "${MODEL_PATH}" ]]; then
   echo "main_chain_smoke: missing xacro model for non-canonical launch" >&2
@@ -257,7 +264,10 @@ resolve_limits_file() {
     exit 1
   fi
 
-  local source_candidate="${WORKSPACE_ROOT}/src/rokae_xmate3_ros2/config/runtime_diag_gate.default.json"
+  local source_candidate="${PACKAGE_ROOT}/config/runtime_diag_gate.default.json"
+  if [[ ! -f "${source_candidate}" ]]; then
+    source_candidate="${WORKSPACE_ROOT}/src/rokae_xmate3_ros2/config/runtime_diag_gate.default.json"
+  fi
   if [[ -f "${source_candidate}" ]]; then
     printf '%s\n' "${source_candidate}"
     return 0
@@ -288,7 +298,12 @@ DIAG_GATE_ARGS+=(--max-rx-latency-us "${ROKAE_RT_GATE_MAX_RX_LATENCY_US:-50000}"
 DIAG_GATE_ARGS+=(--max-queue-depth "${ROKAE_RT_GATE_MAX_QUEUE_DEPTH:-8}")
 DIAG_GATE_ARGS+=(--print-effective-limits)
 
-if ! "${ROKAE_PYTHON_EXECUTABLE:-python3}"   "${WORKSPACE_ROOT}/src/rokae_xmate3_ros2/tools/check_runtime_diag_gate.py"   "${DIAG_GATE_ARGS[@]}"; then
+RUNTIME_DIAG_GATE_TOOL="${SCRIPT_DIR}/check_runtime_diag_gate.py"
+if [[ ! -f "${RUNTIME_DIAG_GATE_TOOL}" ]]; then
+  echo "main_chain_smoke: missing runtime diagnostics gate helper next to installed tools" >&2
+  exit 1
+fi
+if ! "${ROKAE_PYTHON_EXECUTABLE:-python3}"   "${RUNTIME_DIAG_GATE_TOOL}"   "${DIAG_GATE_ARGS[@]}"; then
   echo "main_chain_smoke: runtime diagnostics threshold gate failed" >&2
   exit 1
 fi

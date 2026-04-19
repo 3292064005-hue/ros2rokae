@@ -21,8 +21,17 @@ bool validate_io_address(unsigned board, unsigned port, unsigned max_port, std::
 }
 } // namespace
 
+namespace {
+inline void mark_internal_surface_unsupported(std::error_code &ec) {
+    ec = std::make_error_code(std::errc::operation_not_supported);
+}
+}
+
 // ==================== IO接口实现 ====================
 bool xMateRobot::getDI(unsigned int board, unsigned int port, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)board; (void)port; mark_internal_surface_unsupported(ec); return false;
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (!validate_io_address(board, port, kIoDigitalPortMax, ec)) {
         return false;
@@ -54,9 +63,13 @@ bool xMateRobot::getDI(unsigned int board, unsigned int port, std::error_code& e
 
     ec.clear();
     return result->state;
+#endif
 }
 
 bool xMateRobot::getDO(unsigned int board, unsigned int port, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)board; (void)port; mark_internal_surface_unsupported(ec); return false;
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (!validate_io_address(board, port, kIoDigitalPortMax, ec)) {
         return false;
@@ -88,9 +101,13 @@ bool xMateRobot::getDO(unsigned int board, unsigned int port, std::error_code& e
 
     ec.clear();
     return result->state;
+#endif
 }
 
 void xMateRobot::setDI(unsigned int board, unsigned int port, bool state, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)board; (void)port; (void)state; mark_internal_surface_unsupported(ec); return;
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (!validate_io_address(board, port, kIoDigitalPortMax, ec)) {
         return;
@@ -123,9 +140,13 @@ void xMateRobot::setDI(unsigned int board, unsigned int port, bool state, std::e
     }
 
     ec.clear();
+#endif
 }
 
 void xMateRobot::setDO(unsigned int board, unsigned int port, bool state, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)board; (void)port; (void)state; mark_internal_surface_unsupported(ec); return;
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (!validate_io_address(board, port, kIoDigitalPortMax, ec)) {
         return;
@@ -159,9 +180,13 @@ void xMateRobot::setDO(unsigned int board, unsigned int port, bool state, std::e
 
     ec.clear();
     RCLCPP_INFO(impl_->node_->get_logger(), "DO信号设置成功, board:%d, port:%d, state:%d", board, port, state);
+#endif
 }
 
 double xMateRobot::getAI(unsigned int board, unsigned int port, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)board; (void)port; mark_internal_surface_unsupported(ec); return 0.0;
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (!validate_io_address(board, port, kIoAnalogPortMax, ec)) {
         return 0.0;
@@ -193,9 +218,13 @@ double xMateRobot::getAI(unsigned int board, unsigned int port, std::error_code&
 
     ec.clear();
     return result->value;
+#endif
 }
 
 void xMateRobot::setAO(unsigned int board, unsigned int port, double value, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)board; (void)port; (void)value; mark_internal_surface_unsupported(ec); return;
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (!validate_io_address(board, port, kIoAnalogPortMax, ec)) {
         return;
@@ -232,9 +261,13 @@ void xMateRobot::setAO(unsigned int board, unsigned int port, double value, std:
     }
 
     ec.clear();
+#endif
 }
 
 void xMateRobot::setSimulationMode(bool state, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)state; mark_internal_surface_unsupported(ec); return;
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -264,6 +297,7 @@ void xMateRobot::setSimulationMode(bool state, std::error_code& ec) {
     impl_->clearRuntimeStateSnapshotCache();
     ec.clear();
     RCLCPP_INFO(impl_->node_->get_logger(), "输入仿真模式设置为: %s", state ? "开启" : "关闭");
+#endif
 }
 
 

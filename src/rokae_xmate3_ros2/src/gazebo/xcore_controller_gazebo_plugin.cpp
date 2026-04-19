@@ -1,5 +1,7 @@
 #include "gazebo/xcore_controller_gazebo_plugin.hpp"
 
+#include "runtime/backend_provider.hpp"
+
 #include <algorithm>
 #include <functional>
 
@@ -28,12 +30,14 @@ void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
     if (sdf_ && sdf_->HasElement("backend_mode")) {
       backend_mode_value = sdf_->Get<std::string>("backend_mode");
     }
-    const auto backend_mode = parseBackendMode(backend_mode_value);
+    const auto backend_provider = runtime::resolveRuntimeBackendProvider(backend_mode_value);
+    const auto &backend_contract = backend_provider->contract();
     std::string service_exposure_profile_value = "public_xmate6_only";
     if (sdf_ && sdf_->HasElement("service_exposure_profile")) {
       service_exposure_profile_value = sdf_->Get<std::string>("service_exposure_profile");
     }
-    gzmsg << "[xCore Controller] backend_mode=" << toString(backend_mode)
+    gzmsg << "[xCore Controller] backend_mode=" << backend_contract.backend_mode
+          << " provider=" << backend_contract.provider_class
           << " service_exposure_profile=" << service_exposure_profile_value << std::endl;
 
     joint_names_ = {"xmate_joint_1", "xmate_joint_2", "xmate_joint_3",
@@ -67,7 +71,7 @@ void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
 
     RuntimeBootstrap::RosIntegrationOptions ros_integration;
     ros_integration.parameter_overrides.emplace_back("service_exposure_profile", service_exposure_profile_value);
-    bootstrap_ = std::make_unique<RuntimeBootstrap>(backend_mode,
+    bootstrap_ = std::make_unique<RuntimeBootstrap>(backend_provider,
                                                     &joints_,
                                                     &original_joint_limits_,
                                                     &joint_names_,
@@ -75,7 +79,7 @@ void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
                                                     std::move(ros_integration));
     bootstrap_->start();
 
-    if (backend_mode == BackendMode::jtc) {
+    if (backend_provider->emitsExternalTrajectoryOwnershipWarning()) {
       gzerr << "[xCore Controller] plugin loaded while backend_mode=jtc; "
             << "effort commands will remain disabled and JTC ownership is expected to stay external."
             << std::endl;

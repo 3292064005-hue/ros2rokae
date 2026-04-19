@@ -55,6 +55,7 @@ def main() -> int:
         copy_required(staging_prefix / "lib" / name, output_dir / "lib" / name, required=False)
 
     for rel in [
+        (Path('share/rokae_xmate3_ros2/cmake'), Path('share/rokae_xmate3_ros2/cmake')),
         (Path('share/rokae_xmate3_ros2/docs'), Path('share/rokae_xmate3_ros2/docs')),
         (Path('share/rokae_xmate3_ros2/examples'), Path('share/rokae_xmate3_ros2/examples')),
         (Path('share/rokae_xmate3_ros2/launch'), Path('share/rokae_xmate3_ros2/launch')),

@@ -241,8 +241,16 @@ bool build_replay_request(const ReplayPathAsset &replay_asset,
                           const MotionRequestContext &context,
                           MotionRequest &request,
                           std::string &error_message) {
-  if (replay_asset.samples.empty()) {
-    error_message = "Path is empty";
+  if (!isReplayPathSchemaVersionSupported(replay_asset.metadata.version)) {
+    error_message = "Path schema version is not supported";
+    return false;
+  }
+  ReplayPathAsset normalized_asset = replay_asset;
+  normalizeReplayPathAssetForConsumption(normalized_asset);
+  const auto consumption_report = buildReplayPathConsumptionReport(normalized_asset);
+  if (!consumption_report.ready_for_replay) {
+    error_message = consumption_report.error_message.empty() ? std::string{"Path failed replay contract validation"}
+                                                             : consumption_report.error_message;
     return false;
   }
   if (context.start_joints.size() < 6) {
@@ -262,7 +270,7 @@ bool build_replay_request(const ReplayPathAsset &replay_asset,
   request.soft_limits = context.soft_limits;
   request.trajectory_dt = context.trajectory_dt;
 
-  const auto retimed = retimeReplayWithUnifiedConfig(replay_asset, rate, context.trajectory_dt);
+  const auto retimed = retimeReplayWithUnifiedConfig(normalized_asset, rate, context.trajectory_dt);
   if (retimed.empty()) {
     error_message = "Path is empty";
     return false;

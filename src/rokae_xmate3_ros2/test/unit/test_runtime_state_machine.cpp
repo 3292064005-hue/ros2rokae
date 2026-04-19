@@ -151,3 +151,50 @@ TEST(RuntimeStateMachine, PlanningRejectedAndRetimedEventsExposeLastEvent) {
 
 }  // namespace
 }  // namespace rokae_xmate3_ros2::runtime
+
+namespace rokae_xmate3_ros2::runtime {
+namespace {
+
+TEST(RuntimeStateMachine, ProgressEventsCanExposeSettlingAndQueuedWithoutBypass) {
+  RuntimeStateMachine machine;
+  RuntimeStatus status;
+  RuntimePhase phase = RuntimePhase::idle;
+
+  RuntimeEvent start;
+  start.type = RuntimeEventType::execution_started;
+  start.request_id = "req-progress";
+  start.execution_backend = ExecutionBackend::effort;
+  start.total_segments = 2;
+  machine.apply(status, phase, start);
+
+  RuntimeEvent settling;
+  settling.type = RuntimeEventType::progress_updated;
+  settling.request_id = "req-progress";
+  settling.message = "settling";
+  settling.total_segments = 2;
+  settling.completed_segments = 1;
+  settling.current_segment_index = 1;
+  settling.has_observed_state = true;
+  settling.observed_state = ExecutionState::settling;
+  settling.execution_backend = ExecutionBackend::effort;
+  machine.apply(status, phase, settling);
+  EXPECT_EQ(status.state, ExecutionState::settling);
+  EXPECT_EQ(phase, RuntimePhase::executing);
+
+  RuntimeEvent queued;
+  queued.type = RuntimeEventType::progress_updated;
+  queued.request_id = "req-progress";
+  queued.message = "queued";
+  queued.total_segments = 2;
+  queued.completed_segments = 1;
+  queued.current_segment_index = 1;
+  queued.has_observed_state = true;
+  queued.observed_state = ExecutionState::queued;
+  queued.execution_backend = ExecutionBackend::effort;
+  machine.apply(status, phase, queued);
+  EXPECT_EQ(status.state, ExecutionState::queued);
+  EXPECT_EQ(phase, RuntimePhase::executing);
+}
+
+}  // namespace
+}  // namespace rokae_xmate3_ros2::runtime

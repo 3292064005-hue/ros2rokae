@@ -229,7 +229,7 @@ if(BUILD_TESTING)
     endif()
   endforeach()
 
-  set_tests_properties(test_move_queue_semantics PROPERTIES LABELS "quick_gate;semantic_gate")
+  set_tests_properties(test_move_queue_semantics PROPERTIES LABELS "quick_gate;semantic_gate;xmate6_alignment")
   set_tests_properties(test_register_semantics PROPERTIES LABELS "quick_gate")
 
   foreach(target_name IN ITEMS test_ros_context_owner test_sdk_catalog_policy test_service_registry_descriptors)
@@ -284,6 +284,20 @@ add_test(
 )
 set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
 rokae_disable_test_python_bytecode(repo_contract)
+
+add_test(
+  NAME public_contract_manifest
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_public_contract_manifest.py"
+)
+set_tests_properties(public_contract_manifest PROPERTIES LABELS "quick_gate;contract_gate")
+rokae_disable_test_python_bytecode(public_contract_manifest)
+
+add_test(
+  NAME public_internal_boundary
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_public_internal_boundary.py"
+)
+set_tests_properties(public_internal_boundary PROPERTIES LABELS "quick_gate;contract_gate")
+rokae_disable_test_python_bytecode(public_internal_boundary)
 
   if(TARGET test_controller_state)
     target_include_directories(test_controller_state
@@ -388,7 +402,7 @@ rokae_disable_test_python_bytecode(repo_contract)
     target_compile_features(test_implementation_audit PUBLIC cxx_std_17)
   endif()
 
-  set_tests_properties(test_runtime_state_machine PROPERTIES LABELS "quick_gate")
+  set_tests_properties(test_runtime_state_machine PROPERTIES LABELS "quick_gate;semantic_gate;xmate6_alignment")
 
   if(TARGET test_runtime_state_machine)
     target_include_directories(test_runtime_state_machine
@@ -473,7 +487,7 @@ rokae_disable_test_python_bytecode(repo_contract)
     rokae_add_rosidl_dependency(test_runtime_state)
   endif()
 
-  set_tests_properties(test_service_facade PROPERTIES LABELS "quick_gate")
+  set_tests_properties(test_service_facade PROPERTIES LABELS "quick_gate;semantic_gate;xmate6_alignment")
 
   if(TARGET test_service_facade)
     target_include_directories(test_service_facade
@@ -1191,7 +1205,7 @@ if(BUILD_TESTING AND ROKAE_BUILD_COMPAT_SDK)
             --consumer-dir "${CMAKE_CURRENT_SOURCE_DIR}/test/compat/install_tree"
             --staging-prefix "${CMAKE_CURRENT_BINARY_DIR}/compat_install_tree_stage"
   )
-  set_tests_properties(compat_install_tree_consumer PROPERTIES LABELS "abi_gate;install_tree" TIMEOUT 600)
+  set_tests_properties(compat_install_tree_consumer PROPERTIES LABELS "abi_gate;install_tree;release_gate" TIMEOUT 600)
   rokae_disable_test_python_bytecode(compat_install_tree_consumer)
 
   add_test(
@@ -1202,7 +1216,7 @@ if(BUILD_TESTING AND ROKAE_BUILD_COMPAT_SDK)
             --consumer-dir "${CMAKE_CURRENT_SOURCE_DIR}/test/compat/install_tree"
             --staging-prefix "${CMAKE_CURRENT_BINARY_DIR}/compat_no_ros_env_stage"
   )
-  set_tests_properties(compat_no_ros_env_external_consumer PROPERTIES LABELS "abi_gate;install_tree" TIMEOUT 600)
+  set_tests_properties(compat_no_ros_env_external_consumer PROPERTIES LABELS "abi_gate;install_tree;release_gate" TIMEOUT 600)
   rokae_disable_test_python_bytecode(compat_no_ros_env_external_consumer)
 
   add_test(

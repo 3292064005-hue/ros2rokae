@@ -491,6 +491,7 @@ void ControlFacade::handleSetRtControlMode(const rokae_xmate3_ros2::srv::SetRtCo
   res.error_msg.clear();
 }
 
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 void ControlFacade::handleSetSimulationMode(
     const rokae_xmate3_ros2::srv::SetSimulationMode::Request &req,
     rokae_xmate3_ros2::srv::SetSimulationMode::Response &res) const {
@@ -502,6 +503,8 @@ void ControlFacade::handleSetSimulationMode(
   session_state_.setSimulationMode(req.state);
   res.success = true;
 }
+#endif
+
 
 void ControlFacade::handleSetToolset(const rokae_xmate3_ros2::srv::SetToolset::Request &req,
                                      rokae_xmate3_ros2::srv::SetToolset::Response &res) const {
@@ -577,6 +580,7 @@ void ControlFacade::handleDisableDrag(const rokae_xmate3_ros2::srv::DisableDrag:
   res.message = "drag mode disabled";
 }
 
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 void ControlFacade::handleSetAvoidSingularity(
     const rokae_xmate3_ros2::srv::SetAvoidSingularity::Request &req,
     rokae_xmate3_ros2::srv::SetAvoidSingularity::Response &res) const {
@@ -589,6 +593,8 @@ void ControlFacade::handleSetAvoidSingularity(
   res.success = false;
   res.message = "avoid singularity is not supported on the xMate6 compatibility lane";
 }
+#endif
+
 
 
 }  // namespace rokae_xmate3_ros2::runtime

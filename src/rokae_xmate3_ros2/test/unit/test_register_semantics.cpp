@@ -45,6 +45,7 @@ TEST(RegisterSemantics, SemanticTopicsUpdateTypedRtSnapshotWithoutReparsingAtRea
   EXPECT_EQ(semantic.catalog_provenance, "runtime_authoritative");
 }
 
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 TEST(RegisterSemantics, IoProgramFacadeRejectsEmptyRegisterKeysAndNames) {
   rt::SessionState session_state;
   rt::DataStoreState data_store;
@@ -138,3 +139,4 @@ TEST(RegisterSemantics, IoProgramFacadeRejectsDisconnectedRequestsAndInvalidIndi
   EXPECT_FALSE(ao_res.success);
   EXPECT_EQ(ao_res.message, "AO value must be within [0.0, 10.0]");
 }
+#endif

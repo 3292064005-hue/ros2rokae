@@ -111,7 +111,7 @@ class ControllerState {
                         const std::array<double, 6> &joint_position,
                         const std::array<double, 6> &joint_velocity);
   void recordPathSample(const std::array<double, 6> &joint_position);
-  void saveRecordedPath(const std::string &name);
+  [[nodiscard]] bool saveRecordedPath(const std::string &name, std::string *error_message = nullptr);
   [[nodiscard]] bool getSavedPath(const std::string &name,
                                   std::vector<std::vector<double>> &path) const;
   [[nodiscard]] bool getReplayAsset(const std::string &name, ReplayPathAsset &asset) const;

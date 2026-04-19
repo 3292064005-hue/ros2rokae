@@ -17,13 +17,7 @@ fi
 
 WS_ROOT="$1"
 PKG_NAME="rokae_xmate3_ros2"
-PKG_SRC="${WS_ROOT}/src/${PKG_NAME}"
 INSTALL_SETUP="${WS_ROOT}/install/setup.bash"
-
-if [ ! -d "${PKG_SRC}" ]; then
-  echo "launch_smoke: package source tree not found: ${PKG_SRC}" >&2
-  exit 66
-fi
 
 if [ ! -f "${INSTALL_SETUP}" ]; then
   echo "launch_smoke: workspace install setup not found: ${INSTALL_SETUP}" >&2
@@ -61,7 +55,7 @@ export ROKAE_XMATE3_ROS2_LIB_DIR="${WS_ROOT}/install/${PKG_NAME}/lib"
 export ROKAE_PYTHON_EXECUTABLE="${PYTHON_BIN}"
 export LIBGL_ALWAYS_SOFTWARE=1
 
-"${PYTHON_BIN}" -m py_compile   "${PKG_SRC}/launch/_simulation_support.py"   "${PKG_SRC}/launch/rviz_only.launch.py"   "${PKG_SRC}/launch/simulation.launch.py"   "${PKG_SRC}/launch/xmate3_gazebo.launch.py"   "${PKG_SRC}/launch/xmate3_simulation.launch.py"
+"${PYTHON_BIN}" -m py_compile   "${INSTALL_SHARE}/launch/_simulation_support.py"   "${INSTALL_SHARE}/launch/_launch_profile.py"   "${INSTALL_SHARE}/launch/rviz_only.launch.py"   "${INSTALL_SHARE}/launch/simulation.launch.py"   "${INSTALL_SHARE}/launch/xmate6_public.launch.py"
 
 XACRO_INPUT="${INSTALL_SHARE}/urdf/xMate3.xacro"
 if [ ! -f "${XACRO_INPUT}" ]; then

@@ -16,7 +16,15 @@ PYTHONPYCACHEPREFIX="${TMP_PYCACHE}" "${PYTHON_BIN}" -B -m py_compile \
   "${PKG_ROOT}"/launch/_simulation_support.py \
   "${PKG_ROOT}"/tools/render_robot_description.py \
   "${PKG_ROOT}"/test/harness/check_repo_contract.py \
-  "${PKG_ROOT}"/test/harness/check_render_robot_description_install_tree.py
+  "${PKG_ROOT}"/test/harness/check_render_robot_description_install_tree.py \
+  "${PKG_ROOT}"/test/harness/check_provider_boundary.py \
+  "${PKG_ROOT}"/test/harness/check_public_internal_boundary.py \
+  "${PKG_ROOT}"/test/harness/check_docs_layout.py \
+  "${PKG_ROOT}"/test/harness/check_recorded_path_schema.py \
+  "${PKG_ROOT}"/test/harness/check_cpp_signature_sync.py \
+  "${PKG_ROOT}"/test/harness/check_runtime_state_machine_contract.py \
+  "${PKG_ROOT}"/test/harness/check_acceptance_layers.py \
+  "${PKG_ROOT}"/test/harness/check_xmate6_alignment_behaviors.py
 
 for script in "${PKG_ROOT}"/tools/*.sh; do
   bash -n "$script"
@@ -24,6 +32,15 @@ done
 
 "${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_repo_contract.py" "${PKG_ROOT}"
 "${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_render_robot_description_install_tree.py"
+"${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_provider_boundary.py"
+"${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_public_internal_boundary.py"
+"${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_docs_layout.py"
+"${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_recorded_path_schema.py"
+"${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_cpp_signature_sync.py"
+"${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_runtime_state_machine_contract.py"
+"${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_acceptance_layers.py"
+"${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_xmate6_alignment_behaviors.py"
+"${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_release_gate_workflow.py"
 
 "${PYTHON_BIN}" - "${PKG_ROOT}" <<'PY'
 import pathlib

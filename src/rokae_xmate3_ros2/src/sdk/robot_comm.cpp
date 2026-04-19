@@ -3,6 +3,13 @@
 namespace rokae::ros2 {
 
 namespace {
+inline void mark_internal_surface_unsupported(std::error_code &ec) {
+    ec = std::make_error_code(std::errc::operation_not_supported);
+}
+}
+
+
+namespace {
 
 std::uint8_t toRtFastKind(const rokae_xmate3_ros2::runtime::RtFastCommandKind kind) {
     switch (kind) {
@@ -24,6 +31,12 @@ std::uint8_t toRtFastKind(const rokae_xmate3_ros2::runtime::RtFastCommandKind ki
 std::string xMateRobot::sendCustomData(const std::string& topic,
                                        const std::string& payload,
                                        std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+    (void)topic;
+    (void)payload;
+    mark_internal_surface_unsupported(ec);
+    return {};
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -48,6 +61,7 @@ std::string xMateRobot::sendCustomData(const std::string& topic,
     }
     ec.clear();
     return result->response_data;
+#endif
 }
 
 bool xMateRobot::publishRtFastCommand(const rokae_xmate3_ros2::runtime::RtFastCommandFrame& frame,
@@ -95,6 +109,9 @@ bool xMateRobot::publishRtFastCommand(const rokae_xmate3_ros2::runtime::RtFastCo
 bool xMateRobot::registerDataCallback(const std::string& data_topic,
                                       const std::string& callback_id,
                                       std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)data_topic; (void)callback_id; mark_internal_surface_unsupported(ec); return false;
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -119,9 +136,13 @@ bool xMateRobot::registerDataCallback(const std::string& data_topic,
     }
     ec.clear();
     return true;
+#endif
 }
 
 std::string xMateRobot::readRegister(const std::string& name, int index, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)name; (void)index; mark_internal_surface_unsupported(ec); return {};
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (impl_->connected_ && impl_->xmate3_comm_read_register_ex_client_ && impl_->wait_for_service(impl_->xmate3_comm_read_register_ex_client_, ec)) {
         auto request = std::make_shared<rokae_xmate3_ros2::srv::ReadRegisterEx::Request>();
@@ -137,9 +158,13 @@ std::string xMateRobot::readRegister(const std::string& name, int index, std::er
         }
     }
     return readRegister(name + "[" + std::to_string(index) + "]", ec);
+#endif
 }
 
 std::string xMateRobot::readRegister(const std::string& key, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)key; mark_internal_surface_unsupported(ec); return {};
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -162,9 +187,13 @@ std::string xMateRobot::readRegister(const std::string& key, std::error_code& ec
     }
     ec.clear();
     return result->value;
+#endif
 }
 
 void xMateRobot::writeRegister(const std::string& name, int index, const std::string& value, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)name; (void)index; (void)value; mark_internal_surface_unsupported(ec); return;
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (impl_->connected_ && impl_->xmate3_comm_write_register_ex_client_ && impl_->wait_for_service(impl_->xmate3_comm_write_register_ex_client_, ec)) {
         auto request = std::make_shared<rokae_xmate3_ros2::srv::WriteRegisterEx::Request>();
@@ -181,9 +210,13 @@ void xMateRobot::writeRegister(const std::string& name, int index, const std::st
         }
     }
     writeRegister(name + "[" + std::to_string(index) + "]", value, ec);
+#endif
 }
 
 void xMateRobot::setxPanelVout(rokae::xPanelOpt::Vout opt, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)opt; mark_internal_surface_unsupported(ec); return;
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (impl_->connected_ && impl_->xmate3_comm_set_xpanel_vout_client_ && impl_->wait_for_service(impl_->xmate3_comm_set_xpanel_vout_client_, ec)) {
         auto request = std::make_shared<rokae_xmate3_ros2::srv::SetXPanelVout::Request>();
@@ -204,9 +237,13 @@ void xMateRobot::setxPanelVout(rokae::xPanelOpt::Vout opt, std::error_code& ec) 
         std::lock_guard<std::mutex> lock(impl_->state_mutex_);
         impl_->xpanel_vout_ = opt;
     }
+#endif
 }
 
 void xMateRobot::writeRegister(const std::string& key, const std::string& value, std::error_code& ec) {
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+        (void)key; (void)value; mark_internal_surface_unsupported(ec); return;
+#else
     auto _last_error_scope = track_last_error(impl_, ec);
     if (!impl_->connected_) {
         ec = std::make_error_code(std::errc::not_connected);
@@ -229,6 +266,7 @@ void xMateRobot::writeRegister(const std::string& key, const std::string& value,
         return;
     }
     ec.clear();
+#endif
 }
 
 } // namespace rokae::ros2

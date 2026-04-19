@@ -100,9 +100,9 @@ targets_tests = (ROOT / 'cmake' / 'targets_tests.cmake').read_text(encoding='utf
 if '/usr/bin/python3' in targets_tests:
     FAILURES.append('cmake/targets_tests.cmake still contains a hard-coded /usr/bin/python3 fallback')
 
-env_lock = ROOT / 'docs' / 'ENVIRONMENT_LOCK.md'
+env_lock = ROOT / 'docs' / 'release' / 'ENVIRONMENT_LOCK.md'
 if not env_lock.is_file():
-    FAILURES.append('docs/ENVIRONMENT_LOCK.md is required to pin the supported target environment')
+    FAILURES.append('docs/release/ENVIRONMENT_LOCK.md is required to pin the supported target environment')
 
 acceptance_script = ROOT / 'tools' / 'run_target_env_acceptance.sh'
 if not acceptance_script.is_file():
@@ -115,6 +115,20 @@ if not launch_smoke_script.is_file():
 acceptance_workflow = ROOT / '.github' / 'workflows' / 'acceptance-humble-gazebo11.yml'
 if not acceptance_workflow.is_file():
     FAILURES.append('.github/workflows/acceptance-humble-gazebo11.yml is required for locked target-environment acceptance automation')
+
+contract_readme = (ROOT / 'test' / 'contract' / 'README.md').read_text(encoding='utf-8')
+if 'placeholder' in contract_readme.lower():
+    FAILURES.append('test/contract/README.md must not describe the contract suite as placeholders')
+
+packaging_text = (ROOT / 'cmake' / 'targets_packaging.cmake').read_text(encoding='utf-8')
+for token in ['docs/public', 'docs/reference', 'docs/release', 'docs/INDEX.md']:
+    if token not in packaging_text:
+        FAILURES.append(f'cmake/targets_packaging.cmake must install public/reference/release docs token: {token}')
+
+public_artifact_doc = (ROOT / 'docs' / 'public' / 'PUBLIC_SDK_ARTIFACT.md').read_text(encoding='utf-8')
+for token in ['release/BUILD_RELEASE.md', 'reference/RUNTIME_STATE_MACHINE.md', 'reference/RECORDED_PATH_SCHEMA.md']:
+    if token not in public_artifact_doc:
+        FAILURES.append(f'docs/public/PUBLIC_SDK_ARTIFACT.md missing installed-doc link token: {token}')
 
 acceptance_text = acceptance_script.read_text(encoding='utf-8')
 if 'PKG_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"' not in acceptance_text:
@@ -237,6 +251,24 @@ if 'handleGetRuntimeStateSnapshot' not in service_facade_header:
 if 'get_runtime_state_snapshot.hpp' not in robot_internal_sdk:
     FAILURES.append('sdk robot_internal.hpp must include get_runtime_state_snapshot.hpp for the aggregated snapshot client type')
 
+recorded_path_schema = (ROOT / 'docs' / 'reference' / 'RECORDED_PATH_SCHEMA.md').read_text(encoding='utf-8')
+if 'robot = xMate6' not in recorded_path_schema or 'robot_model = xMate3' not in recorded_path_schema:
+    FAILURES.append('recorded path schema doc must distinguish xMate6 public identity from xMate3 model provenance')
+
+runtime_snapshots = (ROOT / 'src' / 'runtime' / 'runtime_snapshots.hpp').read_text(encoding='utf-8')
+for token in ['kRecordedPathRobotFamily = "xMate6"', 'kRecordedPathRobotModel = "xMate3"', 'kRecordedPathCanonicalIdentity = "xCoreSDK:xmate6"']:
+    if token not in runtime_snapshots:
+        FAILURES.append(f'runtime_snapshots.hpp missing recorded-path identity token: {token}')
+
+program_state = (ROOT / 'src' / 'runtime' / 'program_state.cpp').read_text(encoding='utf-8')
+for token in ['asset.metadata.robot = kRecordedPathRobotFamily;', 'asset.metadata.robot_model = kRecordedPathRobotModel;', 'asset.metadata.canonical_identity = kRecordedPathCanonicalIdentity;']:
+    if token not in program_state:
+        FAILURES.append(f'program_state.cpp missing recorded-path metadata token: {token}')
+
+runtime_state_machine_doc = (ROOT / 'docs' / 'reference' / 'RUNTIME_STATE_MACHINE.md').read_text(encoding='utf-8')
+if 'request_queued -> planning_requested -> plan_queued -> execution_started' not in runtime_state_machine_doc:
+    FAILURES.append('runtime state machine doc must describe the main-chain transition order explicitly')
+
 
 spec_header = (ROOT / 'include' / 'rokae_xmate3_ros2' / 'spec' / 'xmate3_spec.hpp').read_text(encoding='utf-8')
 xacro_text = (ROOT / 'urdf' / 'xMate3.xacro').read_text(encoding='utf-8')
@@ -277,7 +309,7 @@ else:
 
 env_lock_text = env_lock.read_text(encoding='utf-8')
 if 'Ubuntu 22.04' not in env_lock_text or 'ROS 2 Humble' not in env_lock_text or 'Gazebo 11' not in env_lock_text:
-    FAILURES.append('docs/ENVIRONMENT_LOCK.md no longer pins Ubuntu 22.04 / ROS 2 Humble / Gazebo 11 explicitly')
+    FAILURES.append('docs/release/ENVIRONMENT_LOCK.md no longer pins Ubuntu 22.04 / ROS 2 Humble / Gazebo 11 explicitly')
 
 acceptance_workflow_text = acceptance_workflow.read_text(encoding='utf-8')
 if './tools/run_target_env_acceptance.sh' not in acceptance_workflow_text:
@@ -327,12 +359,14 @@ quick_gate = (ROOT / "tools" / "run_quick_gate.sh").read_text(encoding="utf-8")
 release_gate = (ROOT / "tools" / "run_release_gate.sh").read_text(encoding="utf-8")
 portable_release_gate = (ROOT / "tools" / "run_release_gate_portable.sh").read_text(encoding="utf-8")
 target_acceptance = (ROOT / "tools" / "run_target_env_acceptance.sh").read_text(encoding="utf-8")
-env_lock = (ROOT / "docs" / "ENVIRONMENT_LOCK.md").read_text(encoding="utf-8")
+env_lock = (ROOT / "docs" / "release" / "ENVIRONMENT_LOCK.md").read_text(encoding="utf-8")
 gates_workflow = (ROOT / ".github" / "workflows" / "gates.yml").read_text(encoding="utf-8")
 if 'check_target_environment.sh" --quiet' not in quick_gate:
     raise SystemExit('quick gate must run target environment preflight')
 if 'check_target_environment.sh" --quiet' not in release_gate:
     raise SystemExit('release gate must run target environment preflight')
+if 'ctest -L release_gate' not in release_gate and 'ctest -L release_gate --output-on-failure' not in release_gate:
+    raise SystemExit('release gate must execute the release_gate-labelled bundle')
 if 'run_target_env_acceptance.sh' not in portable_release_gate or 'run_release_gate.sh' not in portable_release_gate:
     raise SystemExit('portable release gate must bridge local target-env runs and locked-container acceptance runs')
 if 'check_target_environment.sh --quiet' not in target_acceptance and 'check_target_environment.sh" --quiet' not in target_acceptance:
@@ -347,11 +381,18 @@ if 'write_target_env_report.py' not in env_lock or 'artifacts/target_env_accepta
 
 profile_helper = ROOT / "launch" / "_launch_profile.py"
 if not profile_helper.exists():
-    failures.append("launch/_launch_profile.py must exist to centralize capability-matrix defaults")
+    FAILURES.append("launch/_launch_profile.py must exist to centralize capability-matrix defaults")
 else:
     helper_text = profile_helper.read_text(encoding="utf-8")
     for required in ["public_xmate6_jtc", "internal_full_hybrid", "daemon_hard_rt"]:
         if required not in helper_text:
-            failures.append(f"launch/_launch_profile.py missing profile {required}")
+            FAILURES.append(f"launch/_launch_profile.py missing profile {required}")
     if "unknown launch_profile" not in helper_text:
-        failures.append("launch/_launch_profile.py must fail fast on unknown profiles")
+        FAILURES.append("launch/_launch_profile.py must fail fast on unknown profiles")
+
+
+ctest_text = (ROOT / 'cmake' / 'targets_tests.cmake').read_text(encoding='utf-8')
+if 'compat_install_tree_consumer PROPERTIES LABELS "abi_gate;install_tree;release_gate"' not in ctest_text:
+    raise SystemExit('compat_install_tree_consumer must participate in release_gate')
+if 'compat_no_ros_env_external_consumer PROPERTIES LABELS "abi_gate;install_tree;release_gate"' not in ctest_text:
+    raise SystemExit('compat_no_ros_env_external_consumer must participate in release_gate')

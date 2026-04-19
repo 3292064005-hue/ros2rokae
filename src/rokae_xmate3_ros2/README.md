@@ -6,14 +6,17 @@
 
 ## 先看这里
 
-- **3 分钟上手**：[`docs/QUICKSTART.md`](docs/QUICKSTART.md)
-- **完整导航**：[`docs/INDEX.md`](docs/INDEX.md)
-- **public SDK 兼容范围 / ABI / 对齐矩阵**：[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md)
-- **runtime profile / authority / RT-NRT 规则**：[`docs/RUNTIME_PROFILES.md`](docs/RUNTIME_PROFILES.md)
-- **架构与扩展规则**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- **运动学 / 模型 / exactness**：[`docs/KINEMATICS_AND_MODEL.md`](docs/KINEMATICS_AND_MODEL.md)
-- **构建 / 安装 / 发布**：[`docs/BUILD_RELEASE.md`](docs/BUILD_RELEASE.md)
-- **示例分层**：[`docs/EXAMPLES.md`](docs/EXAMPLES.md)
+- **总索引**：[`docs/INDEX.md`](docs/INDEX.md)
+- **3 分钟上手**：[`docs/public/QUICKSTART.md`](docs/public/QUICKSTART.md)
+- **public SDK 兼容范围**：[`docs/public/COMPATIBILITY.md`](docs/public/COMPATIBILITY.md)
+- **runtime profile / authority / RT-NRT 规则**：[`docs/public/RUNTIME_PROFILES.md`](docs/public/RUNTIME_PROFILES.md)
+- **架构总览**：[`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)
+- **provider 边界**：[`docs/architecture/PROVIDER_BOUNDARY.md`](docs/architecture/PROVIDER_BOUNDARY.md)
+- **运动学 / 模型 / fidelity**：[`docs/public/KINEMATICS_AND_MODEL.md`](docs/public/KINEMATICS_AND_MODEL.md)
+- **构建 / 发布**：[`docs/release/BUILD_RELEASE.md`](docs/release/BUILD_RELEASE.md)
+- **示例分层**：[`docs/public/EXAMPLES.md`](docs/public/EXAMPLES.md)
+- **runtime 状态机**：[`docs/reference/RUNTIME_STATE_MACHINE.md`](docs/reference/RUNTIME_STATE_MACHINE.md)
+- **路径录制 schema**：[`docs/reference/RECORDED_PATH_SCHEMA.md`](docs/reference/RECORDED_PATH_SCHEMA.md)
 
 ## 当前有效范围
 
@@ -28,19 +31,16 @@
 - 坐标系标定；`calibrateFrame()` 仅保留兼容签名，返回 `function_not_supported`
 - RL 工程说明
 - IO / 寄存器 / xPanel 公共承诺
-- public lane 中的 experimental RT 示例
-- 安装态 public xMate6 lane 不再承诺通用 IO / RL / xPanel parity。
+- public lane 中的 experimental RT 控制回环示例
+- 安装态 public xMate6 lane 不再承诺通用 IO / RL / xPanel parity
 
 ## 关键语义
 
 - `MoveAppend` 成功边界是 **queue accepted**；真正执行由 `moveStart()` 提交。
 - `stop()` 是 **pause**，不会清空队列；彻底丢弃待执行 NRT 请求应使用 `moveReset()`。
-- `GetEndWrench` 是 public lane 的首选扩展查询面；`ReadRegisterEx / WriteRegisterEx / GetRlProjectInfo / SetXPanelVout` 仅保留 internal/backend 语义。
-- install-facing `xCoreSDK` lane 仍是 **ROS2-backed** 兼容安装包，但 public target 不再把 Gazebo 作为 public CMake 直绑依赖导出。
-- 当前 runtime 是 simulation-grade，不承诺 controller-grade 实机闭环 parity；`ppToMain()` 仅返回最近一次成功加载的工程路径。
+- `GetEndWrench` 是 public lane 的首选扩展查询面；`MoveSP` 与路径录制/回放已纳入 public xMate6 lane 的 NRT 扩展面。
+- 当前 runtime 是 simulation-grade，不承诺 controller-grade 实机闭环 parity。
 - 本仓不支持任何坐标系标定功能；标定类接口只作为兼容 stub，返回 `function_not_supported`。
-- `setFcCoor()`、`useRciClient(true)` 与 `setRtNetworkTolerance()` 保留兼容配置语义，实际能力以 runtime profile 和诊断输出为准。
-- RT 元数据字段通过 `RtCompatFields::samplePeriod_s` / `RtCompatFields::sampleFresh` 暴露采样周期与新鲜度。
 
 ## canonical 入口
 
@@ -65,10 +65,17 @@ target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_shared)
 ```
 
 说明：
-- `xCoreSDK::xCoreSDK_shared` 是 install-facing shared 入口。
-- `xCoreSDK::xCoreSDK_static` 是真实静态目标，不再伪装成 shared alias。
-- 当前兼容安装面仍是 ROS2/Gazebo-backed；配置期同样需要系统可见的 ROS2/Gazebo 依赖。
+- canonical install-facing identity: `xCoreSDK`
+- `xCoreSDK::xCoreSDK_static` 是真实静态目标
+- 配置期同样需要系统可见的 ROS2/Gazebo 依赖
+- `rokae_xmate3_ros2` 仅作为 source-tree / legacy package alias 保留
 
+## 文档规则
+
+- `README.md` 只做入口说明，不再承载完整架构与审计细节。
+- `docs/INDEX.md` 是唯一总索引。
+- 主说明分成四组：`public/`、`architecture/`、`release/`、`reference/`。
+- 阶段性过程文档已从主树删除，只在 `docs/archive/` 保留历史归档。
 
 ## 内部契约与生成物锚点
 
@@ -76,30 +83,13 @@ target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_shared)
 - generated description metadata：`<build>/generated/urdf/xMate3.description.json`
 - aggregated runtime snapshot query surface：`/xmate3/internal/get_runtime_state_snapshot`
 - single-source service contract manifest：`src/runtime/service_contract_manifest.hpp`
-- service exposure switch：`service_exposure_profile`
-- runtime lifecycle assembly：`runtime_host_builder`
 
-## 文档规则
+## 维护与审计入口
 
-- `README.md` 只做入口说明，不再承载完整架构与审计细节。
-- `docs/INDEX.md` 是唯一总索引。
-- 当前主说明只有 7 份：
-  - `COMPATIBILITY.md`
-  - `RUNTIME_PROFILES.md`
-  - `ARCHITECTURE.md`
-  - `KINEMATICS_AND_MODEL.md`
-  - `BUILD_RELEASE.md`
-  - `EXAMPLES.md`
-  - `QUICKSTART.md`
-- `docs/` 根目录中其余旧文件名默认都是 **兼容跳转页 / 维护指针 / 归档指针**，不是当前主说明。
-- 历史实施摘要与深度复核报告已移入 `docs/archive/`。
+- 对齐事实源：[`docs/reference/xmate6_official_alignment_manifest.json`](docs/reference/xmate6_official_alignment_manifest.json)
+- 对齐参考：[`docs/reference/SDK_ALIGNMENT.md`](docs/reference/SDK_ALIGNMENT.md)
+- 当前实现审计：[`docs/archive/audits/IMPLEMENTATION_AUDIT.md`](docs/archive/audits/IMPLEMENTATION_AUDIT.md)
+- 剩余硬化任务：[`docs/release/HARDENING_BACKLOG.md`](docs/release/HARDENING_BACKLOG.md)
+- canonical description artifact：`<build>/generated/urdf/xMate3.urdf`
 
-## 维护入口
-
-- 当前实现审计：[`docs/IMPLEMENTATION_AUDIT.md`](docs/IMPLEMENTATION_AUDIT.md)
-- 剩余硬化任务：[`docs/HARDENING_BACKLOG.md`](docs/HARDENING_BACKLOG.md)
-- 历史归档：[`docs/archive/`](docs/archive/)
-
-## 实现审计
-
-当前实现审计与剩余硬化任务仍保留在 `docs/IMPLEMENTATION_AUDIT.md` 与 `docs/HARDENING_BACKLOG.md`，作为 release / review 的维护入口。
+- 分层验收矩阵：[`docs/release/ACCEPTANCE_LAYERS.md`](docs/release/ACCEPTANCE_LAYERS.md)

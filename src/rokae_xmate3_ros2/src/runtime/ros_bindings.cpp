@@ -44,13 +44,15 @@ RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
                                                   joint_state_fetcher_,
                                                   std::move(time_provider),
                                                   trajectory_dt_provider_,
-                                                  6)),
-      io_program_facade_(std::make_unique<IoProgramFacade>(runtime_context_.sessionState(),
-                                                           runtime_context_.dataStoreState(),
-                                                           runtime_context_.programState(),
-                                                           runtime_context_.toolingState(),
-                                                           [this]() { return node_->get_clock()->now(); })),
-      path_facade_(std::make_unique<PathFacade>(runtime_context_.sessionState(),
+                                                  6))
+#if ROKAE_ENABLE_INTERNAL_SURFACE
+      , io_program_facade_(std::make_unique<IoProgramFacade>(runtime_context_.sessionState(),
+                                                             runtime_context_.dataStoreState(),
+                                                             runtime_context_.programState(),
+                                                             runtime_context_.toolingState(),
+                                                             [this]() { return node_->get_clock()->now(); }))
+#endif
+      , path_facade_(std::make_unique<PathFacade>(runtime_context_.sessionState(),
                                                 runtime_context_.programState(),
                                                 runtime_context_.toolingState(),
                                                 &runtime_context_.requestCoordinator(),

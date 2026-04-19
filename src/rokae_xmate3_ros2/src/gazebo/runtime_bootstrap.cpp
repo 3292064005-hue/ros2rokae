@@ -9,6 +9,7 @@
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
 
+#include "gazebo/gazebo_runtime_backend.hpp"
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
 #include "rokae_xmate3_ros2/types.hpp"
 #include "runtime/rt_scheduler.hpp"
@@ -47,31 +48,84 @@ std::string getenvOrDefault(const char *name, const std::string &fallback) {
 
 }  // namespace
 
-RuntimeBootstrap::RuntimeBootstrap(BackendMode backend_mode,
+
+class GazeboRuntimeBackendHost final : public runtime::RuntimeBackendProviderHost {
+ public:
+  GazeboRuntimeBackendHost(rclcpp::Node::SharedPtr node,
+                           const std::vector<std::string> *joint_names,
+                           std::vector<physics::JointPtr> *joints,
+                           const std::array<std::pair<double, double>, 6> *original_joint_limits)
+      : node_(std::move(node)),
+        joint_names_(joint_names),
+        joints_(joints),
+        original_joint_limits_(original_joint_limits) {}
+
+  [[nodiscard]] std::string hostKind() const override { return "gazebo_simulation"; }
+
+  [[nodiscard]] rclcpp::Node::SharedPtr node() const override { return node_; }
+
+  [[nodiscard]] const std::vector<std::string> *jointNames() const override { return joint_names_; }
+
+  [[nodiscard]] bool supportsFactory(const std::string &factory_key) const noexcept override {
+    return factory_key == "gazebo_runtime";
+  }
+
+  [[nodiscard]] std::vector<std::string> advertisedFactoryKeys() const override {
+    return {"gazebo_runtime"};
+  }
+
+  [[nodiscard]] std::unique_ptr<runtime::BackendInterface> createBackend(
+      const runtime::RuntimeBackendFactoryRequest &request) const override {
+    if (request.factory_key != "gazebo_runtime") {
+      throw std::runtime_error("backend factory '" + request.factory_key +
+                               "' is unavailable from Gazebo simulation host");
+    }
+    if (joints_ == nullptr || original_joint_limits_ == nullptr) {
+      throw std::runtime_error("simulation backend host requires Gazebo joints and original joint limits");
+    }
+    auto backend = std::make_unique<::gazebo::GazeboRuntimeBackend>(joints_, original_joint_limits_);
+    if (request.attach_trajectory_client && node_ != nullptr && joint_names_ != nullptr) {
+      backend->configureTrajectoryClient(node_, *joint_names_);
+    }
+    return backend;
+  }
+
+ private:
+  rclcpp::Node::SharedPtr node_;
+  const std::vector<std::string> *joint_names_ = nullptr;
+  std::vector<physics::JointPtr> *joints_ = nullptr;
+  const std::array<std::pair<double, double>, 6> *original_joint_limits_ = nullptr;
+};
+
+RuntimeBootstrap::RuntimeBootstrap(std::shared_ptr<const runtime::RuntimeBackendProvider> backend_provider,
                                    std::vector<physics::JointPtr> *joints,
                                    const std::array<std::pair<double, double>, 6> *original_joint_limits,
                                    const std::vector<std::string> *joint_names,
                                    JointStateFetcher joint_state_fetcher)
-    : RuntimeBootstrap(backend_mode,
+    : RuntimeBootstrap(std::move(backend_provider),
                        joints,
                        original_joint_limits,
                        joint_names,
                        std::move(joint_state_fetcher),
                        RosIntegrationOptions{}) {}
 
-RuntimeBootstrap::RuntimeBootstrap(BackendMode backend_mode,
+RuntimeBootstrap::RuntimeBootstrap(std::shared_ptr<const runtime::RuntimeBackendProvider> backend_provider,
                                    std::vector<physics::JointPtr> *joints,
                                    const std::array<std::pair<double, double>, 6> *original_joint_limits,
                                    const std::vector<std::string> *joint_names,
                                    JointStateFetcher joint_state_fetcher,
                                    RosIntegrationOptions ros_integration)
-    : backend_mode_(backend_mode),
+    : backend_provider_(std::move(backend_provider)),
       joints_(joints),
       original_joint_limits_(original_joint_limits),
       joint_names_(joint_names),
       joint_state_fetcher_(std::move(joint_state_fetcher)),
       ros_integration_(std::move(ros_integration)),
-      runtime_context_(std::make_unique<runtime::RuntimeContext>()) {}
+      runtime_context_(std::make_unique<runtime::RuntimeContext>()) {
+  if (backend_provider_ == nullptr) {
+    throw std::invalid_argument("runtime backend provider must not be null");
+  }
+}
 
 RuntimeBootstrap::~RuntimeBootstrap() {
   shutdown("bootstrap shutdown");
@@ -86,7 +140,7 @@ void RuntimeBootstrap::start() {
   node_ = makeBootstrapNode(ros_integration_);
   host_builder_ = std::make_unique<runtime::RuntimeHostBuilder>(node_);
   trajectory_sample_dt_ = std::clamp(
-      node_->declare_parameter("trajectory_sample_dt", kDefaultTrajectorySampleDt),
+      node_->declare_parameter("trajectory_sample_dt", kRuntimeBootstrapDefaultTrajectorySampleDt),
       kMinTrajectorySampleDt,
       kMaxTrajectorySampleDt);
 
@@ -243,15 +297,12 @@ void RuntimeBootstrap::start() {
       0.0);
 
   kinematics_ = std::make_unique<xMate3Kinematics>();
-  motion_backend_ = std::make_unique<GazeboRuntimeBackend>(joints_, original_joint_limits_);
-  if (backend_mode_ != BackendMode::effort && joint_names_ != nullptr) {
-    motion_backend_->configureTrajectoryClient(node_, *joint_names_);
-  }
+  const auto &backend_contract = backend_provider_->contract();
+  GazeboRuntimeBackendHost backend_host(node_, joint_names_, joints_, original_joint_limits_);
+  motion_backend_ = backend_provider_->createBackend(backend_host);
   runtime_context_->attachBackend(motion_backend_.get());
   runtime_context_->motionRuntime().setExecutorConfig(executor_config);
-  const std::string inferred_runtime_profile =
-      backend_mode_ == BackendMode::effort ? std::string{"rt_sim_experimental_best_effort"} :
-      std::string{"nrt_strict_parity"};
+  const std::string inferred_runtime_profile = backend_contract.default_runtime_profile;
   const std::string requested_service_exposure_profile =
       node_->declare_parameter(
           "service_exposure_profile",
@@ -263,8 +314,8 @@ void RuntimeBootstrap::start() {
   auto host_bootstrap = host_builder_->resolveBootstrap(
       requested_runtime_profile,
       runtime::RuntimeHostKind::gazebo_plugin,
-      toString(backend_mode_),
-      diagnosticCapabilityFlags(backend_mode_));
+      backend_contract,
+      backend_provider_->capabilityFlags());
   rt_profile_config_ = host_bootstrap.rt_profile;
   host_builder_->configureContext(*runtime_context_, host_bootstrap, true);
   const bool rt_scheduler_enable = node_->declare_parameter<bool>("rt_scheduler.enable", true);
@@ -300,13 +351,15 @@ void RuntimeBootstrap::start() {
 
   RCLCPP_INFO(
       node_->get_logger(),
-      "runtime diagnostics ready: backend=%s requested_profile=%s effective_profile=%s service_exposure_profile=%s rt_level=best_effort_non_controller_grade aliases=[get_joint_torque,get_end_torque] "
+      "runtime diagnostics ready: backend=%s provider=%s requested_profile=%s effective_profile=%s service_exposure_profile=%s rt_level=%s aliases=[get_joint_torque,get_end_torque] "
       "services=[/xmate3/internal/get_runtime_diagnostics] "
       "topic=[/xmate3/internal/runtime_status] profile_summary=%s",
-      toString(backend_mode_),
+      backend_contract.backend_mode.c_str(),
+      backend_contract.provider_class.c_str(),
       requested_runtime_profile.c_str(),
       rt_profile_config_.effective_profile.c_str(),
       runtime::to_string(service_exposure_profile_),
+      backend_contract.public_rt_policy.c_str(),
       runtime::summarizeRuntimeRtProfile(rt_profile_config_).c_str());
 }
 
@@ -421,9 +474,7 @@ void RuntimeBootstrap::shutdown(const std::string &reason) {
 
   shutting_down_.store(true);
   if (motion_backend_) {
-    motion_backend_->clearControl();
-    motion_backend_->cancelTrajectoryExecution(reason);
-    motion_backend_->beginShutdown();
+    motion_backend_->beginShutdown(reason);
   }
 
   if (runtime_context_) {

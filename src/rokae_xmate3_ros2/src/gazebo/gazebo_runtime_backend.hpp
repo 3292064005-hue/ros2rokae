@@ -24,17 +24,12 @@
 #include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 
 #include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "runtime/backend_contract_catalog.hpp"
 #include "runtime/runtime_types.hpp"
 
 namespace gazebo {
 namespace runtime = rokae_xmate3_ros2::runtime;
 using FollowJointTrajectory = control_msgs::action::FollowJointTrajectory;
-
-enum class BackendMode {
-  effort,
-  jtc,
-  hybrid,
-};
 
 namespace {
 
@@ -61,50 +56,6 @@ constexpr double kTrajectoryCompletionInferenceVelocityRadPerSec = 0.02;
   return resolved;
 }
 
-[[maybe_unused]] BackendMode parseBackendMode(const std::string &value) {
-  if (value == "effort") {
-    return BackendMode::effort;
-  }
-  if (value == "jtc") {
-    return BackendMode::jtc;
-  }
-  return BackendMode::hybrid;
-}
-
-[[maybe_unused]] const char *toString(BackendMode mode) {
-  switch (mode) {
-    case BackendMode::effort:
-      return "effort";
-    case BackendMode::jtc:
-      return "jtc";
-    case BackendMode::hybrid:
-    default:
-      return "hybrid";
-  }
-}
-
-[[maybe_unused]] std::vector<std::string> diagnosticCapabilityFlags(BackendMode mode) {
-  std::vector<std::string> flags{
-      "simulation.gazebo11",
-      "ros2.humble",
-      "rt.experimental",
-      "rt.best_effort_non_controller_grade",
-      "rt.transport.shm_ring",
-      "rt.transport.ros_topic",
-      "profile.nrt_strict_parity",
-      "profile.rt_sim_experimental_best_effort",
-      "profile.rt_hardened",
-      "profile.hard_1khz",
-      "compat.alias.get_joint_torque",
-      "compat.alias.get_end_torque",
-      "diagnostics.runtime_status",
-      "diagnostics.get_runtime_diagnostics",
-      "planning.validate_motion",
-  };
-  flags.push_back(std::string("backend.") + toString(mode));
-  return flags;
-}
-
 double maxAbsVector(const std::vector<double> &values) {
   double max_value = 0.0;
   for (double value : values) {
@@ -121,7 +72,8 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
                        const std::array<std::pair<double, double>, 6> *original_joint_limits)
       : joints_(joints), original_joint_limits_(original_joint_limits) {}
 
-  void beginShutdown() {
+  void beginShutdown(const std::string &reason) override {
+    (void)reason;
     shutting_down_.store(true);
     control_owner_.store(runtime::ControlOwner::none);
     joints_ = nullptr;

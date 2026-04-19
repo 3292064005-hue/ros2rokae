@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "runtime/backend_contract_catalog.hpp"
+
 namespace rokae_xmate3_ros2::runtime {
 
 struct RuntimeProfileDescriptor {
@@ -13,6 +15,10 @@ struct RuntimeProfileDescriptor {
   std::string preferred_contract;
   std::string diagnostics_expectation;
   std::vector<std::string> allowed_motion_families;
+  std::string authority_scope{"runtime_request_coordinator"};
+  std::string fidelity_class{"simulation_grade"};
+  std::string model_revision{"xmate6_public_v2026_04"};
+  std::string provider_class{"unknown_provider"};
   bool rt_capable = false;
   bool sim_approx = true;
   bool experimental = false;
@@ -21,9 +27,16 @@ struct RuntimeProfileDescriptor {
 };
 
 [[nodiscard]] std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(
-    const std::string &backend_mode,
+    const BackendContractDescriptor &backend_contract,
     const std::string &active_profile,
     const std::vector<std::string> &capability_flags);
+
+[[nodiscard]] inline std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(
+    const std::string &backend_mode,
+    const std::string &active_profile,
+    const std::vector<std::string> &capability_flags) {
+  return buildRuntimeProfileCatalog(describeBackendMode(backend_mode), active_profile, capability_flags);
+}
 
 [[nodiscard]] std::string summarizeRuntimeProfileCatalog(
     const std::vector<RuntimeProfileDescriptor> &profiles);

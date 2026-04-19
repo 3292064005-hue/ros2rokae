@@ -38,7 +38,7 @@ class XCoreControllerPlugin : public ModelPlugin {
   event::ConnectionPtr update_conn_;
 
   std::array<std::pair<double, double>, 6> original_joint_limits_{};
-  double current_update_dt_ = kDefaultTrajectorySampleDt;
+  double current_update_dt_ = kRuntimeBootstrapDefaultTrajectorySampleDt;
   common::Time last_sim_time_{};
   bool has_last_sim_time_ = false;
   std::mutex update_cycle_mutex_;

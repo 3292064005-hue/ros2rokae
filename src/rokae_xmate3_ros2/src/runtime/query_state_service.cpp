@@ -267,6 +267,7 @@ void QueryFacade::handleGetRtJointData(const rokae_xmate3_ros2::srv::GetRtJointD
   res.error_msg = "query_authority=runtime_request_coordinator";
 }
 
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 void QueryFacade::handleGetAvoidSingularity(
     const rokae_xmate3_ros2::srv::GetAvoidSingularity::Request &req,
     rokae_xmate3_ros2::srv::GetAvoidSingularity::Response &res) const {
@@ -275,5 +276,7 @@ void QueryFacade::handleGetAvoidSingularity(
   res.enabled = false;
   res.message = "avoid singularity is not supported on the xMate6 compatibility lane";
 }
+#endif
+
 
 }  // namespace rokae_xmate3_ros2::runtime

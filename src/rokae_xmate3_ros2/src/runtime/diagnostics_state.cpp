@@ -276,6 +276,25 @@ void RuntimeDiagnosticsState::setRtStateSource(const std::string &source) {
   snapshot_.rt_state_source = source;
 }
 
+void RuntimeDiagnosticsState::setContractMetadata(const std::string &query_authority,
+                                                 const std::string &fidelity_class,
+                                                 const std::string &model_revision,
+                                                 const std::string &canonical_identity) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!query_authority.empty()) {
+    snapshot_.query_authority = query_authority;
+  }
+  if (!fidelity_class.empty()) {
+    snapshot_.fidelity_class = fidelity_class;
+  }
+  if (!model_revision.empty()) {
+    snapshot_.model_revision = model_revision;
+  }
+  if (!canonical_identity.empty()) {
+    snapshot_.canonical_identity = canonical_identity;
+  }
+}
+
 void RuntimeDiagnosticsState::setModelExactnessSummary(const std::string &summary) {
   if (summary.empty()) {
     return;

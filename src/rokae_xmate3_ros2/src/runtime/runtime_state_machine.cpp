@@ -1,6 +1,34 @@
 #include "runtime/runtime_state_machine.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
+namespace {
+
+RuntimePhase observed_phase_for_progress(const RuntimeEvent &event, RuntimePhase fallback) {
+  if (!event.has_observed_state) {
+    return RuntimePhase::executing;
+  }
+  switch (event.observed_state) {
+    case ExecutionState::idle:
+      return RuntimePhase::idle;
+    case ExecutionState::planning:
+      return RuntimePhase::planning;
+    case ExecutionState::queued:
+    case ExecutionState::executing:
+    case ExecutionState::settling:
+      return RuntimePhase::executing;
+    case ExecutionState::paused:
+      return RuntimePhase::idle;
+    case ExecutionState::completed:
+    case ExecutionState::completed_relaxed:
+    case ExecutionState::stopped:
+      return RuntimePhase::idle;
+    case ExecutionState::failed:
+      return RuntimePhase::faulted;
+  }
+  return fallback;
+}
+
+}  // namespace
 
 const char *to_string(RuntimeEventType type) noexcept {
   switch (type) {
@@ -139,8 +167,10 @@ void RuntimeStateMachine::apply(RuntimeStatus &status,
       if (!event.request_id.empty()) {
         status.request_id = event.request_id;
       }
-      if (status.state == ExecutionState::idle || status.state == ExecutionState::queued ||
-          status.state == ExecutionState::paused) {
+      if (event.has_observed_state) {
+        status.state = event.observed_state;
+      } else if (status.state == ExecutionState::idle || status.state == ExecutionState::queued ||
+                 status.state == ExecutionState::paused) {
         status.state = ExecutionState::executing;
       }
       if (event.execution_backend != ExecutionBackend::none) {
@@ -154,7 +184,7 @@ void RuntimeStateMachine::apply(RuntimeStatus &status,
       if (!event.message.empty()) {
         status.message = event.message;
       }
-      runtime_phase = RuntimePhase::executing;
+      runtime_phase = observed_phase_for_progress(event, runtime_phase);
       status.runtime_phase = runtime_phase;
       return;
     case RuntimeEventType::trajectory_retimed:

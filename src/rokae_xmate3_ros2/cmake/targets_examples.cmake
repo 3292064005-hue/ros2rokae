@@ -1,6 +1,6 @@
 # 3. 示例程序
 option(ROKAE_BUILD_PUBLIC_COMPAT_EXAMPLES "Build install-facing compatibility examples" ON)
-option(ROKAE_BUILD_INTERNAL_BACKEND_EXAMPLES "Build backend/internal-only examples" ON)
+option(ROKAE_BUILD_INTERNAL_BACKEND_EXAMPLES "Build backend/internal-only examples" OFF)
 
 set(ROKAE_PUBLIC_COMPAT_EXAMPLES
   01_basic_connect
@@ -8,6 +8,7 @@ set(ROKAE_PUBLIC_COMPAT_EXAMPLES
   03_kinematics
   04_motion_basic
   07_safety_collision
+  08_path_record_replay
   09_advanced_sdk_compat
   10_sdk_workflow_xmate3
   11_move_advanced_xmate3
@@ -23,10 +24,9 @@ set(ROKAE_PUBLIC_COMPAT_EXAMPLES
 set(ROKAE_INTERNAL_BACKEND_EXAMPLES
   05_motion_cartesian
   06_io_control
-  08_path_record_replay
   13_rl_project_workflow
   16_registers_and_runtime_options
-20_rt_joint_position
+  20_rt_joint_position
   21_rt_move_commands
   22_rt_joint_impedance
   23_rt_cartesian_impedance
@@ -42,7 +42,12 @@ set(INTERNAL_BACKEND_EXAMPLE_TARGETS)
 
 function(rokae_add_example example_name link_mode)
   set(example_target example_${example_name})
-  add_executable(${example_target} examples/cpp/${example_name}.cpp)
+  if("${link_mode}" STREQUAL "internal")
+    set(example_source examples/internal/cpp/${example_name}.cpp)
+  else()
+    set(example_source examples/cpp/${example_name}.cpp)
+  endif()
+  add_executable(${example_target} ${example_source})
   set_target_properties(${example_target} PROPERTIES
     RULE_LAUNCH_COMPILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/compile_slot.sh"
   )

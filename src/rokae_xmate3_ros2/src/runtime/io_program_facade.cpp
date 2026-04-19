@@ -1,3 +1,4 @@
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 #include "runtime/service_facade.hpp"
 
 #include <algorithm>
@@ -396,3 +397,5 @@ void IoProgramFacade::handleSetAO(const rokae_xmate3_ros2::srv::SetAO::Request &
 
 
 }  // namespace rokae_xmate3_ros2::runtime
+
+#endif

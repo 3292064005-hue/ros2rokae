@@ -4,6 +4,70 @@
 
 namespace rokae::ros2 {
 
+namespace {
+inline void mark_internal_surface_unsupported(std::error_code &ec) {
+    ec = std::make_error_code(std::errc::operation_not_supported);
+}
+}
+
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+
+std::vector<rokae::RLProjectInfo> xMateRobot::projectInfo(std::error_code& ec) {
+    mark_internal_surface_unsupported(ec);
+    return {};
+}
+
+void xMateRobot::ppToMain(std::error_code& ec) {
+    mark_internal_surface_unsupported(ec);
+}
+
+void xMateRobot::runProject(std::error_code& ec) {
+    mark_internal_surface_unsupported(ec);
+}
+
+void xMateRobot::pauseProject(std::error_code& ec) {
+    mark_internal_surface_unsupported(ec);
+}
+
+void xMateRobot::setProjectRunningOpt(double rate, bool loop, std::error_code& ec) {
+    (void)rate;
+    (void)loop;
+    mark_internal_surface_unsupported(ec);
+}
+
+std::vector<rokae::WorkToolInfo> xMateRobot::toolsInfo(std::error_code& ec) {
+    mark_internal_surface_unsupported(ec);
+    return {};
+}
+
+std::vector<rokae::WorkToolInfo> xMateRobot::wobjsInfo(std::error_code& ec) {
+    mark_internal_surface_unsupported(ec);
+    return {};
+}
+
+bool xMateRobot::loadRLProject(const std::string& project_path, std::string& project_name, std::error_code& ec) {
+    (void)project_path;
+    project_name.clear();
+    mark_internal_surface_unsupported(ec);
+    return false;
+}
+
+bool xMateRobot::startRLProject(const std::string& project_id, int& current_episode, std::error_code& ec) {
+    (void)project_id;
+    current_episode = 0;
+    mark_internal_surface_unsupported(ec);
+    return false;
+}
+
+bool xMateRobot::stopRLProject(const std::string& project_id, int& finished_episode, std::error_code& ec) {
+    (void)project_id;
+    finished_episode = 0;
+    mark_internal_surface_unsupported(ec);
+    return false;
+}
+
+#else
+
 std::vector<rokae::RLProjectInfo> xMateRobot::projectInfo(std::error_code& ec) {
     auto _last_error_scope = track_last_error(impl_, ec);
     impl_->ensureProjectClients();
@@ -406,5 +470,8 @@ bool xMateRobot::stopRLProject(const std::string& project_id, int& finished_epis
     return true;
 }
 
+
+
+#endif
 
 } // namespace rokae::ros2

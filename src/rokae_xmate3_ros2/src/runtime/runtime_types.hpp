@@ -241,6 +241,15 @@ class BackendInterface {
   [[nodiscard]] virtual ControlOwner controlOwner() const { return ControlOwner::none; }
   virtual void applyControl(const ControlCommand &command) = 0;
   virtual void clearControl() = 0;
+  virtual void beginShutdown(const std::string &reason) {
+    cancelTrajectoryExecution(reason);
+    clearControl();
+    setControlOwner(ControlOwner::none);
+  }
+  virtual void stepSimulation(double dt, bool power_on) {
+    (void)dt;
+    (void)power_on;
+  }
   virtual void setBrakeLock(const RobotSnapshot &snapshot, bool locked) {
     (void)snapshot;
     (void)locked;

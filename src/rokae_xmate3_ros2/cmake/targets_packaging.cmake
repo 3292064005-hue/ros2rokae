@@ -81,13 +81,45 @@ if(ROKAE_INSTALL_BACKEND_DEV_HEADERS OR NOT ROKAE_STRICT_PUBLIC_INSTALL)
 endif()
 
 install(FILES
-  ${CMAKE_CURRENT_SOURCE_DIR}/docs/PUBLIC_SDK_ARTIFACT.md
+  ${CMAKE_CURRENT_SOURCE_DIR}/docs/public/PUBLIC_SDK_ARTIFACT.md
   DESTINATION share/${PROJECT_NAME}/docs
   RENAME README.md
   COMPONENT public_sdk
 )
 install(FILES
+  ${CMAKE_CURRENT_SOURCE_DIR}/docs/INDEX.md
+  DESTINATION share/${PROJECT_NAME}/docs
+  COMPONENT public_sdk
+)
+install(DIRECTORY
+  ${CMAKE_CURRENT_SOURCE_DIR}/docs/public
+  ${CMAKE_CURRENT_SOURCE_DIR}/docs/reference
+  ${CMAKE_CURRENT_SOURCE_DIR}/docs/release
+  DESTINATION share/${PROJECT_NAME}/docs
+  COMPONENT public_sdk
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE
+)
+install(PROGRAMS
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/clean_build_env.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/acceptance_cli_common.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_target_environment.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_runtime_diag_gate.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/derive_runtime_diag_gate.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/render_robot_description.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_acceptance_layers.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_full_task_acceptance.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_launch_smoke.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_loaded_sensor_acceptance.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_main_chain_smoke.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_quick_gate.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_real_dryrun_acceptance.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_release_gate.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_release_gate_portable.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_target_env_acceptance.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_xmate6_alignment_behavior_gate.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/write_release_scoreboard.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/write_target_env_report.py
   DESTINATION share/${PROJECT_NAME}/tools
   COMPONENT public_sdk
 )
@@ -106,11 +138,10 @@ install(DIRECTORY meshes models urdf config worlds
   PATTERN "__pycache__" EXCLUDE
   PATTERN "*.pyc" EXCLUDE
 )
-install(FILES
-  ${CMAKE_CURRENT_SOURCE_DIR}/tools/render_robot_description.py
-  DESTINATION share/${PROJECT_NAME}/tools
-  COMPONENT public_sdk
-)
+
+if(ROKAE_ENABLE_INTERNAL_SURFACE)
+  install(DIRECTORY internal_interfaces/ DESTINATION share/${PROJECT_NAME}/internal_interfaces COMPONENT internal_runtime)
+endif()
 
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}/
@@ -129,12 +160,12 @@ endforeach()
 set(ROKAE_INTERNAL_BACKEND_EXAMPLE_SOURCE_FILES)
 foreach(example_name IN LISTS ROKAE_INTERNAL_BACKEND_EXAMPLES)
   list(APPEND ROKAE_INTERNAL_BACKEND_EXAMPLE_SOURCE_FILES
-    "${CMAKE_CURRENT_SOURCE_DIR}/examples/cpp/${example_name}.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/internal/cpp/${example_name}.cpp"
   )
 endforeach()
 
 install(FILES
-  "${CMAKE_CURRENT_SOURCE_DIR}/examples/PUBLIC_SDK_README.md"
+  "${CMAKE_CURRENT_SOURCE_DIR}/examples/README.md"
   DESTINATION share/${PROJECT_NAME}/examples
   RENAME README.md
   COMPONENT public_sdk
@@ -196,15 +227,13 @@ if(ROKAE_BUILD_COMPAT_SDK)
 file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/cmake/xCoreSDK\" TYPE FILE FILES \"${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKConfig.cmake\" \"${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKConfigVersion.cmake\")"
     COMPONENT public_sdk
   )
-  # Likewise mirror public headers so install-tree consumers can resolve the
+  # Likewise mirror only the public rokae headers so install-tree consumers can resolve the
   # exported include directories even when symlink-install does not materialize
-  # FILE installs into staged prefixes.
+  # FILE installs into staged prefixes. Generated rosidl headers stay out of the
+  # public SDK include tree because they would re-expose internal service/message
+  # surface area that is intentionally outside the xMate6 public contract.
   install(CODE
-    "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\")\n\
-file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/include/rokae\")\n\
-if(EXISTS \"${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp/${PROJECT_NAME}\")\n\
-  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp/${PROJECT_NAME}\")\n\
-endif()"
+    "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\")\nfile(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/include/rokae\")"
     COMPONENT public_sdk
   )
   # Mirror runtime share resources required by simulation smoke in staged install prefixes.
@@ -233,6 +262,15 @@ if(EXISTS \"${CMAKE_CURRENT_BINARY_DIR}/generated/urdf\")\n\
   file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/generated\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_BINARY_DIR}/generated/urdf\")\n\
 endif()"
     COMPONENT internal_runtime
+  )
+  install(CODE
+    "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs\")\n\
+file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs\" TYPE FILE FILES \"${CMAKE_CURRENT_SOURCE_DIR}/docs/public/PUBLIC_SDK_ARTIFACT.md\")\n\
+file(REMOVE \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs/README.md\")\n\
+file(RENAME \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs/PUBLIC_SDK_ARTIFACT.md\" \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs/README.md\")\n\
+file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs\" TYPE FILE FILES \"${CMAKE_CURRENT_SOURCE_DIR}/docs/INDEX.md\")\n\
+file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/docs/public\" \"${CMAKE_CURRENT_SOURCE_DIR}/docs/reference\" \"${CMAKE_CURRENT_SOURCE_DIR}/docs/release\")"
+    COMPONENT public_sdk
   )
 endif()
 

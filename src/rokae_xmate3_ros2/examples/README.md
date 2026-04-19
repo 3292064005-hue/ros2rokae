@@ -1,14 +1,16 @@
 # Examples
 
-> 状态：Compatibility Redirect  
-> 当前有效主说明：[`../docs/EXAMPLES.md`](../docs/EXAMPLES.md)
+> 状态：Active  
+> 当前有效主说明：[`../docs/public/EXAMPLES.md`](../docs/public/EXAMPLES.md)
 
-该目录下的示例说明已统一收敛到 [`docs/EXAMPLES.md`](../docs/EXAMPLES.md)。
+本目录只保留示例入口说明。示例分层、运行方式与 public/internal 归属以 [`docs/public/EXAMPLES.md`](../docs/public/EXAMPLES.md) 为准。
 
-## Public examples
+## Source layout
 
-Public examples are install-facing compatibility examples documented in [`docs/EXAMPLES.md`](../docs/EXAMPLES.md).
+- public examples: `examples/cpp/`
+- internal/backend examples: `examples/internal/cpp/`
 
-## Internal/backend examples
+## Read next
 
-Internal/backend examples are expert-only runtime/backend examples documented in [`docs/EXAMPLES.md`](../docs/EXAMPLES.md).
+- [`../docs/public/EXAMPLES.md`](../docs/public/EXAMPLES.md)
+- [`../docs/public/QUICKSTART.md`](../docs/public/QUICKSTART.md)

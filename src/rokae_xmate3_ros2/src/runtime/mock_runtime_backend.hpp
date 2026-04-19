@@ -37,6 +37,13 @@ class HeadlessMockRuntimeBackend final : public BackendInterface {
     snapshot_.joint_torque.fill(0.0);
   }
 
+  void beginShutdown(const std::string &reason) override {
+    (void)reason;
+    shutting_down_.store(true);
+    clearControl();
+    control_owner_.store(ControlOwner::none);
+  }
+
   void setBrakeLock(const RobotSnapshot &, bool locked) override {
     brakes_locked_.store(locked);
     if (locked) {
@@ -48,7 +55,10 @@ class HeadlessMockRuntimeBackend final : public BackendInterface {
 
   [[nodiscard]] bool brakesLocked() const override { return brakes_locked_.load(); }
 
-  void step(double dt, bool power_on) {
+  void stepSimulation(double dt, bool power_on) override {
+    if (shutting_down_.load()) {
+      return;
+    }
     const double safe_dt = std::clamp(dt, 1e-4, 0.05);
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -91,6 +101,7 @@ class HeadlessMockRuntimeBackend final : public BackendInterface {
   bool has_command_ = false;
   std::atomic<ControlOwner> control_owner_{ControlOwner::none};
   std::atomic<bool> brakes_locked_{false};
+  std::atomic<bool> shutting_down_{false};
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

@@ -61,6 +61,10 @@ if 'set(xCoreSDK_TARGET_FAMILY "xmate6")' not in config:
     failures.append('xCoreSDKConfig.cmake.in must publish xCoreSDK_TARGET_FAMILY as xmate6')
 if 'set(xCoreSDK_UNSUPPORTED_MODULES' not in config:
     failures.append('xCoreSDKConfig.cmake.in must publish xCoreSDK_UNSUPPORTED_MODULES')
+if 'set(xCoreSDK_INTERNAL_SURFACE_ENABLED FALSE)' not in config:
+    failures.append('xCoreSDKConfig.cmake.in must declare xCoreSDK_INTERNAL_SURFACE_ENABLED FALSE for the public install artifact')
+if 'set(xCoreSDK_PUBLIC_ROSIDL_ROOT "srv/")' not in config or 'set(xCoreSDK_INTERNAL_ROSIDL_ROOT "internal_interfaces/srv/")' not in config:
+    failures.append('xCoreSDKConfig.cmake.in must publish public/internal ROSIDL roots')
 if 'xCoreSDK_STATIC_PROVIDER "native-static"' not in config:
     failures.append('xCoreSDKConfig.cmake.in must publish the native static provider for the install-facing SDK')
 if 'find_dependency(rclcpp REQUIRED CONFIG)' not in config or 'find_dependency(kdl_parser REQUIRED CONFIG)' not in config:

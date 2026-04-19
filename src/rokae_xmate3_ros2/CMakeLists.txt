@@ -11,8 +11,12 @@ option(ROKAE_EXPORT_PRIVATE_SDK_TARGETS "Export native/private SDK targets in th
 option(ROKAE_INSTALL_BACKEND_DEV_HEADERS "Install backend/developer headers" OFF)
 option(ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES "Install internal/backend example binaries into the package runtime path" OFF)
 option(ROKAE_PUBLIC_XMATE6_ONLY "Freeze the install-facing compatibility lane to xMate 6-axis only" ON)
+option(ROKAE_ENABLE_INTERNAL_SURFACE "Build internal/backend-only ROS interfaces, service facades, and examples" OFF)
 option(ROKAE_DAEMONIZED_RUNTIME_DEFAULT "Publish xCoreSDK metadata with daemonized runtime as the default hosting mode" ON)
 set(ROKAE_PUBLIC_UNSUPPORTED_MODULES "io;rl;calibration" CACHE STRING "Semicolon-separated public-lane modules intentionally excluded from the xMate6 compatibility contract")
+if(ROKAE_BUILD_INTERNAL_BACKEND_EXAMPLES OR ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES OR ROKAE_EXPORT_PRIVATE_SDK_TARGETS)
+  set(ROKAE_ENABLE_INTERNAL_SURFACE ON CACHE BOOL "Build internal/backend-only ROS interfaces, service facades, and examples" FORCE)
+endif()
 if(ROKAE_DAEMONIZED_RUNTIME_DEFAULT)
   set(ROKAE_PUBLIC_BACKEND_MODE "daemonized_runtime_default")
 else()
@@ -137,6 +141,26 @@ add_custom_target(release_candidate
   DEPENDS package_verified_source_archive
   COMMENT "Produce the only distributable verified source archive"
 )
+
+set(ROKAE_RELEASE_SCOREBOARD_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/release_scoreboard.json" CACHE FILEPATH
+  "Output path for the machine-readable release scoreboard"
+)
+add_custom_target(release_scoreboard
+  COMMAND "${ROKAE_SYSTEM_PYTHON}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/write_release_scoreboard.py"
+          --root "${CMAKE_CURRENT_SOURCE_DIR}"
+          --output "${ROKAE_RELEASE_SCOREBOARD_OUTPUT}"
+  COMMENT "Writing machine-readable release scoreboard"
+  VERBATIM
+)
+if(BUILD_TESTING)
+  add_custom_target(release_gate_bundle
+    COMMAND "${CMAKE_CTEST_COMMAND}" -L release_gate --output-on-failure
+    DEPENDS release_scoreboard
+    COMMENT "Running the release_gate-labelled verification bundle"
+    VERBATIM
+  )
+endif()
 if(ROKAE_BUILD_COMPAT_SDK)
   set(ROKAE_SDK_ARTIFACT_STAGE "${CMAKE_CURRENT_BINARY_DIR}/xcoresdk_artifact_stage")
   set(ROKAE_SDK_ARTIFACT_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/xcoresdk_artifact")
@@ -166,8 +190,14 @@ if(ROKAE_SOURCE_ARCHIVE)
   )
 endif()
 
-# 生成msg/srv/action接口
-rosidl_generate_interfaces(${PROJECT_NAME}
+
+if(ROKAE_ENABLE_INTERNAL_SURFACE)
+  add_compile_definitions(ROKAE_ENABLE_INTERNAL_SURFACE=1)
+else()
+  add_compile_definitions(ROKAE_ENABLE_INTERNAL_SURFACE=0)
+endif()
+
+set(ROKAE_PUBLIC_INTERFACE_FILES
   # Msg
   msg/OperationState.msg
   msg/PowerState.msg
@@ -192,7 +222,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/GetInfo.srv
   srv/GetRuntimeDiagnostics.srv
   srv/GetRuntimeStateSnapshot.srv
-  srv/GetProfileCapabilities.srv
   srv/GetPowerState.srv
   srv/SetPowerState.srv
   srv/GetOperateMode.srv
@@ -220,27 +249,19 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/SetDefaultZone.srv
   srv/SetDefaultConfOpt.srv
   srv/AdjustSpeedOnline.srv
-  srv/GetDI.srv
-  srv/GetDO.srv
-  srv/SetDI.srv
-  srv/SetDO.srv
-  srv/GetAI.srv
-  srv/SetAO.srv
-  srv/SetSimulationMode.srv
   srv/EnableDrag.srv
   srv/DisableDrag.srv
   srv/StartRecordPath.srv
   srv/StopRecordPath.srv
   srv/CancelRecordPath.srv
   srv/SaveRecordPath.srv
-  srv/ValidateMotion.srv
   srv/ReplayPath.srv
   srv/RemovePath.srv
   srv/QueryPathLists.srv
   srv/ClearServoAlarm.srv
   srv/QueryControllerLog.srv
   srv/PrepareShutdown.srv
-  # 未使用但保留的srv（兼容性）
+  # 兼容与公共扩展
   srv/Start.srv
   srv/Reset.srv
   srv/ConnectToRobot.srv
@@ -252,32 +273,56 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/GetRtJointData.srv
   srv/SetDragParam.srv
   srv/SetCollisionDetectionParam.srv
-  srv/SendCustomData.srv
-  srv/RegisterDataCallback.srv
   srv/CalcJointTorque.srv
   srv/GenerateSTrajectory.srv
   srv/MapCartesianToJointTorque.srv
-  srv/LoadRLProject.srv
-  srv/StartRLProject.srv
-  srv/StopRLProject.srv
-  srv/GetRlProjectInfo.srv
-  srv/PauseRLProject.srv
-  srv/SetProjectRunningOpt.srv
-  srv/ReadRegister.srv
-  srv/WriteRegister.srv
-  srv/ReadRegisterEx.srv
-  srv/WriteRegisterEx.srv
-  srv/SetXPanelVout.srv
-  srv/SetAvoidSingularity.srv
-  srv/GetAvoidSingularity.srv
   srv/GetEndEffectorTorque.srv
   srv/GetEndWrench.srv
-  srv/GetToolCatalog.srv
-  srv/GetWobjCatalog.srv
   # Action
   action/MoveAppend.action
   action/Jog.action
   action/ReplayPath.action
+)
+
+set(ROKAE_INTERNAL_INTERFACE_FILES
+  internal_interfaces/srv/GetDI.srv
+  internal_interfaces/srv/GetDO.srv
+  internal_interfaces/srv/SetDI.srv
+  internal_interfaces/srv/SetDO.srv
+  internal_interfaces/srv/GetAI.srv
+  internal_interfaces/srv/SetAO.srv
+  internal_interfaces/srv/SetSimulationMode.srv
+  internal_interfaces/srv/LoadRLProject.srv
+  internal_interfaces/srv/StartRLProject.srv
+  internal_interfaces/srv/StopRLProject.srv
+  internal_interfaces/srv/GetRlProjectInfo.srv
+  internal_interfaces/srv/PauseRLProject.srv
+  internal_interfaces/srv/SetProjectRunningOpt.srv
+  internal_interfaces/srv/ReadRegister.srv
+  internal_interfaces/srv/WriteRegister.srv
+  internal_interfaces/srv/ReadRegisterEx.srv
+  internal_interfaces/srv/WriteRegisterEx.srv
+  internal_interfaces/srv/SetXPanelVout.srv
+  internal_interfaces/srv/SetAvoidSingularity.srv
+  internal_interfaces/srv/GetAvoidSingularity.srv
+  internal_interfaces/srv/GetToolCatalog.srv
+  internal_interfaces/srv/GetWobjCatalog.srv
+  internal_interfaces/srv/SendCustomData.srv
+  internal_interfaces/srv/RegisterDataCallback.srv
+  internal_interfaces/srv/ValidateMotion.srv
+  internal_interfaces/srv/GetProfileCapabilities.srv
+)
+
+set(ROKAE_ROSIDL_INTERFACE_FILES
+${ROKAE_PUBLIC_INTERFACE_FILES}
+)
+if(ROKAE_ENABLE_INTERNAL_SURFACE)
+  list(APPEND ROKAE_ROSIDL_INTERFACE_FILES ${ROKAE_INTERNAL_INTERFACE_FILES})
+endif()
+
+# 生成msg/srv/action接口
+rosidl_generate_interfaces(${PROJECT_NAME}
+  ${ROKAE_ROSIDL_INTERFACE_FILES}
   # 依赖
   DEPENDENCIES std_msgs sensor_msgs geometry_msgs builtin_interfaces
 )

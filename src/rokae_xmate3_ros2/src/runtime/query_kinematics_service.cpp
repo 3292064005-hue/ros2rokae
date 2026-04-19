@@ -219,6 +219,7 @@ void QueryFacade::handleGenerateSTrajectory(
   }
 }
 
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 void QueryFacade::handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMotion::Request &req,
                                        rokae_xmate3_ros2::srv::ValidateMotion::Response &res) const {
   std::vector<double> start_joints;
@@ -400,6 +401,8 @@ void QueryFacade::handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMot
   diagnostics_state_.notePlanSummary(plan.explanation_summary.empty() ? plan.error_message : plan.explanation_summary,
                                      plan.selected_candidate);
 }
+#endif
+
 
 void QueryFacade::handleMapCartesianToJointTorque(
     const rokae_xmate3_ros2::srv::MapCartesianToJointTorque::Request &req,

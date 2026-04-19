@@ -20,6 +20,21 @@ class FakeBackend final : public rt::BackendInterface {
   void setControlOwner(rt::ControlOwner owner) override { control_owner = owner; }
   [[nodiscard]] rt::ControlOwner controlOwner() const override { return control_owner; }
 
+  [[nodiscard]] bool supportsTrajectoryExecution() const override { return true; }
+
+  bool startTrajectoryExecution(const rt::TrajectoryExecutionGoal &goal, std::string &message) override {
+    trajectory_state = rt::TrajectoryExecutionState{};
+    trajectory_state.request_id = goal.request_id;
+    trajectory_state.accepted = !goal.points.empty();
+    trajectory_state.active = !goal.points.empty();
+    trajectory_state.completed = false;
+    trajectory_state.message = goal.points.empty() ? "trajectory goal is empty" : "trajectory accepted";
+    message = trajectory_state.message;
+    return trajectory_state.accepted;
+  }
+
+  [[nodiscard]] rt::TrajectoryExecutionState readTrajectoryExecutionState() const override { return trajectory_state; }
+
   void applyControl(const rt::ControlCommand &command) override {
     last_command = command;
     apply_count++;
@@ -41,6 +56,7 @@ class FakeBackend final : public rt::BackendInterface {
   int brake_set_count = 0;
   bool brake_locked = false;
   rt::ControlOwner control_owner = rt::ControlOwner::none;
+  rt::TrajectoryExecutionState trajectory_state{};
 };
 
 }  // namespace

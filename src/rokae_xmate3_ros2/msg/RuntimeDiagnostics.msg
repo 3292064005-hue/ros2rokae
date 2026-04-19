@@ -47,6 +47,10 @@ string last_api_surface
 string last_result_source
 string rt_dispatch_mode
 string rt_state_source
+string query_authority
+string fidelity_class
+string model_revision
+string canonical_identity
 string model_exactness_summary
 string model_primary_backend
 bool model_fallback_used

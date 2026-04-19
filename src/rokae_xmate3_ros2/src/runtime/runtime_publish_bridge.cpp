@@ -80,6 +80,10 @@ rokae_xmate3_ros2::msg::RuntimeDiagnostics RuntimePublishBridge::buildRuntimeDia
   msg.last_result_source = snapshot.last_result_source;
   msg.rt_dispatch_mode = snapshot.rt_dispatch_mode;
   msg.rt_state_source = snapshot.rt_state_source;
+  msg.query_authority = snapshot.query_authority;
+  msg.fidelity_class = snapshot.fidelity_class;
+  msg.model_revision = snapshot.model_revision;
+  msg.canonical_identity = snapshot.canonical_identity;
   msg.model_exactness_summary = snapshot.model_exactness_summary;
   msg.model_primary_backend = snapshot.model_primary_backend;
   msg.model_fallback_used = snapshot.model_fallback_used;

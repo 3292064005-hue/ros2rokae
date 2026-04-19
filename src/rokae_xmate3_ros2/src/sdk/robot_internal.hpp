@@ -2,6 +2,10 @@
 #define ROKAE_XMATE3_ROS2_SDK_ROBOT_INTERNAL_HPP
 
 #include "rokae_xmate3_ros2/robot.hpp"
+
+#ifndef ROKAE_ENABLE_INTERNAL_SURFACE
+#define ROKAE_ENABLE_INTERNAL_SURFACE 0
+#endif
 #include "rokae_xmate3_ros2/model.hpp"
 #include "rokae_xmate3_ros2/runtime/ros_context_owner.hpp"
 #include "rokae_xmate3_ros2/runtime/rt_fast_shm_ring.hpp"
@@ -44,12 +48,14 @@
 #include "rokae_xmate3_ros2/srv/enable_collision_detection.hpp"
 #include "rokae_xmate3_ros2/srv/enable_drag.hpp"
 #include "rokae_xmate3_ros2/srv/generate_s_trajectory.hpp"
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 #include "rokae_xmate3_ros2/srv/get_ai.hpp"
 #include "rokae_xmate3_ros2/srv/get_avoid_singularity.hpp"
-#include "rokae_xmate3_ros2/srv/get_base_frame.hpp"
-#include "rokae_xmate3_ros2/srv/get_cart_posture.hpp"
 #include "rokae_xmate3_ros2/srv/get_di.hpp"
 #include "rokae_xmate3_ros2/srv/get_do.hpp"
+#endif
+#include "rokae_xmate3_ros2/srv/get_base_frame.hpp"
+#include "rokae_xmate3_ros2/srv/get_cart_posture.hpp"
 #include "rokae_xmate3_ros2/srv/get_end_effector_torque.hpp"
 #include "rokae_xmate3_ros2/srv/get_end_wrench.hpp"
 #include "rokae_xmate3_ros2/srv/get_info.hpp"
@@ -59,52 +65,54 @@
 #include "rokae_xmate3_ros2/srv/get_operate_mode.hpp"
 #include "rokae_xmate3_ros2/srv/get_posture.hpp"
 #include "rokae_xmate3_ros2/srv/get_power_state.hpp"
+#if ROKAE_ENABLE_INTERNAL_SURFACE
 #include "rokae_xmate3_ros2/srv/get_profile_capabilities.hpp"
 #include "rokae_xmate3_ros2/srv/get_rl_project_info.hpp"
-#include "rokae_xmate3_ros2/srv/get_runtime_state_snapshot.hpp"
-#include "rokae_xmate3_ros2/srv/get_rt_joint_data.hpp"
-#include "rokae_xmate3_ros2/srv/get_soft_limit.hpp"
 #include "rokae_xmate3_ros2/srv/get_tool_catalog.hpp"
-#include "rokae_xmate3_ros2/srv/get_toolset.hpp"
 #include "rokae_xmate3_ros2/srv/get_wobj_catalog.hpp"
 #include "rokae_xmate3_ros2/srv/load_rl_project.hpp"
-#include "rokae_xmate3_ros2/srv/map_cartesian_to_joint_torque.hpp"
-#include "rokae_xmate3_ros2/srv/move_reset.hpp"
-#include "rokae_xmate3_ros2/srv/move_start.hpp"
 #include "rokae_xmate3_ros2/srv/pause_rl_project.hpp"
-#include "rokae_xmate3_ros2/srv/query_controller_log.hpp"
-#include "rokae_xmate3_ros2/srv/query_path_lists.hpp"
 #include "rokae_xmate3_ros2/srv/read_register.hpp"
 #include "rokae_xmate3_ros2/srv/read_register_ex.hpp"
 #include "rokae_xmate3_ros2/srv/register_data_callback.hpp"
-#include "rokae_xmate3_ros2/srv/remove_path.hpp"
-#include "rokae_xmate3_ros2/srv/replay_path.hpp"
-#include "rokae_xmate3_ros2/srv/save_record_path.hpp"
 #include "rokae_xmate3_ros2/srv/send_custom_data.hpp"
 #include "rokae_xmate3_ros2/srv/set_ao.hpp"
 #include "rokae_xmate3_ros2/srv/set_avoid_singularity.hpp"
-#include "rokae_xmate3_ros2/srv/set_default_conf_opt.hpp"
-#include "rokae_xmate3_ros2/srv/set_default_speed.hpp"
-#include "rokae_xmate3_ros2/srv/set_default_zone.hpp"
 #include "rokae_xmate3_ros2/srv/set_di.hpp"
 #include "rokae_xmate3_ros2/srv/set_do.hpp"
-#include "rokae_xmate3_ros2/srv/set_motion_control_mode.hpp"
-#include "rokae_xmate3_ros2/srv/set_operate_mode.hpp"
-#include "rokae_xmate3_ros2/srv/set_power_state.hpp"
 #include "rokae_xmate3_ros2/srv/set_project_running_opt.hpp"
-#include "rokae_xmate3_ros2/srv/set_rt_control_mode.hpp"
 #include "rokae_xmate3_ros2/srv/set_simulation_mode.hpp"
-#include "rokae_xmate3_ros2/srv/set_soft_limit.hpp"
-#include "rokae_xmate3_ros2/srv/set_toolset.hpp"
-#include "rokae_xmate3_ros2/srv/set_toolset_by_name.hpp"
 #include "rokae_xmate3_ros2/srv/set_x_panel_vout.hpp"
-#include "rokae_xmate3_ros2/srv/start_record_path.hpp"
 #include "rokae_xmate3_ros2/srv/start_rl_project.hpp"
-#include "rokae_xmate3_ros2/srv/stop.hpp"
-#include "rokae_xmate3_ros2/srv/stop_record_path.hpp"
 #include "rokae_xmate3_ros2/srv/stop_rl_project.hpp"
 #include "rokae_xmate3_ros2/srv/write_register.hpp"
 #include "rokae_xmate3_ros2/srv/write_register_ex.hpp"
+#endif
+#include "rokae_xmate3_ros2/srv/get_runtime_state_snapshot.hpp"
+#include "rokae_xmate3_ros2/srv/get_rt_joint_data.hpp"
+#include "rokae_xmate3_ros2/srv/get_soft_limit.hpp"
+#include "rokae_xmate3_ros2/srv/get_toolset.hpp"
+#include "rokae_xmate3_ros2/srv/map_cartesian_to_joint_torque.hpp"
+#include "rokae_xmate3_ros2/srv/move_reset.hpp"
+#include "rokae_xmate3_ros2/srv/move_start.hpp"
+#include "rokae_xmate3_ros2/srv/query_controller_log.hpp"
+#include "rokae_xmate3_ros2/srv/query_path_lists.hpp"
+#include "rokae_xmate3_ros2/srv/remove_path.hpp"
+#include "rokae_xmate3_ros2/srv/replay_path.hpp"
+#include "rokae_xmate3_ros2/srv/save_record_path.hpp"
+#include "rokae_xmate3_ros2/srv/set_default_conf_opt.hpp"
+#include "rokae_xmate3_ros2/srv/set_default_speed.hpp"
+#include "rokae_xmate3_ros2/srv/set_default_zone.hpp"
+#include "rokae_xmate3_ros2/srv/set_motion_control_mode.hpp"
+#include "rokae_xmate3_ros2/srv/set_operate_mode.hpp"
+#include "rokae_xmate3_ros2/srv/set_power_state.hpp"
+#include "rokae_xmate3_ros2/srv/set_rt_control_mode.hpp"
+#include "rokae_xmate3_ros2/srv/set_soft_limit.hpp"
+#include "rokae_xmate3_ros2/srv/set_toolset.hpp"
+#include "rokae_xmate3_ros2/srv/set_toolset_by_name.hpp"
+#include "rokae_xmate3_ros2/srv/start_record_path.hpp"
+#include "rokae_xmate3_ros2/srv/stop.hpp"
+#include "rokae_xmate3_ros2/srv/stop_record_path.hpp"
 
 using namespace std::chrono_literals;
 using namespace rokae;
@@ -273,7 +281,9 @@ public:
     rclcpp::Client<rokae_xmate3_ros2::srv::Connect>::SharedPtr xmate3_robot_connect_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::Disconnect>::SharedPtr xmate3_robot_disconnect_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::GetInfo>::SharedPtr xmate3_robot_get_info_client_;
+#if ROKAE_ENABLE_INTERNAL_SURFACE
     rclcpp::Client<rokae_xmate3_ros2::srv::GetProfileCapabilities>::SharedPtr xmate3_internal_get_profile_capabilities_client_;
+#endif
     rclcpp::Client<rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot>::SharedPtr xmate3_internal_get_runtime_state_snapshot_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::GetPowerState>::SharedPtr xmate3_robot_get_power_state_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::SetPowerState>::SharedPtr xmate3_robot_set_power_state_client_;
@@ -307,6 +317,7 @@ public:
     rclcpp::Client<rokae_xmate3_ros2::srv::SetRtControlMode>::SharedPtr xmate3_rt_set_control_mode_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::GetRtJointData>::SharedPtr xmate3_rt_get_joint_data_client_;
     rclcpp::Publisher<rokae_xmate3_ros2::msg::RtFastCommand>::SharedPtr xmate3_rt_fast_command_pub_;
+#if ROKAE_ENABLE_INTERNAL_SURFACE
     rclcpp::Client<rokae_xmate3_ros2::srv::SendCustomData>::SharedPtr xmate3_comm_send_custom_data_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::RegisterDataCallback>::SharedPtr xmate3_comm_register_data_callback_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::ReadRegister>::SharedPtr xmate3_comm_read_register_client_;
@@ -331,6 +342,7 @@ public:
     rclcpp::Client<rokae_xmate3_ros2::srv::GetWobjCatalog>::SharedPtr xmate3_rl_get_wobjs_info_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::SetAvoidSingularity>::SharedPtr xmate3_cobot_set_avoid_singularity_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::GetAvoidSingularity>::SharedPtr xmate3_cobot_get_avoid_singularity_client_;
+#endif
     rclcpp::Client<rokae_xmate3_ros2::srv::GetEndEffectorTorque>::SharedPtr xmate3_cobot_get_end_torque_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::GetEndWrench>::SharedPtr xmate3_cobot_get_end_wrench_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::CalcJointTorque>::SharedPtr xmate3_dyn_calc_joint_torque_client_;

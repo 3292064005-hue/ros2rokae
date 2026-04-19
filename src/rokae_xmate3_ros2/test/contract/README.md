@@ -1,2 +1,3 @@
-Contract test placeholders for spec/URDF/runtime consistency.
-These are intentionally kept separate from the existing unit/harness suites so future CI can add strict alignment checks without destabilizing the simulation smoke tests.
+Contract suite for spec/URDF/runtime consistency.
+This directory documents strict contract intent separately from unit/harness suites so CI can tighten
+alignment checks without weakening the main simulation smoke lanes.

@@ -21,6 +21,7 @@
 #include "rokae_xmate3_ros2/msg/runtime_diagnostics.hpp"
 #include "rokae_xmate3_ros2/runtime/ros_context_owner.hpp"
 #include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "runtime/backend_provider.hpp"
 #include "runtime/mock_runtime_backend.hpp"
 #include "runtime/ros_bindings.hpp"
 #include "runtime/runtime_context.hpp"
@@ -45,6 +46,41 @@ std::string getenvOrDefault(const char *name, const std::string &fallback) {
   return std::string(value);
 }
 
+
+class HeadlessRuntimeBackendHost final : public RuntimeBackendProviderHost {
+ public:
+  explicit HeadlessRuntimeBackendHost(rclcpp::Node::SharedPtr node) : node_(std::move(node)) {}
+
+  [[nodiscard]] std::string hostKind() const override { return "daemonized_headless_runtime"; }
+
+  [[nodiscard]] rclcpp::Node::SharedPtr node() const override { return node_; }
+
+  [[nodiscard]] const std::vector<std::string> *jointNames() const override { return nullptr; }
+
+  [[nodiscard]] bool supportsFactory(const std::string &factory_key) const noexcept override {
+    return factory_key == "headless_mock";
+  }
+
+  [[nodiscard]] std::vector<std::string> advertisedFactoryKeys() const override {
+    return {"headless_mock"};
+  }
+
+  [[nodiscard]] std::unique_ptr<BackendInterface> createBackend(
+      const RuntimeBackendFactoryRequest &request) const override {
+    if (request.factory_key != "headless_mock") {
+      throw std::runtime_error("backend factory '" + request.factory_key +
+                               "' is unavailable from headless runtime host");
+    }
+    if (request.attach_trajectory_client) {
+      throw std::runtime_error("headless runtime backend host does not support trajectory-client attachment");
+    }
+    return std::make_unique<HeadlessMockRuntimeBackend>();
+  }
+
+ private:
+  rclcpp::Node::SharedPtr node_;
+};
+
 }  // namespace
 
 int run_sim_runtime_main() {
@@ -54,8 +90,10 @@ int run_sim_runtime_main() {
   auto node = std::make_shared<rclcpp::Node>("rokae_sim_runtime");
 
   RuntimeContext runtime_context;
-  HeadlessMockRuntimeBackend backend;
-  runtime_context.attachBackend(&backend);
+  const auto backend_provider = resolveRuntimeBackendProvider("headless_mock");
+  HeadlessRuntimeBackendHost backend_host(node);
+  auto backend = backend_provider->createBackend(backend_host);
+  runtime_context.attachBackend(backend.get());
 
   const auto requested_service_exposure_profile =
       node->declare_parameter<std::string>("service_exposure_profile", getenvOrDefault("ROKAE_SERVICE_EXPOSURE_PROFILE", to_string(defaultServiceExposureProfile())));
@@ -67,19 +105,8 @@ int run_sim_runtime_main() {
     host_bootstrap = host_builder.resolveBootstrap(
         requested_runtime_profile,
         RuntimeHostKind::daemonized_runtime,
-        "daemonized_headless_mock",
-        {
-            "backend.headless_mock",
-            "runtime.daemonized",
-            "rt.experimental",
-            "rt.best_effort_non_controller_grade",
-            "rt.transport.shm_ring",
-            "rt.transport.ros_topic",
-            "profile.nrt_strict_parity",
-            "profile.rt_sim_experimental_best_effort",
-            "profile.rt_hardened",
-            "profile.hard_1khz",
-        });
+        backend_provider->contract(),
+        backend_provider->capabilityFlags());
   } catch (const std::exception &ex) {
     RCLCPP_ERROR(node->get_logger(), "requested runtime_profile=%s is not supported: %s", requested_runtime_profile.c_str(), ex.what());
     return 2;
@@ -93,7 +120,7 @@ int run_sim_runtime_main() {
   auto joint_state_fetcher = [&backend](std::array<double, 6> &position,
                                         std::array<double, 6> &velocity,
                                         std::array<double, 6> &torque) {
-    const auto snapshot = backend.readSnapshot();
+    const auto snapshot = backend->readSnapshot();
     position = snapshot.joint_position;
     velocity = snapshot.joint_velocity;
     torque = snapshot.joint_torque;
@@ -165,9 +192,9 @@ int run_sim_runtime_main() {
         const auto now = std::chrono::steady_clock::now();
         const double dt = std::chrono::duration<double>(now - last_tick).count();
         last_tick = now;
-        backend.step(dt, runtime_context.sessionState().powerOn());
-        const auto snapshot = backend.readSnapshot();
-        const auto tick_result = control_bridge->tick(backend, snapshot, dt);
+        backend->stepSimulation(dt, runtime_context.sessionState().powerOn());
+        const auto snapshot = backend->readSnapshot();
+        const auto tick_result = control_bridge->tick(*backend, snapshot, dt);
         publish_bridge->emitRuntimeStatus(tick_result.status, node->now(), node->get_logger());
         std::this_thread::sleep_until(next_tick);
         next_tick += 1ms;

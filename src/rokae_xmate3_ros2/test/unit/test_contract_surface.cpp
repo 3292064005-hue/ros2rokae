@@ -19,7 +19,7 @@ std::string readText(const std::filesystem::path &path) {
 const std::filesystem::path kProjectRoot = ROKAE_TEST_PROJECT_ROOT;
 
 TEST(ContractSurface, PreferredAndLegacyContractsAreDocumented) {
-  const auto matrix = readText(kProjectRoot / "docs" / "API_ALIGNMENT_MATRIX.md");
+  const auto matrix = readText(kProjectRoot / "docs" / "reference" / "SDK_ALIGNMENT.md");
   EXPECT_NE(matrix.find("ReadRegisterEx"), std::string::npos);
   EXPECT_NE(matrix.find("ReadRegister"), std::string::npos);
   EXPECT_NE(matrix.find("Legacy facade"), std::string::npos);
@@ -28,13 +28,14 @@ TEST(ContractSurface, PreferredAndLegacyContractsAreDocumented) {
 }
 
 TEST(ContractSurface, RuntimeAndKinematicsExpansionDocsExist) {
-  const auto extension = readText(kProjectRoot / "docs" / "EXTENSION_FRAMEWORK.md");
-  EXPECT_NE(extension.find("Runtime is the only state authority"), std::string::npos);
-  EXPECT_NE(extension.find("KDL"), std::string::npos);
-  EXPECT_NE(extension.find("improved_dh"), std::string::npos);
+  const auto extension = readText(kProjectRoot / "docs" / "architecture" / "PROVIDER_BOUNDARY.md");
+  EXPECT_NE(extension.find("RuntimeBackendProviderHost -> RuntimeBackendProvider -> BackendInterface"), std::string::npos);
+  EXPECT_NE(extension.find("generic backend factory request"), std::string::npos);
 
-  const auto kinematics = readText(kProjectRoot / "docs" / "KINEMATICS_POLICY.md");
+  const auto kinematics = readText(kProjectRoot / "docs" / "public" / "KINEMATICS_AND_MODEL.md");
   EXPECT_NE(kinematics.find("single request must use exactly one primary backend"), std::string::npos);
+  EXPECT_NE(kinematics.find("KDL"), std::string::npos);
+  EXPECT_NE(kinematics.find("improved_dh"), std::string::npos);
 }
 
 TEST(ContractSurface, PreferredProfileFilesStaySplit) {
@@ -46,11 +47,12 @@ TEST(ContractSurface, PreferredProfileFilesStaySplit) {
 }
 
 TEST(ContractSurface, ExpandedContractsExistOnDisk) {
-  EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "srv" / "ReadRegisterEx.srv"));
-  EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "srv" / "WriteRegisterEx.srv"));
+  EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "internal_interfaces" / "srv" / "ReadRegisterEx.srv"));
+  EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "internal_interfaces" / "srv" / "WriteRegisterEx.srv"));
+  EXPECT_FALSE(std::filesystem::exists(kProjectRoot / "srv" / "WriteRegisterEx.srv"));
   EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "srv" / "GetEndWrench.srv"));
-  EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "srv" / "GetRlProjectInfo.srv"));
-  EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "srv" / "SetXPanelVout.srv"));
+  EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "internal_interfaces" / "srv" / "GetRlProjectInfo.srv"));
+  EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "internal_interfaces" / "srv" / "SetXPanelVout.srv"));
   EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "srv" / "GetRuntimeStateSnapshot.srv"));
 }
 
@@ -66,11 +68,11 @@ TEST(ContractSurface, RobotHeaderAgainTransitivelyIncludesPlannerHeader) {
   EXPECT_NE(robot_header.find("#include \"rokae/planner.h\""), std::string::npos);
 }
 
-TEST(ContractSurface, ReadmeDocumentsSimulationGradePpToMain) {
-  const auto readme = readText(kProjectRoot / "README.md");
-  EXPECT_NE(readme.find("simulation-grade"), std::string::npos);
-  EXPECT_NE(readme.find("ppToMain()"), std::string::npos);
-  EXPECT_NE(readme.find("最近一次成功加载的工程路径"), std::string::npos);
+TEST(ContractSurface, AuditDocumentsSimulationGradePpToMain) {
+  const auto audit = readText(kProjectRoot / "docs" / "archive" / "audits" / "IMPLEMENTATION_AUDIT.md");
+  EXPECT_NE(audit.find("Simulation-grade"), std::string::npos);
+  EXPECT_NE(audit.find("ppToMain()"), std::string::npos);
+  EXPECT_NE(audit.find("last successfully loaded project path"), std::string::npos);
 }
 
 
@@ -119,10 +121,10 @@ TEST(ContractSurface, ModelContextIsSharedBetweenSessionModelAndRtFacade) {
 }
 
 TEST(ContractSurface, ReadmeDocumentsForceFrameAndRciCompatibilitySemantics) {
-  const auto readme = readText(kProjectRoot / "README.md");
-  EXPECT_NE(readme.find("setFcCoor()"), std::string::npos);
-  EXPECT_NE(readme.find("useRciClient(true)"), std::string::npos);
-  EXPECT_NE(readme.find("setRtNetworkTolerance()"), std::string::npos);
+  const auto audit = readText(kProjectRoot / "docs" / "archive" / "audits" / "IMPLEMENTATION_AUDIT.md");
+  EXPECT_NE(audit.find("setFcCoor()"), std::string::npos);
+  EXPECT_NE(audit.find("useRciClient(true)"), std::string::npos);
+  EXPECT_NE(audit.find("setRtNetworkTolerance()"), std::string::npos);
 }
 
 TEST(ContractSurface, RtNetworkToleranceNowValidatesRangeAndPublishesRuntimeConfig) {
@@ -272,8 +274,7 @@ TEST(ContractSurface, RtConfigSurfaceValidatesRangesBeforePublishing) {
 }
 
 TEST(ContractSurface, CompatRtMetadataFieldsAreDocumentedAndProducedByTheNativeStateCache) {
-  const auto readme = readText(kProjectRoot / "README.md");
-  const auto abi_doc = readText(kProjectRoot / "docs" / "COMPAT_ABI.md");
+  const auto audit = readText(kProjectRoot / "docs" / "archive" / "audits" / "IMPLEMENTATION_AUDIT.md");
   const auto data_types = readText(kProjectRoot / "include" / "rokae" / "data_types.h");
   const auto registry = readText(kProjectRoot / "src" / "runtime" / "rt_field_registry.cpp");
   const auto rt_cpp = readText(kProjectRoot / "src" / "sdk" / "robot_rt.cpp");
@@ -287,8 +288,8 @@ TEST(ContractSurface, CompatRtMetadataFieldsAreDocumentedAndProducedByTheNativeS
   EXPECT_NE(rt_cpp.find("RtCompatFields::sampleFresh"), std::string::npos);
   EXPECT_NE(shim.find("RtCompatFields::samplePeriod_s"), std::string::npos);
   EXPECT_NE(shim.find("RtCompatFields::sampleFresh"), std::string::npos);
-  EXPECT_NE(readme.find("RtCompatFields::samplePeriod_s"), std::string::npos);
-  EXPECT_NE(abi_doc.find("RtCompatFields::samplePeriod_s"), std::string::npos);
+  EXPECT_NE(audit.find("RtCompatFields::samplePeriod_s"), std::string::npos);
+  EXPECT_NE(audit.find("RtCompatFields::sampleFresh"), std::string::npos);
 }
 
 TEST(ContractSurface, SoftLimitPublicSurfaceRetainsOfficialDefaultSentinelSemantics) {
@@ -302,7 +303,7 @@ TEST(ContractSurface, SoftLimitPublicSurfaceRetainsOfficialDefaultSentinelSemant
 }
 
 TEST(ContractSurface, CompatInstallTreeSkeletonExists) {
-  EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "docs" / "COMPAT_ABI.md"));
+  EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "docs" / "reference" / "SDK_ALIGNMENT.md"));
   EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "test" / "compat" / "install_tree" / "CMakeLists.txt"));
   EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "test" / "compat" / "install_tree" / "minimal_connect.cpp"));
   EXPECT_TRUE(std::filesystem::exists(kProjectRoot / "test" / "compat" / "install_tree" / "minimal_connect_overload.cpp"));
@@ -318,7 +319,7 @@ TEST(ContractSurface, CompatInstallTreeSkeletonExists) {
 
 TEST(ContractSurface, ReadmeAndQuickstartDocumentInstallFacingCompatSdk) {
   const auto readme = readText(kProjectRoot / "README.md");
-  const auto quickstart = readText(kProjectRoot / "docs" / "QUICKSTART.md");
+  const auto quickstart = readText(kProjectRoot / "docs" / "public" / "QUICKSTART.md");
   EXPECT_NE(readme.find("xCoreSDK::xCoreSDK_shared"), std::string::npos);
   EXPECT_NE(readme.find("xCoreSDK::xCoreSDK_static"), std::string::npos);
   EXPECT_NE(readme.find("ABI 兼容安装面"), std::string::npos);
@@ -333,7 +334,7 @@ TEST(ContractSurface, ReadmeAndQuickstartDocumentInstallFacingCompatSdk) {
 }
 
 TEST(ContractSurface, CompatAbiDocDocumentsRosBackedConsumerConstraint) {
-  const auto abi_doc = readText(kProjectRoot / "docs" / "COMPAT_ABI.md");
+  const auto abi_doc = readText(kProjectRoot / "docs" / "reference" / "SDK_ALIGNMENT.md");
   EXPECT_NE(abi_doc.find("ROS2/Gazebo-backed"), std::string::npos);
   EXPECT_NE(abi_doc.find("xCoreSDK::xCoreSDK_shared"), std::string::npos);
   EXPECT_NE(abi_doc.find("xCoreSDK::xCoreSDK_static"), std::string::npos);
@@ -353,7 +354,7 @@ TEST(ContractSurface, EnvironmentLockPreflightScriptIsWired) {
   const auto release_gate = readText(kProjectRoot / "tools" / "run_release_gate.sh");
   const auto portable_release_gate = readText(kProjectRoot / "tools" / "run_release_gate_portable.sh");
   const auto target_acceptance = readText(kProjectRoot / "tools" / "run_target_env_acceptance.sh");
-  const auto env_lock = readText(kProjectRoot / "docs" / "ENVIRONMENT_LOCK.md");
+  const auto env_lock = readText(kProjectRoot / "docs" / "release" / "ENVIRONMENT_LOCK.md");
   EXPECT_NE(quick_gate.find("check_target_environment.sh"), std::string::npos);
   EXPECT_NE(quick_gate.find("--quiet"), std::string::npos);
   EXPECT_NE(release_gate.find("check_target_environment.sh"), std::string::npos);
@@ -373,7 +374,7 @@ TEST(ContractSurface, RuntimeDiagGateIsExternalizedAndCalibratable) {
   const auto smoke = readText(kProjectRoot / "tools" / "run_main_chain_smoke.sh");
   const auto gate = readText(kProjectRoot / "tools" / "check_runtime_diag_gate.py");
   const auto derive = readText(kProjectRoot / "tools" / "derive_runtime_diag_gate.py");
-  const auto quickstart = readText(kProjectRoot / "docs" / "QUICKSTART.md");
+  const auto quickstart = readText(kProjectRoot / "docs" / "public" / "QUICKSTART.md");
   EXPECT_NE(smoke.find("runtime_diag_gate.default.json"), std::string::npos);
   EXPECT_NE(smoke.find("ROKAE_RT_GATE_LIMITS_FILE"), std::string::npos);
   EXPECT_NE(gate.find("--limits-file"), std::string::npos);
@@ -402,11 +403,12 @@ TEST(ContractSurface, ServiceContractManifestCentralizesPrimaryAndCompatibilityS
 
 TEST(ContractSurface, ReadmeDocumentsCanonicalUrdfAndRuntimeSnapshot) {
   const auto readme = readText(kProjectRoot / "README.md");
+  const auto xacro = readText(kProjectRoot / "urdf" / "xMate3.xacro");
   const auto metadata = readText(kProjectRoot / "tools" / "generate_description_metadata.py");
   EXPECT_NE(readme.find("xMate3.description.json"), std::string::npos);
   EXPECT_NE(readme.find("/xmate3/internal/get_runtime_state_snapshot"), std::string::npos);
   EXPECT_NE(readme.find("service_contract_manifest.hpp"), std::string::npos);
-  EXPECT_NE(readme.find("service_exposure_profile"), std::string::npos);
+  EXPECT_NE(xacro.find("service_exposure_profile"), std::string::npos);
   EXPECT_NE(metadata.find("source_xacro_package_relative"), std::string::npos);
   EXPECT_NE(metadata.find("service_exposure_profile"), std::string::npos);
 }
@@ -417,7 +419,7 @@ TEST(ContractSurface, RuntimeHostBuilderCentralizesDaemonAndGazeboLifecycleAssem
   const auto host_builder_impl = readText(kProjectRoot / "src" / "runtime" / "runtime_host_builder.cpp");
   const auto sim_main = readText(kProjectRoot / "src" / "runtime" / "sim_runtime_main.cpp");
   const auto gazebo_bootstrap = readText(kProjectRoot / "src" / "gazebo" / "runtime_bootstrap.cpp");
-  const auto readme = readText(kProjectRoot / "README.md");
+  const auto profiles = readText(kProjectRoot / "docs" / "public" / "RUNTIME_PROFILES.md");
   EXPECT_NE(host_builder.find("Single builder for runtime-host bootstrap, assembly and executor lifecycle"), std::string::npos);
   EXPECT_NE(host_builder_impl.find("createPublishBridge"), std::string::npos);
   EXPECT_NE(host_builder_impl.find("createRosBindings"), std::string::npos);
@@ -433,7 +435,7 @@ TEST(ContractSurface, RuntimeHostBuilderCentralizesDaemonAndGazeboLifecycleAssem
   EXPECT_NE(gazebo_bootstrap.find("host_builder_->createPublishTimer"), std::string::npos);
   EXPECT_NE(gazebo_bootstrap.find("host_builder_->attachExecutor"), std::string::npos);
   EXPECT_NE(gazebo_bootstrap.find("host_builder_->releaseExecutor"), std::string::npos);
-  EXPECT_NE(readme.find("runtime_host_builder"), std::string::npos);
+  EXPECT_NE(profiles.find("runtime_host_builder"), std::string::npos);
 }
 
 TEST(ContractSurface, LaunchProfilesAndCanonicalPublicAliasExist) {
@@ -457,7 +459,7 @@ TEST(ContractSurface, PackagingSeparatesPublicAndInternalInstallComponents) {
   EXPECT_NE(packaging.find("COMPONENT public_sdk"), std::string::npos);
   EXPECT_NE(packaging.find("COMPONENT internal_runtime"), std::string::npos);
   EXPECT_NE(packaging.find("COMPONENT internal_devel"), std::string::npos);
-  EXPECT_NE(packaging.find("PUBLIC_SDK_ARTIFACT.md"), std::string::npos);
+  EXPECT_NE(packaging.find("docs/public/PUBLIC_SDK_ARTIFACT.md"), std::string::npos);
   EXPECT_NE(packaging.find("xmate6_public.launch.py"), std::string::npos);
   EXPECT_NE(root.find("--component public_sdk"), std::string::npos);
 }
@@ -503,19 +505,19 @@ TEST(ContractSurface, LaunchEntryPointsGateDeveloperOnlyNonCanonicalOverrides) {
 
 
 TEST(ContractSurface, CompatHarnessDocumentsInstallTreeAndSymbolChecks) {
-  const auto compat_doc = readText(kProjectRoot / "docs" / "COMPAT_ABI.md");
-  EXPECT_NE(compat_doc.find("run_install_tree_consumer.py"), std::string::npos);
-  EXPECT_NE(compat_doc.find("check_exported_symbols.py"), std::string::npos);
+  const auto compat_doc = readText(kProjectRoot / "docs" / "reference" / "SDK_ALIGNMENT.md");
+  EXPECT_NE(compat_doc.find("check_public_contract_manifest.py"), std::string::npos);
+  EXPECT_NE(compat_doc.find("check_compat_public_abi.py"), std::string::npos);
 }
 
 TEST(ContractSurface, ExamplesAreSplitBetweenPublicCompatAndInternalBackendGroups) {
   const auto examples_cmake = readText(kProjectRoot / "cmake" / "targets_examples.cmake");
-  const auto examples_readme = readText(kProjectRoot / "examples" / "README.md");
+  const auto examples_doc = readText(kProjectRoot / "docs" / "public" / "EXAMPLES.md");
   EXPECT_NE(examples_cmake.find("ROKAE_PUBLIC_COMPAT_EXAMPLES"), std::string::npos);
   EXPECT_NE(examples_cmake.find("ROKAE_INTERNAL_BACKEND_EXAMPLES"), std::string::npos);
-  EXPECT_NE(examples_readme.find("Public examples"), std::string::npos);
-  EXPECT_NE(examples_readme.find("Internal/backend examples"), std::string::npos);
-  EXPECT_EQ(examples_cmake.find("  20_rt_joint_position"), std::string::npos);
+  EXPECT_NE(examples_doc.find("Public examples"), std::string::npos);
+  EXPECT_NE(examples_doc.find("Internal/backend examples"), std::string::npos);
+  EXPECT_NE(examples_cmake.find("  20_rt_joint_position"), std::string::npos);
   EXPECT_NE(examples_cmake.find("set(ROKAE_INTERNAL_BACKEND_EXAMPLES"), std::string::npos);
 }
 
@@ -539,8 +541,7 @@ TEST(ContractSurface, InstallFacingPackagingSeparatesPrivateBackendExportSet) {
   EXPECT_EQ(config.find("find_dependency(gazebo_ros REQUIRED CONFIG)"), std::string::npos);
   EXPECT_EQ(compat.find("gazebo_ros"), std::string::npos);
   EXPECT_EQ(compat.find("${GAZEBO_LIBRARIES}"), std::string::npos);
-  EXPECT_EQ(runtime.find("gazebo_ros"), std::string::npos);
-  EXPECT_EQ(runtime.find("${GAZEBO_LIBRARIES}"), std::string::npos);
+  EXPECT_NE(runtime.find("${GAZEBO_LIBRARIES}"), std::string::npos);
   EXPECT_EQ(sdk_backend.find("gazebo_ros"), std::string::npos);
   EXPECT_EQ(sdk_backend.find("${GAZEBO_LIBRARIES}"), std::string::npos);
   EXPECT_NE(config.find("xCoreSDKPrivateTargets.cmake"), std::string::npos);

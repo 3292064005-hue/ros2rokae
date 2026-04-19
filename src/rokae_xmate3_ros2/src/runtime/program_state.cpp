@@ -111,6 +111,7 @@ void ProgramState::cancelRecordingPath() {
   is_recording_path_ = false;
   recorded_path_.clear();
   record_time_origin_initialized_ = false;
+  record_time_origin_sec_ = 0.0;
   record_created_at_sec_ = 0.0;
 }
 
@@ -127,7 +128,8 @@ void ProgramState::recordPathSample(double timestamp_sec,
     return;
   }
 
-  const double fallback_time = recorded_path_.empty() ? 0.0 : recorded_path_.back().time_from_start_sec + 0.01;
+  const double fallback_time =
+      recorded_path_.empty() ? 0.0 : recorded_path_.back().time_from_start_sec + kRecordedPathMonotonicStepSec;
   const double absolute_timestamp = detail::clamp_record_timestamp(timestamp_sec, fallback_time);
   if (!record_time_origin_initialized_) {
     record_time_origin_sec_ = absolute_timestamp;
@@ -137,13 +139,15 @@ void ProgramState::recordPathSample(double timestamp_sec,
 
   double relative_time = std::max(0.0, absolute_timestamp - record_time_origin_sec_);
   if (!recorded_path_.empty() && relative_time <= recorded_path_.back().time_from_start_sec) {
-    relative_time = recorded_path_.back().time_from_start_sec + 0.01;
+    relative_time = recorded_path_.back().time_from_start_sec + kRecordedPathMonotonicStepSec;
   }
 
   RecordedPathSample sample;
   sample.time_from_start_sec = relative_time;
   sample.joint_position = joint_position;
   sample.joint_velocity = joint_velocity;
+  sample.task_phase = kRecordedPathDefaultTaskPhase;
+  sample.source_id = record_source_;
   recorded_path_.push_back(sample);
 }
 
@@ -151,21 +155,51 @@ void ProgramState::recordPathSample(const std::array<double, 6> &joint_position)
   recordPathSample(std::numeric_limits<double>::quiet_NaN(), joint_position, std::array<double, 6>{});
 }
 
-void ProgramState::saveRecordedPath(const std::string &name) {
+bool ProgramState::saveRecordedPath(const std::string &name, std::string *error_message) {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (name.empty()) {
+    if (error_message != nullptr) {
+      *error_message = "path name must not be empty";
+    }
+    return false;
+  }
+  if (recorded_path_.empty()) {
+    if (error_message != nullptr) {
+      *error_message = "no recorded path available to save";
+    }
+    return false;
+  }
+
   ReplayPathAsset asset;
-  asset.metadata.version = "v1";
-  asset.metadata.robot = "xMate3";
+  asset.metadata.version = kRecordedPathSchemaVersion;
+  asset.metadata.robot = kRecordedPathRobotFamily;
+  asset.metadata.robot_model = kRecordedPathRobotModel;
+  asset.metadata.canonical_identity = kRecordedPathCanonicalIdentity;
   asset.metadata.source = record_source_;
   asset.metadata.created_at_sec = record_created_at_sec_;
+  asset.metadata.monotonic_step_sec = kRecordedPathMonotonicStepSec;
   asset.samples = recorded_path_;
   asset.toolset = recorded_toolset_;
   asset.source = record_source_;
+  normalizeReplayPathAssetForConsumption(asset);
+  const auto consumption_report = buildReplayPathConsumptionReport(asset);
+  if (!validateReplayPathAssetForConsumption(asset, ReplayPathConsumptionTarget::replay, error_message)) {
+    if (error_message != nullptr && error_message->empty()) {
+      *error_message = consumption_report.error_message.empty()
+                           ? std::string{"recorded path asset failed replay contract validation"}
+                           : consumption_report.error_message;
+    }
+    return false;
+  }
   saved_paths_[name] = std::move(asset);
   recorded_path_.clear();
   record_time_origin_initialized_ = false;
   record_time_origin_sec_ = 0.0;
   record_created_at_sec_ = 0.0;
+  if (error_message != nullptr) {
+    error_message->clear();
+  }
+  return true;
 }
 
 bool ProgramState::hasRecordedPathData() const {

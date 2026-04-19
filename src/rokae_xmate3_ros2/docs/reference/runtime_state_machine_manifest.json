@@ -1,0 +1,54 @@
+{
+  "contract": "runtime_state_machine",
+  "authority": "RuntimeStateMachine",
+  "states": [
+    "idle",
+    "planning",
+    "queued",
+    "executing",
+    "paused",
+    "settling",
+    "completed",
+    "completed_relaxed",
+    "failed",
+    "stopped"
+  ],
+  "events": [
+    "reset",
+    "request_queued",
+    "planning_requested",
+    "planning_rejected",
+    "plan_queued",
+    "execution_started",
+    "progress_updated",
+    "trajectory_retimed",
+    "paused",
+    "watchdog_triggered",
+    "completed",
+    "completed_relaxed",
+    "failed",
+    "stopped",
+    "owner_changed",
+    "phase_override"
+  ],
+  "main_chain": [
+    "request_queued",
+    "planning_requested",
+    "plan_queued",
+    "execution_started",
+    "progress_updated(observed_state=queued|executing|settling)",
+    "completed|completed_relaxed|failed|stopped"
+  ],
+  "forbidden_bypasses": [
+    "runtime_execution_switch.cpp may not assign active_status_.state directly",
+    "runtime_execution_switch.cpp may not assign active_status_.message directly",
+    "runtime_execution_switch.cpp may not assign active_status_.completed_segments directly",
+    "runtime_execution_switch.cpp may not assign active_status_.current_segment_index directly"
+  ],
+  "source_of_truth": [
+    "src/runtime/runtime_state_machine.hpp",
+    "src/runtime/runtime_state_machine.cpp",
+    "src/runtime/runtime_execution_switch.cpp",
+    "test/unit/test_runtime_state_machine.cpp"
+  ]
+}

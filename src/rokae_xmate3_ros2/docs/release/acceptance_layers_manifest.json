@@ -1,0 +1,61 @@
+{
+  "contract": "acceptance_layers",
+  "version": 1,
+  "layers": [
+    {
+      "id": "L0",
+      "goal": "unit_contract",
+      "entrypoint": "ctest -L quick_gate",
+      "requires_real_hardware": false
+    },
+    {
+      "id": "L1",
+      "goal": "mock_semantics",
+      "entrypoint": "ctest -L semantic_gate",
+      "requires_real_hardware": false
+    },
+    {
+      "id": "L2",
+      "goal": "gazebo_launch_smoke",
+      "entrypoint": "tools/run_launch_smoke.sh + tools/run_main_chain_smoke.sh",
+      "requires_real_hardware": false
+    },
+    {
+      "id": "L3",
+      "goal": "real_dry_run",
+      "entrypoint": "tools/run_real_dryrun_acceptance.sh",
+      "requires_real_hardware": true
+    },
+    {
+      "id": "L4",
+      "goal": "loaded_sensor",
+      "entrypoint": "tools/run_loaded_sensor_acceptance.sh",
+      "requires_real_hardware": true
+    },
+    {
+      "id": "L5",
+      "goal": "full_task_acceptance",
+      "entrypoint": "tools/run_full_task_acceptance.sh",
+      "requires_real_hardware": true
+    }
+  ],
+  "forbidden_shortcuts": [
+    "L2 may not be claimed passed if L0 or L1 failed",
+    "L3 may not be claimed passed if L2 failed_or_not_run",
+    "L4 may not be claimed passed if L3 failed_or_not_run",
+    "L5 may not be claimed passed if L4 failed_or_not_run"
+  ],
+  "source_of_truth": [
+    "docs/release/ACCEPTANCE_LAYERS.md",
+    "tools/run_acceptance_layers.sh",
+    "tools/run_real_dryrun_acceptance.sh",
+    "tools/run_loaded_sensor_acceptance.sh",
+    "tools/run_full_task_acceptance.sh",
+    "tools/run_launch_smoke.sh",
+    "tools/run_main_chain_smoke.sh"
+  ],
+  "install_helpers": [
+    "tools/check_runtime_diag_gate.py",
+    "tools/derive_runtime_diag_gate.py"
+  ]
+}

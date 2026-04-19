@@ -16,7 +16,7 @@ def require_contains(path: Path, needle: str, label: str) -> None:
         failures.append(f"{label}: missing '{needle}' in {path.relative_to(ROOT)}")
 
 
-manifest_path = ROOT / "docs" / "xmate6_official_alignment_manifest.json"
+manifest_path = ROOT / "docs" / "reference" / "xmate6_official_alignment_manifest.json"
 if not manifest_path.is_file():
     failures.append(f"missing alignment manifest: {manifest_path}")
 else:
@@ -39,12 +39,28 @@ else:
         failures.append("manifest unsupported_contract.error_code_symbol must be SdkError::not_implemented")
 
     profiles = manifest.get("profiles", {})
+
+    behavior = manifest.get("behavior_evidence", {})
+    if not behavior.get("unit_tests"):
+        failures.append("manifest behavior_evidence.unit_tests must be non-empty")
+    if behavior.get("static_gate") != "test/harness/check_xmate6_alignment_behaviors.py":
+        failures.append("manifest behavior_evidence.static_gate mismatch")
+
     if profiles.get("nrt") != "nrt_strict_parity":
         failures.append("manifest profiles.nrt must be nrt_strict_parity")
-    if profiles.get("rt") != "hard_1khz":
-        failures.append("manifest profiles.rt must be hard_1khz")
-    if profiles.get("rt_policy") != "strict_1khz_fail_fast":
-        failures.append("manifest profiles.rt_policy must be strict_1khz_fail_fast")
+    if profiles.get("rt") != "rt_hardened":
+        failures.append("manifest profiles.rt must be rt_hardened")
+    if profiles.get("rt_policy") != "best_effort_non_controller_grade":
+        failures.append("manifest profiles.rt_policy must be best_effort_non_controller_grade")
+
+
+    source_layout = manifest.get("source_layout", {})
+    if source_layout.get("public_rosidl_root") != "srv/":
+        failures.append("manifest source_layout.public_rosidl_root must be srv/")
+    if source_layout.get("internal_rosidl_root") != "internal_interfaces/srv/":
+        failures.append("manifest source_layout.internal_rosidl_root must be internal_interfaces/srv/")
+    if source_layout.get("internal_examples_root") != "examples/internal/cpp/":
+        failures.append("manifest source_layout.internal_examples_root must be examples/internal/cpp/")
 
     checks = manifest.get("checks", {})
     for key in ("header_patterns", "compat_patterns", "runtime_patterns", "docs_patterns", "cmake_patterns"):

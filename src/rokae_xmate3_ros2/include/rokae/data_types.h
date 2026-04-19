@@ -411,6 +411,12 @@ struct RuntimeProfileCapability {
   std::string preferred_contract;
   std::string diagnostics_expectation;
   std::vector<std::string> allowed_motion_families;
+  // Runtime component that owns the authoritative answer for this profile.
+  std::string authority_scope;
+  // Semantic fidelity class exposed to SDK/business consumers.
+  std::string fidelity_class{"simulation_grade"};
+  // Model/catalog revision that produced the advertised capability set.
+  std::string model_revision{"xmate6_public_v2026_04"};
   bool rt_capable = false;
   bool sim_approx = true;
   bool experimental = false;

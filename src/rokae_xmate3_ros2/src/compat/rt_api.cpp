@@ -680,18 +680,93 @@ void RtMotionControl<WorkType::collaborative, 6>::setLoad(const Load &load, erro
   publish_custom(*impl_->robot, rokae_xmate3_ros2::runtime::rt_topics::kConfigLoad, serialize_load(load), ec);
 }
 
-void MotionControl<MotionControlMode::RtCommand>::startReceiveRobotState(const std::vector<std::string> &) {
-  throw RealtimeControlException(
-      "MotionControl<RtCommand>::startReceiveRobotState is not supported on xMate6 public lane",
-      make_error_code(SdkError::not_implemented));
+void MotionControl<MotionControlMode::RtCommand>::startReceiveRobotState(const std::vector<std::string> &fields) {
+  if (!impl_ || !impl_->robot || !impl_->robot->backend) {
+    throw RealtimeControlException(
+        "MotionControl<RtCommand>::startReceiveRobotState requires an attached robot session",
+        std::make_error_code(std::errc::not_connected));
+  }
+  try {
+    impl_->robot->backend->startReceiveRobotState(std::chrono::milliseconds(1), fields);
+  } catch (const RealtimeControlException &) {
+    throw;
+  } catch (const RealtimeStateException &) {
+    throw;
+  } catch (const Exception &) {
+    throw;
+  } catch (const std::exception &e) {
+    throw RealtimeControlException(
+        std::string{"MotionControl<RtCommand>::startReceiveRobotState failed: "} + e.what(),
+        std::make_error_code(std::errc::io_error));
+  }
 }
 
-void MotionControl<MotionControlMode::RtCommand>::stopReceiveRobotState() noexcept {}
+void MotionControl<MotionControlMode::RtCommand>::stopReceiveRobotState() noexcept {
+  if (!impl_ || !impl_->robot || !impl_->robot->backend) {
+    return;
+  }
+  impl_->robot->backend->stopReceiveRobotState();
+}
 
 void MotionControl<MotionControlMode::RtCommand>::updateRobotState() {
-  throw RealtimeStateException(
-      "MotionControl<RtCommand>::updateRobotState is not supported on xMate6 public lane",
-      make_error_code(SdkError::not_implemented));
+  if (!impl_ || !impl_->robot || !impl_->robot->backend) {
+    throw RealtimeStateException(
+        "MotionControl<RtCommand>::updateRobotState requires an attached robot session",
+        std::make_error_code(std::errc::not_connected));
+  }
+  try {
+    (void)impl_->robot->backend->updateRobotState(std::chrono::milliseconds(1));
+  } catch (const RealtimeStateException &) {
+    throw;
+  } catch (const RealtimeControlException &) {
+    throw;
+  } catch (const Exception &) {
+    throw;
+  } catch (const std::exception &e) {
+    throw RealtimeStateException(
+        std::string{"MotionControl<RtCommand>::updateRobotState failed: "} + e.what(),
+        std::make_error_code(std::errc::io_error));
+  }
+}
+
+int MotionControl<MotionControlMode::RtCommand>::getStateDataArray6(const std::string &field_name,
+                                                                    std::array<double, 6> &data) noexcept {
+  if (!impl_ || !impl_->robot || !impl_->robot->backend) {
+    return -1;
+  }
+  return impl_->robot->backend->getStateDataArray6(field_name, data);
+}
+
+int MotionControl<MotionControlMode::RtCommand>::getStateDataArray3(const std::string &field_name,
+                                                                    std::array<double, 3> &data) noexcept {
+  if (!impl_ || !impl_->robot || !impl_->robot->backend) {
+    return -1;
+  }
+  return impl_->robot->backend->getStateDataArray3(field_name, data);
+}
+
+int MotionControl<MotionControlMode::RtCommand>::getStateDataMatrix16(const std::string &field_name,
+                                                                      std::array<double, 16> &data) noexcept {
+  if (!impl_ || !impl_->robot || !impl_->robot->backend) {
+    return -1;
+  }
+  return impl_->robot->backend->getStateDataMatrix16(field_name, data);
+}
+
+int MotionControl<MotionControlMode::RtCommand>::getStateDataScalarDouble(const std::string &field_name,
+                                                                          double &data) noexcept {
+  if (!impl_ || !impl_->robot || !impl_->robot->backend) {
+    return -1;
+  }
+  return impl_->robot->backend->getStateDataScalarDouble(field_name, data);
+}
+
+int MotionControl<MotionControlMode::RtCommand>::getStateDataBool(const std::string &field_name,
+                                                                  bool &data) noexcept {
+  if (!impl_ || !impl_->robot || !impl_->robot->backend) {
+    return -1;
+  }
+  return impl_->robot->backend->getStateDataBool(field_name, data);
 }
 
 void MotionControl<MotionControlMode::RtCommand>::automaticErrorRecovery(error_code &ec) noexcept {

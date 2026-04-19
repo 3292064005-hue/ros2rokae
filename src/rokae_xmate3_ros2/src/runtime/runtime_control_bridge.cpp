@@ -17,6 +17,7 @@
 #include "runtime/pose_utils.hpp"
 #include "runtime/runtime_catalog_service.hpp"
 #include "runtime/runtime_profile_service.hpp"
+#include "runtime/backend_contract_catalog.hpp"
 #include "runtime/planning_capability_service.hpp"
 #include "rokae_xmate3_ros2/runtime/rt_semantic_topics.hpp"
 
@@ -357,8 +358,9 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       watchdog_snapshot.stale_state_count,
       watchdog_snapshot.command_starvation_windows,
       watchdog_snapshot.last_trigger_reason);
+  const auto backend_contract = describeBackendMode(diagnostics_snapshot.backend_mode);
   const auto profiles = buildRuntimeProfileCatalog(
-      diagnostics_snapshot.backend_mode,
+      backend_contract,
       active_profile,
       diagnostics_snapshot.capability_flags);
   runtime_context_.diagnosticsState().setProfileCapabilitySummary(
@@ -378,6 +380,11 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       "runtime",
       semantic_snapshot.dispatch_mode.empty() ? std::string{"idle"} : semantic_snapshot.dispatch_mode);
   runtime_context_.diagnosticsState().setRtStateSource(rt_state_source);
+  runtime_context_.diagnosticsState().setContractMetadata(
+      backend_contract.authority_scope,
+      backend_contract.fidelity_class,
+      "xmate6_public_v2026_04",
+      "xCoreSDK:xmate6");
   runtime_context_.diagnosticsState().setModelExactnessSummary(
       "kinematics=simulation_grade;model_primary_backend=kdl;model_fallback_used=false;dynamics=approximate;jacobian=simulation_grade;wrench=approximate;rt_state_source=" +
       rt_state_source);

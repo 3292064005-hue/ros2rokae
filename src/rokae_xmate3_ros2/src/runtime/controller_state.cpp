@@ -202,7 +202,9 @@ void ControllerState::recordPathSample(double timestamp_sec,
 void ControllerState::recordPathSample(const std::array<double, 6> &joint_position) {
   program_state_->recordPathSample(joint_position);
 }
-void ControllerState::saveRecordedPath(const std::string &name) { program_state_->saveRecordedPath(name); }
+bool ControllerState::saveRecordedPath(const std::string &name, std::string *error_message) {
+  return program_state_->saveRecordedPath(name, error_message);
+}
 bool ControllerState::getSavedPath(const std::string &name,
                                    std::vector<std::vector<double>> &path) const {
   return program_state_->getSavedPath(name, path);
