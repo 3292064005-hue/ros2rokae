@@ -7,7 +7,7 @@
 
 ## 1. Rules
 
-- public examples 只服务 xMate 六轴 public compatibility lane
+- public examples 只服务 xMateER3 六轴 public compatibility lane
 - internal/backend examples 用于 runtime / backend / RT 验证
 - public lane 不包含 IO / RL / calibration
 - public lane 不公开 experimental RT 控制回环示例

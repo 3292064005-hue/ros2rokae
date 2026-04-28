@@ -14,7 +14,7 @@ TEST(RuntimeOptionCatalogTest, SummarizesMotionAndSessionOptions) {
   motion_options.setDefaultZone(20);
   motion_options.setDefaultConfOpt(true);
   motion_options.setAvoidSingularity(false);
-  motion_options.setSoftLimit(true, rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits);
+  motion_options.setSoftLimit(true, rokae_xmate3_ros2::spec::xmate_er3_truth::kDefaultSoftLimits);
   session_state.setSimulationMode(false);
   session_state.setMotionMode(2);
   session_state.setRtControlMode(1);

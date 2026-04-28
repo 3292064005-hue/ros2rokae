@@ -1,6 +1,6 @@
 /**
  * @file kinematics.hpp
- * @brief xMate3 运动学计算类
+ * @brief xMateER3 运动学计算类
  */
 
 #ifndef ROKAE_XMATE3_GAZEBO_KINEMATICS_HPP
@@ -13,7 +13,7 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics_policy.hpp"
 
 namespace gazebo {
@@ -25,9 +25,9 @@ class KinematicsBackend;
 using namespace Eigen;
 
 /**
- * @brief xMate3 运动学计算类
+ * @brief xMateER3 运动学计算类
  */
-class xMate3Kinematics {
+class xMateER3Kinematics {
 public:
     using Vector6d = Matrix<double, 6, 1>;
     using Matrix6d = Matrix<double, 6, 6>;
@@ -56,7 +56,7 @@ public:
         bool strict_conf = false;
         bool avoid_singularity = true;
         bool soft_limit_enabled = false;
-        std::array<std::array<double, 2>, 6> soft_limits = rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits;
+        std::array<std::array<double, 2>, 6> soft_limits = rokae_xmate3_ros2::spec::xmate_er3_truth::kDefaultSoftLimits;
     };
 
     struct IkSelectionResult {
@@ -92,7 +92,7 @@ public:
         std::string last_seed_source;
     };
 
-    xMate3Kinematics();
+    xMateER3Kinematics();
     
     /**
      * @brief 正运动学计算
@@ -196,6 +196,8 @@ public:
     [[nodiscard]] SingularityAnalysis analyzeSingularity(const std::vector<double>& joints);
     void applyRequestContract() const;
 };
+
+using xMate3Kinematics = xMateER3Kinematics;
 
 } // namespace gazebo
 

@@ -9,15 +9,15 @@
 #include <string_view>
 #include <vector>
 
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
 inline constexpr const char *kRecordedPathSchemaVersion = "v2";
 inline constexpr const char *kRecordedPathLegacySchemaVersion = "v1";
-inline constexpr const char *kRecordedPathRobotFamily = "xMate6";
-inline constexpr const char *kRecordedPathRobotModel = "xMate3";
-inline constexpr const char *kRecordedPathCanonicalIdentity = "xCoreSDK:xmate6";
+inline constexpr const char *kRecordedPathRobotFamily = "xMateER3";
+inline constexpr const char *kRecordedPathRobotModel = rokae_xmate3_ros2::spec::xmate_er3_truth::kRobotModelName;
+inline constexpr const char *kRecordedPathCanonicalIdentity = rokae_xmate3_ros2::spec::xmate_er3_truth::kCanonicalIdentity;
 inline constexpr double kRecordedPathMonotonicStepSec = 0.01;
 inline constexpr const char *kRecordedPathDefaultTaskPhase = "path_record";
 
@@ -40,7 +40,7 @@ struct CollisionDetectionSnapshot {
 
 struct SoftLimitSnapshot {
   bool enabled = false;
-  std::array<std::array<double, 2>, 6> limits = rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits;
+  std::array<std::array<double, 2>, 6> limits = rokae_xmate3_ros2::spec::xmate_er3_truth::kDefaultSoftLimits;
 };
 
 struct ProgramSnapshot {
@@ -387,8 +387,8 @@ struct RuntimeDiagnosticsSnapshot {
   std::string rt_state_source{"unknown"};
   std::string query_authority{"runtime_request_coordinator"};
   std::string fidelity_class{"simulation_grade"};
-  std::string model_revision{"xmate6_public_v2026_04"};
-  std::string canonical_identity{"xCoreSDK:xmate6"};
+  std::string model_revision{rokae_xmate3_ros2::spec::xmate_er3_truth::modelRevision()};
+  std::string canonical_identity{rokae_xmate3_ros2::spec::xmate_er3_truth::canonicalIdentity()};
   std::string model_exactness_summary{"kinematics=simulation_grade;dynamics=approximate;jacobian=simulation_grade;wrench=approximate"};
   std::string model_primary_backend{"unknown"};
   bool model_fallback_used = false;

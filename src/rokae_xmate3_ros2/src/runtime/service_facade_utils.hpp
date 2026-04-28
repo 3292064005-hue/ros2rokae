@@ -11,6 +11,7 @@
 #include "runtime/service_facade.hpp"
 #include "runtime/unified_retimer.hpp"
 #include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
+#include "runtime/kinematics_provider.hpp"
 
 namespace rokae_xmate3_ros2::runtime::detail {
 
@@ -29,7 +30,7 @@ void append_retimer_diagnostic(DataStoreState &data_store_state,
                                RuntimeDiagnosticsState *diagnostics_state = nullptr);
 rokae_xmate3_ros2::gazebo_model::LoadContext resolve_load_context(const ToolsetSnapshot &toolset);
 rokae_xmate3_ros2::gazebo_model::ModelFacade make_runtime_model_facade(
-    gazebo::xMate3Kinematics &kinematics,
+    rokae_xmate3_ros2::kinematics::Provider &kinematics,
     const ToolsetSnapshot &toolset);
 std::vector<double> pose_from_array(const std::array<double, 6> &pose);
 std::array<std::array<double, 2>, 6> soft_limits_from_request(const std::array<double, 12> &values);

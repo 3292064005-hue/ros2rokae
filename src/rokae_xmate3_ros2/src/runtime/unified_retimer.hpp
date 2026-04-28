@@ -10,6 +10,7 @@
 #include "runtime/joint_retimer.hpp"
 #include "runtime/runtime_state.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
+#include "runtime/kinematics_provider.hpp"
 #include "rokae_xmate3_ros2/srv/generate_s_trajectory.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
@@ -162,7 +163,7 @@ struct UnifiedTrajectoryResult {
     std::size_t sample_count);
 
 [[nodiscard]] UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
-    ::gazebo::xMate3Kinematics &kinematics,
+    rokae_xmate3_ros2::kinematics::Provider &kinematics,
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &request,
     double sample_dt,
     RetimerPolicy policy = RetimerPolicy::nominal);

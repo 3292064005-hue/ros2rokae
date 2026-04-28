@@ -32,7 +32,7 @@ inline std::array<double, 16> identity_matrix16() {
 }
 
 struct CompatSdkCapabilities {
-  bool xmate6_only = true;
+  bool xmate_er3_only = true;
   bool supports_io = false;
   bool supports_rl = false;
   bool supports_calibration = false;

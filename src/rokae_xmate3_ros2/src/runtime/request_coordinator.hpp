@@ -57,6 +57,18 @@ class MotionRequestCoordinator {
       double trajectory_dt,
       const std::string &request_id);
 
+  /**
+   * @brief Submit a recorded-path replay directly into planning/execution as an immediate-submit side-lane.
+   * @param replay_asset Recorded-path asset that already passed schema and tooling compatibility checks.
+   * @param rate Replay speed factor in the validated `(0, 3)` interval.
+   * @param joint_position Current joint snapshot used as the planning seed.
+   * @param trajectory_dt Runtime sampling step.
+   * @param request_id Stable request identifier exposed to runtime status/diagnostics.
+   * @return SubmissionResult with success flag and diagnostic message.
+   * @throws None.
+   * @note Boundary behavior: `replayPath()` does not consume the public staged MoveAppend queue and
+   *       does not require `moveStart()`. It still respects the same NRT connection/power/runtime gate checks.
+   */
   [[nodiscard]] SubmissionResult submitReplayPath(
       const ReplayPathAsset &replay_asset,
       double rate,

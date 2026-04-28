@@ -32,13 +32,18 @@ void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
     }
     const auto backend_provider = runtime::resolveRuntimeBackendProvider(backend_mode_value);
     const auto &backend_contract = backend_provider->contract();
-    std::string service_exposure_profile_value = "public_xmate6_only";
+    std::string service_exposure_profile_value = "public_xmate_er3_only";
     if (sdf_ && sdf_->HasElement("service_exposure_profile")) {
       service_exposure_profile_value = sdf_->Get<std::string>("service_exposure_profile");
     }
+    std::string compatibility_alias_policy_value = "canonical_plus_compat";
+    if (sdf_ && sdf_->HasElement("compatibility_alias_policy")) {
+      compatibility_alias_policy_value = sdf_->Get<std::string>("compatibility_alias_policy");
+    }
     gzmsg << "[xCore Controller] backend_mode=" << backend_contract.backend_mode
           << " provider=" << backend_contract.provider_class
-          << " service_exposure_profile=" << service_exposure_profile_value << std::endl;
+          << " service_exposure_profile=" << service_exposure_profile_value
+          << " compatibility_alias_policy=" << compatibility_alias_policy_value << std::endl;
 
     joint_names_ = {"xmate_joint_1", "xmate_joint_2", "xmate_joint_3",
                     "xmate_joint_4", "xmate_joint_5", "xmate_joint_6"};
@@ -53,12 +58,12 @@ void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
     joint_num_ = static_cast<int>(joints_.size());
 
     const std::array<std::pair<double, double>, 6> default_limits = {{
-        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[0], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[0]),
-        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[1], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[1]),
-        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[2], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[2]),
-        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[3], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[3]),
-        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[4], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[4]),
-        std::make_pair(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[5], rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[5])}};
+        std::make_pair(rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMin[0], rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMax[0]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMin[1], rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMax[1]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMin[2], rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMax[2]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMin[3], rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMax[3]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMin[4], rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMax[4]),
+        std::make_pair(rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMin[5], rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMax[5])}};
     for (int i = 0; i < 6 && i < joint_num_; ++i) {
       original_joint_limits_[i] = default_limits[i];
     }
@@ -71,6 +76,7 @@ void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
 
     RuntimeBootstrap::RosIntegrationOptions ros_integration;
     ros_integration.parameter_overrides.emplace_back("service_exposure_profile", service_exposure_profile_value);
+    ros_integration.parameter_overrides.emplace_back("compatibility_alias_policy", compatibility_alias_policy_value);
     bootstrap_ = std::make_unique<RuntimeBootstrap>(backend_provider,
                                                     &joints_,
                                                     &original_joint_limits_,

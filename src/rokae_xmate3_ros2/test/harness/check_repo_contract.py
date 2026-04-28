@@ -121,9 +121,28 @@ if 'placeholder' in contract_readme.lower():
     FAILURES.append('test/contract/README.md must not describe the contract suite as placeholders')
 
 packaging_text = (ROOT / 'cmake' / 'targets_packaging.cmake').read_text(encoding='utf-8')
+replay_mode = (ROOT / 'cmake' / 'public_sdk_replay_mode.cmake').read_text(encoding='utf-8')
+for token in ['ROKAE_PUBLIC_SDK_REPLAY_ONLY', 'include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/targets_packaging.cmake)', 'xMateER3.description.json', 'xMate3.description.json']:
+    if token not in replay_mode:
+        FAILURES.append(f'cmake/public_sdk_replay_mode.cmake missing replay token: {token}')
+
+shared_six_axis = (ROOT / 'include' / 'rokae_xmate3_ros2' / 'spec' / 'xmate_six_axis_common.hpp').read_text(encoding='utf-8')
+for token in ['namespace rokae_xmate3_ros2::spec::xmate_six_axis_common', 'kJointNames', 'kJointEffortLimit', 'namespace improved_dh']:
+    if token not in shared_six_axis:
+        FAILURES.append(f'xmate_six_axis_common.hpp missing shared six-axis token: {token}')
+
+compat_spec = (ROOT / 'include' / 'rokae_xmate3_ros2' / 'spec' / 'xmate3_spec.hpp').read_text(encoding='utf-8')
+if 'xmate_er3_truth.hpp' in compat_spec:
+    FAILURES.append('xmate3_spec.hpp must not include canonical xmate_er3_truth.hpp directly; shared six-axis basis should sit below both specs')
+
 for token in ['docs/public', 'docs/reference', 'docs/release', 'docs/INDEX.md']:
     if token not in packaging_text:
         FAILURES.append(f'cmake/targets_packaging.cmake must install public/reference/release docs token: {token}')
+
+
+for token in ['ROKAE_GENERATED_XMATE_ER3_URDF', 'ROKAE_GENERATED_XMATE_ER3_URDF_METADATA', 'ROKAE_GENERATED_XMATE3_URDF', 'ROKAE_GENERATED_XMATE3_URDF_METADATA', 'COMPONENT public_sdk']:
+    if token not in packaging_text:
+        FAILURES.append(f'cmake/targets_packaging.cmake missing public_sdk generated-artifact token: {token}')
 
 public_artifact_doc = (ROOT / 'docs' / 'public' / 'PUBLIC_SDK_ARTIFACT.md').read_text(encoding='utf-8')
 for token in ['release/BUILD_RELEASE.md', 'reference/RUNTIME_STATE_MACHINE.md', 'reference/RECORDED_PATH_SCHEMA.md']:
@@ -197,6 +216,22 @@ for source in sdk_sources:
     if 'rclcpp::shutdown(' in source_text:
         FAILURES.append(f'sdk source must not call global rclcpp::shutdown(): {source.relative_to(ROOT)}')
 
+
+robot_cpp = (ROOT / 'src' / 'robot.cpp').read_text(encoding='utf-8')
+if 'xmate_er3_truth::wrapperVersion()' not in robot_cpp:
+    FAILURES.append('src/robot.cpp must resolve sdkVersion() from xmate_er3_truth::wrapperVersion()')
+
+kin_header = (ROOT / 'include' / 'rokae_xmate3_ros2' / 'gazebo' / 'kinematics.hpp').read_text(encoding='utf-8')
+for token in ['class xMateER3Kinematics', 'using xMate3Kinematics = xMateER3Kinematics;']:
+    if token not in kin_header:
+        FAILURES.append(f'gazebo kinematics header missing ER3 canonical token: {token}')
+
+er3_xacro = (ROOT / 'urdf' / 'xMateER3.xacro').read_text(encoding='utf-8')
+if 'xMate3_base.stl' in er3_xacro or 'xMate3_link1.stl' in er3_xacro:
+    FAILURES.append('urdf/xMateER3.xacro must not reference legacy xMate3 mesh filenames')
+for token in ['xMateER3_base.stl', 'xMateER3_link1.stl', 'xMateER3_link6.stl']:
+    if token not in er3_xacro:
+        FAILURES.append(f'urdf/xMateER3.xacro missing canonical ER3 mesh token: {token}')
 robot_clients = (ROOT / 'src' / 'sdk' / 'robot_clients.cpp').read_text(encoding='utf-8')
 if 'catalog_policy_ = strictRuntimeCatalogPolicy();' not in robot_clients:
     FAILURES.append('native ROS facade no longer initializes strict runtime catalog policy by default')
@@ -214,22 +249,25 @@ if 'requires_pose_fields' not in robot_rt or 'requires_end_torque_fields' not in
 readme = (ROOT / 'README.md').read_text(encoding='utf-8')
 if '│   ├── xMate3.urdf' in readme or '├── generated/' in readme:
     FAILURES.append('README.md still claims committed source-tree derived URDF artifacts')
-if '<build>/generated/urdf/xMate3.urdf' not in readme:
+if '<build>/generated/urdf/xMateER3.urdf' not in readme:
     FAILURES.append('README.md must describe the build-generated URDF path explicitly')
 if 'xMate3.description.json' not in readme:
     FAILURES.append('README.md must document the generated description metadata artifact')
-if '/xmate3/internal/get_runtime_state_snapshot' not in readme:
+if '/xmate_er3/cobot/get_runtime_state_snapshot' not in readme:
     FAILURES.append('README.md must document the aggregated runtime snapshot query surface')
-if 'service_contract_manifest.hpp' not in readme:
-    FAILURES.append('README.md must document the single-source service contract manifest')
+if 'service_contract_manifest.hpp' not in readme or 'service_contract_manifest.cpp' not in readme:
+    FAILURES.append('README.md must document the service contract manifest declarations and data registry')
 
-manifest = (ROOT / 'src' / 'runtime' / 'service_contract_manifest.hpp').read_text(encoding='utf-8')
-if 'ROKAE_PRIMARY_SERVICE_CONTRACTS' not in manifest or 'ROKAE_COMPATIBILITY_ALIAS_CONTRACTS' not in manifest:
-    FAILURES.append('service contract manifest must centralize primary and compatibility descriptors')
-if '/xmate3/internal/get_runtime_state_snapshot' not in manifest:
+manifest_hpp = (ROOT / 'src' / 'runtime' / 'service_contract_manifest.hpp').read_text(encoding='utf-8')
+manifest_cpp = (ROOT / 'src' / 'runtime' / 'service_contract_manifest.cpp').read_text(encoding='utf-8')
+if 'buildPublicPrimaryServiceContractManifest' not in manifest_hpp or 'buildPublicCompatibilityAliasContractManifest' not in manifest_hpp:
+    FAILURES.append('service contract manifest header must declare public manifest builders')
+if 'buildInternalPrimaryServiceContractManifest' not in manifest_cpp or 'appendServiceDescriptor' not in manifest_cpp:
+    FAILURES.append('service contract manifest implementation must centralize typed descriptor registration')
+if '/xmate_er3/cobot/get_runtime_state_snapshot' not in manifest_cpp:
     FAILURES.append('service contract manifest must include the aggregated runtime snapshot query surface')
 
-for launch_file in ['launch/xmate3_simulation.launch.py', 'launch/xmate3_gazebo.launch.py', 'launch/rviz_only.launch.py', 'launch/xmate6_public.launch.py']:
+for launch_file in ['launch/xmate3_simulation.launch.py', 'launch/xmate3_gazebo.launch.py', 'launch/rviz_only.launch.py', 'launch/xmate_er3_public.launch.py']:
     launch_text = (ROOT / launch_file).read_text(encoding='utf-8')
     if 'allow_noncanonical_model' not in launch_text:
         FAILURES.append(f'{launch_file} must expose allow_noncanonical_model to gate developer-only model overrides')
@@ -252,11 +290,11 @@ if 'get_runtime_state_snapshot.hpp' not in robot_internal_sdk:
     FAILURES.append('sdk robot_internal.hpp must include get_runtime_state_snapshot.hpp for the aggregated snapshot client type')
 
 recorded_path_schema = (ROOT / 'docs' / 'reference' / 'RECORDED_PATH_SCHEMA.md').read_text(encoding='utf-8')
-if 'robot = xMate6' not in recorded_path_schema or 'robot_model = xMate3' not in recorded_path_schema:
-    FAILURES.append('recorded path schema doc must distinguish xMate6 public identity from xMate3 model provenance')
+if 'robot = xMateER3' not in recorded_path_schema or 'robot_model = xMateER3' not in recorded_path_schema:
+    FAILURES.append('recorded path schema doc must keep canonical xMateER3 identity for both robot and robot_model')
 
 runtime_snapshots = (ROOT / 'src' / 'runtime' / 'runtime_snapshots.hpp').read_text(encoding='utf-8')
-for token in ['kRecordedPathRobotFamily = "xMate6"', 'kRecordedPathRobotModel = "xMate3"', 'kRecordedPathCanonicalIdentity = "xCoreSDK:xmate6"']:
+for token in ['kRecordedPathRobotFamily = "xMateER3"', 'kRecordedPathRobotModel = rokae_xmate3_ros2::spec::xmate_er3_truth::kRobotModelName', 'kRecordedPathCanonicalIdentity = rokae_xmate3_ros2::spec::xmate_er3_truth::kCanonicalIdentity']:
     if token not in runtime_snapshots:
         FAILURES.append(f'runtime_snapshots.hpp missing recorded-path identity token: {token}')
 
@@ -270,24 +308,25 @@ if 'request_queued -> planning_requested -> plan_queued -> execution_started' no
     FAILURES.append('runtime state machine doc must describe the main-chain transition order explicitly')
 
 
-spec_header = (ROOT / 'include' / 'rokae_xmate3_ros2' / 'spec' / 'xmate3_spec.hpp').read_text(encoding='utf-8')
-xacro_text = (ROOT / 'urdf' / 'xMate3.xacro').read_text(encoding='utf-8')
+truth_header = (ROOT / 'include' / 'rokae_xmate3_ros2' / 'spec' / 'xmate_er3_truth.hpp').read_text(encoding='utf-8')
+shared_truth_header = (ROOT / 'include' / 'rokae_xmate3_ros2' / 'spec' / 'xmate_six_axis_common.hpp').read_text(encoding='utf-8')
+xacro_text = (ROOT / 'urdf' / 'xMateER3.xacro').read_text(encoding='utf-8')
 
-spec_joint_names = _parse_spec_string_array(spec_header, 'kJointNames')
-spec_joint_effort = _parse_spec_array(spec_header, 'kJointEffortLimit')
-spec_joint_lower = _parse_spec_array(spec_header, 'kJointLimitMin')
-spec_joint_upper = _parse_spec_array(spec_header, 'kJointLimitMax')
-spec_joint_velocity = _parse_spec_array(spec_header, 'kJointVelocityLimit')
-spec_joint_axis = _parse_spec_nested_array(spec_header, 'kJointAxis')
-spec_joint_origin = _parse_spec_nested_array(spec_header, 'kJointOrigin')
+spec_joint_names = _parse_spec_string_array(shared_truth_header, 'kJointNames')
+spec_joint_effort = _parse_spec_array(shared_truth_header, 'kJointEffortLimit')
+spec_joint_lower = _parse_spec_array(shared_truth_header, 'kJointLimitMin')
+spec_joint_upper = _parse_spec_array(shared_truth_header, 'kJointLimitMax')
+spec_joint_velocity = _parse_spec_array(shared_truth_header, 'kJointVelocityLimit')
+spec_joint_axis = _parse_spec_nested_array(shared_truth_header, 'kJointAxis')
+spec_joint_origin = _parse_spec_nested_array(shared_truth_header, 'kJointOrigin')
 
 xacro_joints = _parse_xacro_joint_invocations(xacro_text)
 if len(xacro_joints) != len(spec_joint_names):
-    FAILURES.append('xMate3.xacro joint count no longer matches xmate3_spec.hpp joint count')
+    FAILURES.append('xMateER3.xacro joint count no longer matches xmate_er3_truth.hpp joint count')
 else:
     for index, joint in enumerate(xacro_joints):
         if joint.get('name') != spec_joint_names[index]:
-            FAILURES.append(f"xMate3.xacro joint order/name drift at index {index}: {joint.get('name')} != {spec_joint_names[index]}")
+            FAILURES.append(f"xMateER3.xacro joint order/name drift at index {index}: {joint.get('name')} != {spec_joint_names[index]}")
             continue
         axis = [float(joint[key]) for key in ('axis_x', 'axis_y', 'axis_z')]
         origin = [float(joint[key]) for key in ('ox', 'oy', 'oz')]
@@ -299,13 +338,13 @@ else:
         ]
         for label, actual, expected in checks:
             if not _approx_equal(actual, expected):
-                FAILURES.append(f'xMate3.xacro {joint["name"]} {label} drift: {actual} != {expected}')
+                FAILURES.append(f'xMateER3.xacro {joint["name"]} {label} drift: {actual} != {expected}')
         for axis_idx, (actual, expected) in enumerate(zip(axis, spec_joint_axis[index])):
             if not _approx_equal(actual, expected):
-                FAILURES.append(f'xMate3.xacro {joint["name"]} axis[{axis_idx}] drift: {actual} != {expected}')
+                FAILURES.append(f'xMateER3.xacro {joint["name"]} axis[{axis_idx}] drift: {actual} != {expected}')
         for origin_idx, (actual, expected) in enumerate(zip(origin, spec_joint_origin[index])):
             if not _approx_equal(actual, expected):
-                FAILURES.append(f'xMate3.xacro {joint["name"]} origin[{origin_idx}] drift: {actual} != {expected}')
+                FAILURES.append(f'xMateER3.xacro {joint["name"]} origin[{origin_idx}] drift: {actual} != {expected}')
 
 env_lock_text = env_lock.read_text(encoding='utf-8')
 if 'Ubuntu 22.04' not in env_lock_text or 'ROS 2 Humble' not in env_lock_text or 'Gazebo 11' not in env_lock_text:
@@ -361,16 +400,18 @@ portable_release_gate = (ROOT / "tools" / "run_release_gate_portable.sh").read_t
 target_acceptance = (ROOT / "tools" / "run_target_env_acceptance.sh").read_text(encoding="utf-8")
 env_lock = (ROOT / "docs" / "release" / "ENVIRONMENT_LOCK.md").read_text(encoding="utf-8")
 gates_workflow = (ROOT / ".github" / "workflows" / "gates.yml").read_text(encoding="utf-8")
-if 'check_target_environment.sh" --quiet' not in quick_gate:
-    raise SystemExit('quick gate must run target environment preflight')
-if 'check_target_environment.sh" --quiet' not in release_gate:
-    raise SystemExit('release gate must run target environment preflight')
-if 'ctest -L release_gate' not in release_gate and 'ctest -L release_gate --output-on-failure' not in release_gate:
-    raise SystemExit('release gate must execute the release_gate-labelled bundle')
+if 'run_full_source_tree_build_gate.sh' not in quick_gate:
+    raise SystemExit('quick gate must delegate target-environment source-build preflight to run_full_source_tree_build_gate.sh')
+if 'run_full_source_tree_build_gate.sh' not in release_gate:
+    raise SystemExit('release gate must delegate target-environment source-build preflight to run_full_source_tree_build_gate.sh')
+if 'release_gate' not in release_gate or 'run_full_source_tree_build_gate.sh' not in release_gate:
+    raise SystemExit('release gate must execute the release_gate-labelled bundle through run_full_source_tree_build_gate.sh')
 if 'run_target_env_acceptance.sh' not in portable_release_gate or 'run_release_gate.sh' not in portable_release_gate:
     raise SystemExit('portable release gate must bridge local target-env runs and locked-container acceptance runs')
-if 'check_target_environment.sh --quiet' not in target_acceptance and 'check_target_environment.sh" --quiet' not in target_acceptance:
-    raise SystemExit('target acceptance must run target environment preflight inside container')
+if 'environment_check_container.log' not in target_acceptance or 'check_target_environment.sh";' not in target_acceptance:
+    raise SystemExit('target acceptance must run target environment preflight inside container and capture evidence logs')
+if 'check_target_environment.sh" --quiet' in target_acceptance:
+    raise SystemExit('target acceptance must not run target environment preflight in quiet mode because verifier requires evidence logs')
 if 'run_target_env_acceptance.sh --release-gate --launch-smoke' not in gates_workflow:
     raise SystemExit('workflow dispatch release gate must execute the locked target-environment acceptance bundle')
 if 'tools/check_target_environment.sh' not in env_lock:
@@ -384,7 +425,7 @@ if not profile_helper.exists():
     FAILURES.append("launch/_launch_profile.py must exist to centralize capability-matrix defaults")
 else:
     helper_text = profile_helper.read_text(encoding="utf-8")
-    for required in ["public_xmate6_jtc", "internal_full_hybrid", "daemon_hard_rt"]:
+    for required in ["public_xmate_er3_jtc", "internal_full_hybrid", "daemon_hard_rt"]:
         if required not in helper_text:
             FAILURES.append(f"launch/_launch_profile.py missing profile {required}")
     if "unknown launch_profile" not in helper_text:

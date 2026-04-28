@@ -53,9 +53,9 @@ fi
 LOG_FILE="${WORKSPACE_ROOT}/build/rokae_xmate3_ros2/main_chain_smoke.log"
 mkdir -p "$(dirname "${LOG_FILE}")"
 
-MODEL_PATH="${WORKSPACE_ROOT}/install/rokae_xmate3_ros2/share/rokae_xmate3_ros2/urdf/xMate3.xacro"
+MODEL_PATH="${WORKSPACE_ROOT}/install/rokae_xmate3_ros2/share/rokae_xmate3_ros2/urdf/xMateER3.xacro"
 if [[ ! -f "${MODEL_PATH}" ]]; then
-  MODEL_PATH="${PACKAGE_ROOT}/urdf/xMate3.xacro"
+  MODEL_PATH="${PACKAGE_ROOT}/urdf/xMateER3.xacro"
 fi
 if [[ ! -f "${MODEL_PATH}" ]]; then
   echo "main_chain_smoke: missing xacro model for non-canonical launch" >&2
@@ -118,43 +118,43 @@ call_service_expect_success() {
   fi
 }
 
-wait_for_service "/xmate3/cobot/connect" 120
-wait_for_service "/xmate3/cobot/set_power_state" 60
-wait_for_service "/xmate3/cobot/set_operate_mode" 60
-wait_for_service "/xmate3/cobot/set_motion_control_mode" 60
-wait_for_service "/xmate3/cobot/move_reset" 60
-wait_for_service "/xmate3/cobot/move_start" 60
-wait_for_service "/xmate3/cobot/get_joint_pos" 60
-wait_for_service "/xmate3/internal/get_runtime_diagnostics" 60
+wait_for_service "/xmate_er3/cobot/connect" 120
+wait_for_service "/xmate_er3/cobot/set_power_state" 60
+wait_for_service "/xmate_er3/cobot/set_operate_mode" 60
+wait_for_service "/xmate_er3/cobot/set_motion_control_mode" 60
+wait_for_service "/xmate_er3/cobot/move_reset" 60
+wait_for_service "/xmate_er3/cobot/move_start" 60
+wait_for_service "/xmate_er3/cobot/get_joint_pos" 60
+wait_for_service "/xmate_er3/cobot/get_runtime_diagnostics" 60
 
 call_service_expect_success "connect" \
-  /xmate3/cobot/connect \
+  /xmate_er3/cobot/connect \
   rokae_xmate3_ros2/srv/Connect \
   "{remote_ip: '127.0.0.1', local_ip: '127.0.0.1'}"
 
 call_service_expect_success "set_power_state(on)" \
-  /xmate3/cobot/set_power_state \
+  /xmate_er3/cobot/set_power_state \
   rokae_xmate3_ros2/srv/SetPowerState \
   "{'on': true}"
 
 call_service_expect_success "set_operate_mode(automatic)" \
-  /xmate3/cobot/set_operate_mode \
+  /xmate_er3/cobot/set_operate_mode \
   rokae_xmate3_ros2/srv/SetOperateMode \
   "{mode: 1}"
 
 call_service_expect_success "set_motion_control_mode(NRT)" \
-  /xmate3/cobot/set_motion_control_mode \
+  /xmate_er3/cobot/set_motion_control_mode \
   rokae_xmate3_ros2/srv/SetMotionControlMode \
   "{mode: 0}"
 
 call_service_expect_success "move_reset" \
-  /xmate3/cobot/move_reset \
+  /xmate_er3/cobot/move_reset \
   rokae_xmate3_ros2/srv/MoveReset \
   "{}"
 
 echo "[main_chain_smoke] move_append(absj) + move_start"
 MOVE_APPEND_LOG="${WORKSPACE_ROOT}/build/rokae_xmate3_ros2/main_chain_move_append.log"
-timeout 120 ros2 action send_goal /xmate3/cobot/move_append rokae_xmate3_ros2/action/MoveAppend "{absj_cmds: [{target: {joints: [0.2, -0.2, 0.3, -0.1, 0.2, 0.4], external: []}, speed: 20, zone: 5}], j_cmds: [], l_cmds: [], c_cmds: [], cf_cmds: [], sp_cmds: []}" >"${MOVE_APPEND_LOG}" 2>&1 &
+timeout 120 ros2 action send_goal /xmate_er3/cobot/move_append rokae_xmate3_ros2/action/MoveAppend "{absj_cmds: [{target: {joints: [0.2, -0.2, 0.3, -0.1, 0.2, 0.4], external: []}, speed: 20, zone: 5}], j_cmds: [], l_cmds: [], c_cmds: [], cf_cmds: [], sp_cmds: []}" >"${MOVE_APPEND_LOG}" 2>&1 &
 MOVE_APPEND_PID=$!
 MOVE_APPEND_ACCEPT_TIMEOUT=30
 MOVE_APPEND_ACCEPT_START="$(date +%s)"
@@ -180,7 +180,7 @@ while true; do
   sleep 0.2
 done
 call_service_expect_success "move_start" \
-  /xmate3/cobot/move_start \
+  /xmate_er3/cobot/move_start \
   rokae_xmate3_ros2/srv/MoveStart \
   "{}"
 if ! wait "${MOVE_APPEND_PID}"; then
@@ -200,13 +200,13 @@ else
 fi
 
 call_service_expect_success "get_joint_pos" \
-  /xmate3/cobot/get_joint_pos \
+  /xmate_er3/cobot/get_joint_pos \
   rokae_xmate3_ros2/srv/GetJointPos \
   "{}"
 
 echo "[main_chain_smoke] get_runtime_diagnostics"
 RUNTIME_DIAG_LOG="${WORKSPACE_ROOT}/build/rokae_xmate3_ros2/main_chain_runtime_diagnostics.log"
-if ! ros2 service call /xmate3/internal/get_runtime_diagnostics rokae_xmate3_ros2/srv/GetRuntimeDiagnostics "{}" >"${RUNTIME_DIAG_LOG}" 2>&1; then
+if ! ros2 service call /xmate_er3/cobot/get_runtime_diagnostics rokae_xmate3_ros2/srv/GetRuntimeDiagnostics "{}" >"${RUNTIME_DIAG_LOG}" 2>&1; then
   cat "${RUNTIME_DIAG_LOG}"
   echo "main_chain_smoke: runtime diagnostics query failed" >&2
   exit 1
@@ -246,7 +246,7 @@ if ! grep -q "rt_queue_depth" "${RUNTIME_DIAG_LOG}"; then
 fi
 
 RUNTIME_STATUS_LOG="${WORKSPACE_ROOT}/build/rokae_xmate3_ros2/main_chain_runtime_status_topic.log"
-if ! timeout 20 ros2 topic echo /xmate3/internal/runtime_status --once >"${RUNTIME_STATUS_LOG}" 2>&1; then
+if ! timeout 20 ros2 topic echo /xmate_er3/cobot/runtime_status --once >"${RUNTIME_STATUS_LOG}" 2>&1; then
   cat "${RUNTIME_STATUS_LOG}"
   echo "main_chain_smoke: failed to capture runtime status topic" >&2
   exit 1

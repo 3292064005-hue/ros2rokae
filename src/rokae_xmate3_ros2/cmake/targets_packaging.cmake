@@ -52,8 +52,17 @@ endif()
 
 if(ROKAE_BUILD_COMPAT_SDK)
   install(TARGETS
+    xCoreSDK_core
+    EXPORT xCoreSDKCoreTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT public_sdk
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT public_sdk
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT public_sdk
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  )
+  install(TARGETS
     xCoreSDK_shared
     xCoreSDK_static
+    xCoreSDK_ros_bridge
     EXPORT xCoreSDKTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT public_sdk
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT public_sdk
@@ -117,7 +126,7 @@ install(PROGRAMS
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_release_gate.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_release_gate_portable.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_target_env_acceptance.sh
-  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_xmate6_alignment_behavior_gate.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_xmate_er3_alignment_behavior_gate.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/write_release_scoreboard.py
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/write_target_env_report.py
   DESTINATION share/${PROJECT_NAME}/tools
@@ -125,7 +134,7 @@ install(PROGRAMS
 )
 install(FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/launch/simulation.launch.py
-  ${CMAKE_CURRENT_SOURCE_DIR}/launch/xmate6_public.launch.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/launch/xmate_er3_public.launch.py
   ${CMAKE_CURRENT_SOURCE_DIR}/launch/rviz_only.launch.py
   ${CMAKE_CURRENT_SOURCE_DIR}/launch/_simulation_support.py
   ${CMAKE_CURRENT_SOURCE_DIR}/launch/_launch_profile.py
@@ -183,7 +192,11 @@ if(ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES AND ROKAE_INTERNAL_BACKEND_EXAMPLE_SO
   )
 endif()
 install(FILES model.config DESTINATION share/${PROJECT_NAME} COMPONENT internal_runtime)
-install(FILES "${ROKAE_GENERATED_XMATE3_URDF}" "${ROKAE_GENERATED_XMATE3_URDF_METADATA}"
+install(FILES
+  "${ROKAE_GENERATED_XMATE_ER3_URDF}"
+  "${ROKAE_GENERATED_XMATE_ER3_URDF_METADATA}"
+  "${ROKAE_GENERATED_XMATE3_URDF}"
+  "${ROKAE_GENERATED_XMATE3_URDF_METADATA}"
   DESTINATION share/${PROJECT_NAME}/generated/urdf
   COMPONENT public_sdk
 )
@@ -199,7 +212,14 @@ if(ROKAE_BUILD_COMPAT_SDK)
     VERSION 2.1.0
     COMPATIBILITY SameMinorVersion
   )
+  install(EXPORT xCoreSDKCoreTargets
+    FILE xCoreSDKCoreTargets.cmake
+    NAMESPACE xCoreSDK::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/xCoreSDK
+    COMPONENT public_sdk
+  )
   install(EXPORT xCoreSDKTargets
+    FILE xCoreSDKTargets.cmake
     NAMESPACE xCoreSDK::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/xCoreSDK
     COMPONENT public_sdk
@@ -214,6 +234,7 @@ if(ROKAE_BUILD_COMPAT_SDK)
   install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKConfigVersion.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKInstallMetadata.json
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/xCoreSDK
     COMPONENT public_sdk
   )
@@ -222,56 +243,12 @@ if(ROKAE_BUILD_COMPAT_SDK)
   # consumer tests using `cmake --install --prefix ...`). Mirror the config
   # installation through install(CODE) so staged prefixes always contain
   # find_package(xCoreSDK) entry points.
-  install(CODE
-    "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/cmake/xCoreSDK\")\n\
-file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/cmake/xCoreSDK\" TYPE FILE FILES \"${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKConfig.cmake\" \"${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKConfigVersion.cmake\")"
-    COMPONENT public_sdk
-  )
   # Likewise mirror only the public rokae headers so install-tree consumers can resolve the
   # exported include directories even when symlink-install does not materialize
   # FILE installs into staged prefixes. Generated rosidl headers stay out of the
   # public SDK include tree because they would re-expose internal service/message
-  # surface area that is intentionally outside the xMate6 public contract.
-  install(CODE
-    "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\")\nfile(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/include/rokae\")"
-    COMPONENT public_sdk
-  )
+  # surface area that is intentionally outside the xMateER3 public contract.
   # Mirror runtime share resources required by simulation smoke in staged install prefixes.
-  install(CODE
-    "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\")\n\
-if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/models\")\n\
-  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/models\")\n\
-endif()\n\
-if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/worlds\")\n\
-  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/worlds\")\n\
-endif()\n\
-if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/urdf\")\n\
-  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/urdf\")\n\
-endif()\n\
-if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/launch\")\n\
-  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/launch\")\n\
-endif()\n\
-if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/config\")\n\
-  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/config\")\n\
-endif()\n\
-if(EXISTS \"${CMAKE_CURRENT_SOURCE_DIR}/tools\")\n\
-  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/tools\")\n\
-endif()\n\
-if(EXISTS \"${CMAKE_CURRENT_BINARY_DIR}/generated/urdf\")\n\
-  file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/generated\")\n\
-  file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/generated\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_BINARY_DIR}/generated/urdf\")\n\
-endif()"
-    COMPONENT internal_runtime
-  )
-  install(CODE
-    "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs\")\n\
-file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs\" TYPE FILE FILES \"${CMAKE_CURRENT_SOURCE_DIR}/docs/public/PUBLIC_SDK_ARTIFACT.md\")\n\
-file(REMOVE \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs/README.md\")\n\
-file(RENAME \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs/PUBLIC_SDK_ARTIFACT.md\" \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs/README.md\")\n\
-file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs\" TYPE FILE FILES \"${CMAKE_CURRENT_SOURCE_DIR}/docs/INDEX.md\")\n\
-file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/docs\" TYPE DIRECTORY FILES \"${CMAKE_CURRENT_SOURCE_DIR}/docs/public\" \"${CMAKE_CURRENT_SOURCE_DIR}/docs/reference\" \"${CMAKE_CURRENT_SOURCE_DIR}/docs/release\")"
-    COMPONENT public_sdk
-  )
 endif()
 
 ament_export_dependencies(

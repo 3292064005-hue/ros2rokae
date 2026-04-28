@@ -1,8 +1,13 @@
 if(ROKAE_BUILD_COMPAT_SDK)
-  set(ROKAE_COMPAT_SOURCES
+  set(ROKAE_COMPAT_CORE_SOURCES
+    src/compat/model_api_core.cpp
+    src/compat/planner_api_core.cpp
+  )
+
+  set(ROKAE_COMPAT_BRIDGE_SOURCES
     src/compat/internal/compat_shared.cpp
+    src/compat/model_api_bridge.cpp
     src/compat/robot_api.cpp
-    src/compat/model_api.cpp
     src/compat/rt_api.cpp
     src/compat/planner_api.cpp
     src/runtime/rt_command_bridge.cpp
@@ -14,8 +19,26 @@ if(ROKAE_BUILD_COMPAT_SDK)
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
   )
 
+  add_library(xCoreSDK_core STATIC
+    ${ROKAE_COMPAT_CORE_SOURCES}
+  )
+  add_library(xCoreSDK::xCoreSDK_core ALIAS xCoreSDK_core)
+  target_include_directories(xCoreSDK_core
+    PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+      $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+  )
+  target_link_libraries(xCoreSDK_core
+    PUBLIC
+      Eigen3::Eigen
+  )
+  target_compile_features(xCoreSDK_core PUBLIC cxx_std_17)
+  set_target_properties(xCoreSDK_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
   add_library(xCoreSDK_static STATIC
-    ${ROKAE_COMPAT_SOURCES}
+    ${ROKAE_COMPAT_BRIDGE_SOURCES}
     $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_motion_core>
     $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_state>
     $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_facade>
@@ -46,17 +69,19 @@ if(ROKAE_BUILD_COMPAT_SDK)
     kdl_parser
   )
   target_link_libraries(xCoreSDK_static
-    Eigen3::Eigen
-    "${cpp_typesupport_target}"
-    ${EIGEN3_LIBRARIES}
-    ${OROCOS_KDL_LIBRARIES}
+    PUBLIC
+      xCoreSDK_core
+    PRIVATE
+      "${cpp_typesupport_target}"
+      ${EIGEN3_LIBRARIES}
+      ${OROCOS_KDL_LIBRARIES}
   )
   target_compile_features(xCoreSDK_static PUBLIC cxx_std_17)
   set_target_properties(xCoreSDK_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
   rokae_add_rosidl_dependency(xCoreSDK_static)
 
   add_library(xCoreSDK_shared SHARED
-    ${ROKAE_COMPAT_SOURCES}
+    ${ROKAE_COMPAT_BRIDGE_SOURCES}
     $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_motion_core>
     $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_state>
     $<TARGET_OBJECTS:${PROJECT_NAME}_runtime_facade>
@@ -87,11 +112,17 @@ if(ROKAE_BUILD_COMPAT_SDK)
     kdl_parser
   )
   target_link_libraries(xCoreSDK_shared
-    Eigen3::Eigen
-    "${cpp_typesupport_target}"
-    ${EIGEN3_LIBRARIES}
-    ${OROCOS_KDL_LIBRARIES}
+    PUBLIC
+      xCoreSDK_core
+    PRIVATE
+      "${cpp_typesupport_target}"
+      ${EIGEN3_LIBRARIES}
+      ${OROCOS_KDL_LIBRARIES}
   )
   target_compile_features(xCoreSDK_shared PUBLIC cxx_std_17)
   rokae_add_rosidl_dependency(xCoreSDK_shared)
+
+  add_library(xCoreSDK_ros_bridge INTERFACE)
+  add_library(xCoreSDK::xCoreSDK_ros_bridge ALIAS xCoreSDK_ros_bridge)
+  target_link_libraries(xCoreSDK_ros_bridge INTERFACE xCoreSDK_shared)
 endif()

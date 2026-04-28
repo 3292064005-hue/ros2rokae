@@ -20,7 +20,7 @@ template <unsigned short DoF>
 class FollowPosition;
 
 /**
- * @brief S-profile Cartesian arc-length generator for the xMate6 compatibility lane.
+ * @brief S-profile Cartesian arc-length generator for the xMateER3 compatibility lane.
  */
 class XCORE_API CartMotionGenerator {
  public:
@@ -38,7 +38,7 @@ class XCORE_API CartMotionGenerator {
 };
 
 /**
- * @brief S-profile joint generator for the xMate6 compatibility lane.
+ * @brief S-profile joint generator for the xMateER3 compatibility lane.
  */
 class XCORE_API JointMotionGenerator {
  public:

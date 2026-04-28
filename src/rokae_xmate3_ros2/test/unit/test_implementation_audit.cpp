@@ -42,7 +42,7 @@ TEST(ImplementationAudit, ReadmeLinksToAuditAndBacklog) {
   EXPECT_NE(readme.find("docs/archive/audits/IMPLEMENTATION_AUDIT.md"), std::string::npos);
   EXPECT_NE(readme.find("docs/release/HARDENING_BACKLOG.md"), std::string::npos);
   EXPECT_NE(readme.find("## 维护与审计入口"), std::string::npos);
-  EXPECT_NE(readme.find("<build>/generated/urdf/xMate3.urdf"), std::string::npos);
+  EXPECT_NE(readme.find("<build>/generated/urdf/xMateER3.urdf"), std::string::npos);
   EXPECT_EQ(readme.find("│   ├── xMate3.urdf"), std::string::npos);
   EXPECT_EQ(readme.find("├── generated/"), std::string::npos);
 }

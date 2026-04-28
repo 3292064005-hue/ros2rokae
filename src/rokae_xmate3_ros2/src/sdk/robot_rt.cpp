@@ -405,12 +405,12 @@ unsigned xMateRobot::updateRobotState(std::chrono::steady_clock::duration timeou
 }
 
 /**
- * @brief Return the shared RT controller weak handle for the xMate6 compatibility lane.
+ * @brief Return the shared RT controller weak handle for the xMateER3 compatibility lane.
  * @return Weak reference to the opaque RT controller instance.
  * @throws No exception.
  * @note The controller object is cached on the robot instance and is not destroyed just because the caller
  *       switches back to NRT or disconnects. Subsequent use after those lifecycle transitions may still fail
- *       through the normal RT exception / error paths, matching the official SDK ownership model.
+ *       through the normal RT exception / error paths, matching the SDK compatibility ownership model.
  */
 std::weak_ptr<void> xMateRobot::getRtMotionController() {
     if (!impl_->rt_controller_) {

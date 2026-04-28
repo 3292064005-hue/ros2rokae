@@ -26,10 +26,14 @@ Needed work:
 Goal:
 - expose a first-class report before execution
 
-Needed work:
-- reachable / singularity / continuity / branch-switch / fallback notes
-- a stable report object or service-level payload
-- tests for failure reasons and fallback notes
+Progress in Pass 6:
+- added internal `PlannerPreflightReport` service-level payload
+- surfaced reachable / singularity / continuity / branch-switch / fallback notes through one report object
+- kept `ValidateMotion` as the legacy/internal validation entry while separating preflight reporting into its own contract
+
+Remaining work:
+- add dedicated runtime/service tests for every reject reason family
+- extend report assertions into launch-level acceptance coverage
 
 ## P3 — RT subsystem hardening
 

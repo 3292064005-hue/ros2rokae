@@ -1748,7 +1748,7 @@ private:
     return out;
   }
 
-  gazebo::xMate3Kinematics kinematics_{};
+  gazebo::xMateER3Kinematics kinematics_{};
   Load model_load_{};
   std::array<double, 16> f_t_ee_{};
   std::array<double, 16> ee_t_k_{};

@@ -1,5 +1,5 @@
-#if ROKAE_ENABLE_INTERNAL_SURFACE
 #include "runtime/service_facade.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 
 #include "runtime/runtime_catalog_service.hpp"
 #include "runtime/backend_contract_catalog.hpp"
@@ -92,7 +92,7 @@ void QueryFacade::handleGetProfileCapabilities(
   const auto active_it = std::find_if(profiles.begin(), profiles.end(), [](const auto &profile) { return profile.active; });
   const std::string active_authority = active_it != profiles.end() ? active_it->authority_scope : backend_contract.authority_scope;
   const std::string active_fidelity = active_it != profiles.end() ? active_it->fidelity_class : backend_contract.fidelity_class;
-  const std::string active_revision = active_it != profiles.end() ? active_it->model_revision : std::string{"xmate6_public_v2026_04"};
+  const std::string active_revision = active_it != profiles.end() ? active_it->model_revision : std::string{rokae_xmate3_ros2::spec::xmate_er3_truth::modelRevision()};
 
   res.success = true;
   res.message = summarizeRuntimeProfileCatalog(profiles) + "; " +
@@ -109,4 +109,3 @@ void QueryFacade::handleGetProfileCapabilities(
 
 }  // namespace rokae_xmate3_ros2::runtime
 
-#endif

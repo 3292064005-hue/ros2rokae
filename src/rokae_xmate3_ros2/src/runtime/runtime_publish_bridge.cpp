@@ -124,6 +124,42 @@ PublisherTickOutput RuntimePublishBridge::buildPublisherTick(const PublisherTick
   PublisherTickOutput output;
   const auto view = runtime_context_.readView();
 
+  std::array<double, 6> publish_position = input.position;
+  std::array<double, 6> publish_velocity = input.velocity;
+  std::array<double, 6> publish_torque = input.torque;
+  bool joint_state_publishable = true;
+  if (input.prefer_authority_joint_state) {
+    std::array<double, 6> authority_position{};
+    std::array<double, 6> authority_velocity{};
+    std::array<double, 6> authority_torque{};
+    const bool authority_live = runtime_context_.requestCoordinator().readAuthorityJointState(
+        authority_position, authority_velocity, authority_torque);
+    const auto finite_joint_array = [](const std::array<double, 6> &values) {
+      return std::all_of(values.begin(), values.end(), [](double value) { return std::isfinite(value); });
+    };
+    const bool authority_valid = authority_live && finite_joint_array(authority_position) &&
+                                 finite_joint_array(authority_velocity) && finite_joint_array(authority_torque);
+    if (authority_valid) {
+      publish_position = authority_position;
+      publish_velocity = authority_velocity;
+      publish_torque = authority_torque;
+      last_authority_joint_position_ = authority_position;
+      last_authority_joint_velocity_ = authority_velocity;
+      last_authority_joint_torque_ = authority_torque;
+      has_last_authority_joint_state_ = true;
+    } else if (input.allow_input_joint_state_fallback) {
+      publish_position = input.position;
+      publish_velocity = input.velocity;
+      publish_torque = input.torque;
+    } else if (has_last_authority_joint_state_) {
+      publish_position = last_authority_joint_position_;
+      publish_velocity = last_authority_joint_velocity_;
+      publish_torque = last_authority_joint_torque_;
+    } else {
+      joint_state_publishable = false;
+    }
+  }
+
   const double legacy_period_sec = input.min_publish_period_sec > 0.0 ? input.min_publish_period_sec : 0.0;
   const double joint_state_period_sec =
       input.joint_state_publish_period_sec > 0.0 ? input.joint_state_publish_period_sec : legacy_period_sec;
@@ -141,10 +177,10 @@ PublisherTickOutput RuntimePublishBridge::buildPublisherTick(const PublisherTick
     return (input.stamp.nanoseconds() - last_tick_ns) >= publish_period_ns;
   };
 
-  if (input.joint_names != nullptr && period_due(joint_state_period_sec, last_joint_state_publish_ns_)) {
+  if (joint_state_publishable && input.joint_names != nullptr && period_due(joint_state_period_sec, last_joint_state_publish_ns_)) {
     output.publish_joint_state = true;
     output.joint_state = buildJointStateMessage(
-        input.stamp, input.frame_id, *input.joint_names, input.position, input.velocity, input.torque);
+        input.stamp, input.frame_id, *input.joint_names, publish_position, publish_velocity, publish_torque);
     last_joint_state_publish_ns_ = input.stamp.nanoseconds();
   }
 
@@ -159,8 +195,8 @@ PublisherTickOutput RuntimePublishBridge::buildPublisherTick(const PublisherTick
     last_diagnostics_publish_ns_ = input.stamp.nanoseconds();
   }
 
-  if (view.program.recording_path) {
-    runtime_context_.programState().recordPathSample(input.stamp.seconds(), input.position, input.velocity);
+  if (view.program.recording_path && joint_state_publishable) {
+    runtime_context_.programState().recordPathSample(input.stamp.seconds(), publish_position, publish_velocity);
     output.recorded_path_sample = true;
   }
 

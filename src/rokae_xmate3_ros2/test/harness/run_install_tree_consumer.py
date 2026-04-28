@@ -88,10 +88,10 @@ def main() -> int:
         'minimal_state_and_motion',
         'minimal_static_link_only',
         'minimal_shared_link_only',
-        'official_sdk_example_xmate6',
-        'official_move_example_xmate6',
-        'official_read_robot_state_xmate6',
-        'official_path_record_xmate6',
+        'official_sdk_example_xmate_er3',
+        'official_move_example_xmate_er3',
+        'official_read_robot_state_xmate_er3',
+        'official_path_record_xmate_er3',
     ):
         exe_path = consumer_build_dir / exe_name
         if os.name == 'nt' and not exe_path.exists():

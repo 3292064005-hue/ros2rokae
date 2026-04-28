@@ -326,7 +326,7 @@ TEST(ServiceFacadeTest, PathFacadeSubmitsReplayRequestsThroughCoordinator) {
   facade.handleReplayPath(req, res);
 
   ASSERT_TRUE(res.success) << res.message;
-  EXPECT_NE(res.message.find("submitted;"), std::string::npos);
+  EXPECT_NE(res.message.find("submitted immediate side-lane"), std::string::npos);
   EXPECT_NE(res.message.find("analysis_ready=false"), std::string::npos);
   const auto view = coordinator.currentView();
   EXPECT_TRUE(view.has_request);
@@ -374,7 +374,7 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   rt::DataStoreState data_store_state;
   rt::ProgramState program_state;
   rt::RuntimeDiagnosticsState diagnostics_state;
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
 
   const std::array<double, 6> joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   auto joint_state_fetcher = [&](std::array<double, 6> &position,
@@ -686,7 +686,7 @@ TEST(ServiceFacadeTest, PathFacadeSaveRequiresRecordedDataAndSupportsRenameOnlyW
 }
 
 #if ROKAE_ENABLE_INTERNAL_SURFACE
-TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMate6Lane) {
+TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMateER3Lane) {
   rt::SessionState session_state;
   rt::MotionOptionsState motion_options_state;
   rt::ToolingState tooling_state;
@@ -706,13 +706,13 @@ TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMate6Lane) {
   session_state.connect("127.0.0.1");
   facade.handleSetAvoidSingularity(req, res);
   EXPECT_FALSE(res.success);
-  EXPECT_EQ(res.message, "avoid singularity is not supported on the xMate6 compatibility lane");
+  EXPECT_EQ(res.message, "avoid singularity is not supported on the xMateER3 compatibility lane");
   EXPECT_FALSE(motion_options_state.avoidSingularityEnabled());
 
   rt::DataStoreState data_store_state;
   rt::ProgramState program_state;
   rt::RuntimeDiagnosticsState diagnostics_state;
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   rt::QueryFacade query_facade(session_state,
                                motion_options_state,
                                tooling_state,
@@ -737,6 +737,6 @@ TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMate6Lane) {
   query_facade.handleGetAvoidSingularity(get_req, get_res);
   EXPECT_FALSE(get_res.success);
   EXPECT_FALSE(get_res.enabled);
-  EXPECT_EQ(get_res.message, "avoid singularity is not supported on the xMate6 compatibility lane");
+  EXPECT_EQ(get_res.message, "avoid singularity is not supported on the xMateER3 compatibility lane");
 }
 #endif

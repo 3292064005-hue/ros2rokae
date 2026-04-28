@@ -8,15 +8,15 @@
 #include <numeric>
 #include <sstream>
 
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 namespace {
 
-using rokae_xmate3_ros2::spec::xmate3::jointAccelerationLimit;
-using rokae_xmate3_ros2::spec::xmate3::jointLimitMax;
-using rokae_xmate3_ros2::spec::xmate3::jointLimitMin;
-using rokae_xmate3_ros2::spec::xmate3::jointVelocityLimit;
+using rokae_xmate3_ros2::spec::xmate_er3_truth::jointAccelerationLimit;
+using rokae_xmate3_ros2::spec::xmate_er3_truth::jointLimitMax;
+using rokae_xmate3_ros2::spec::xmate_er3_truth::jointLimitMin;
+using rokae_xmate3_ros2::spec::xmate_er3_truth::jointVelocityLimit;
 
 bool isFiniteVector(const std::vector<double> &values) {
   return std::all_of(values.begin(), values.end(), [](double value) { return std::isfinite(value); });

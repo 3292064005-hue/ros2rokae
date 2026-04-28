@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 #include "runtime/rt_subscription_plan.hpp"
 #include "runtime/rt_watchdog.hpp"
 #include "runtime/runtime_context.hpp"
@@ -27,7 +27,7 @@ struct RuntimeControlBridgeConfig {
   std::array<double, 6> joint_position_gain{{220.0, 220.0, 180.0, 90.0, 60.0, 40.0}};
   std::array<double, 6> joint_damping_gain{{28.0, 28.0, 22.0, 12.0, 8.0, 6.0}};
   bool authoritative_servo_clock = false;
-  double authoritative_servo_period_sec = rokae_xmate3_ros2::spec::xmate3::kServoTickSec;
+  double authoritative_servo_period_sec = rokae_xmate3_ros2::spec::xmate_er3_truth::kServoTickSec;
   int max_servo_substeps_per_update = 8;
   bool allow_topic_rt_transport = true;
   bool allow_legacy_rt_custom_data = true;
@@ -68,7 +68,7 @@ class RuntimeControlBridge {
  private:
   RuntimeContext &runtime_context_;
   RuntimeControlBridgeConfig config_;
-  gazebo::xMate3Kinematics kinematics_;
+  gazebo::xMateER3Kinematics kinematics_;
   double servo_accumulator_sec_ = 0.0;
   double collision_candidate_time_sec_ = 0.0;
   double collision_debounce_remaining_sec_ = 0.0;

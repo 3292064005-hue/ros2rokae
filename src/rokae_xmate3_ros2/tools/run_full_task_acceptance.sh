@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-usage: run_full_task_acceptance.sh <workspace-root> [--namespace /xmate3]
+usage: run_full_task_acceptance.sh <workspace-root> [--namespace /xmate_er3]
 
 Run the L5 full-task acceptance bundle against an already running real-runtime namespace.
 Required environment variables:
@@ -22,7 +22,7 @@ fi
 
 WORKSPACE_ROOT="$1"
 shift
-NAMESPACE="${ROKAE_ACCEPTANCE_NAMESPACE:-/xmate3}"
+NAMESPACE="${ROKAE_ACCEPTANCE_NAMESPACE:-/xmate_er3}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --namespace)
@@ -63,7 +63,7 @@ OPERATE_SERVICE="${NAMESPACE}/cobot/set_operate_mode"
 MODE_SERVICE="${NAMESPACE}/cobot/set_motion_control_mode"
 RESET_SERVICE="${NAMESPACE}/cobot/move_reset"
 START_SERVICE="${NAMESPACE}/cobot/move_start"
-DIAG_SERVICE="${NAMESPACE}/internal/get_runtime_diagnostics"
+DIAG_SERVICE="${NAMESPACE}/cobot/get_runtime_diagnostics"
 ACTION_NAME="${NAMESPACE}/cobot/move_append"
 
 for service_name in "${CONNECT_SERVICE}" "${DISCONNECT_SERVICE}" "${POWER_SERVICE}" "${OPERATE_SERVICE}" "${MODE_SERVICE}" "${RESET_SERVICE}" "${START_SERVICE}" "${DIAG_SERVICE}"; do

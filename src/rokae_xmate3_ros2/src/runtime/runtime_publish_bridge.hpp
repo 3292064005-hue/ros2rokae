@@ -38,6 +38,8 @@ struct PublisherTickInput {
   double joint_state_publish_period_sec = 0.0;
   double operation_state_publish_period_sec = 0.0;
   double diagnostics_publish_period_sec = 0.0;
+  bool prefer_authority_joint_state = false;
+  bool allow_input_joint_state_fallback = true;
 };
 
 struct PublisherTickOutput {
@@ -78,7 +80,7 @@ class RuntimePublishBridge {
   [[nodiscard]] std::shared_ptr<rokae_xmate3_ros2::action::MoveAppend::Feedback>
   buildMoveAppendFeedbackMessage(const FeedbackSnapshot &snapshot) const;
   /**
-   * @brief Build the public xMate6 MoveAppend result for a successfully queued request.
+   * @brief Build the public xMateER3 MoveAppend result for a successfully queued request.
    * @param request_id Stable queued request identifier returned to SDK callers.
    * @param message Queue-acceptance detail. Empty input is normalized to the canonical
    *        "queued awaiting moveStart" text so install-facing clients observe one contract.
@@ -93,7 +95,7 @@ class RuntimePublishBridge {
    * @param status Terminal runtime status.
    * @return Action result representing the terminal runtime outcome.
    * @throws None.
-   * @note Public xMate6 action clients no longer wait for this result before returning from
+   * @note Public xMateER3 action clients no longer wait for this result before returning from
    *       MoveAppend; terminal outcomes are consumed through runtime state / events after moveStart().
    */
   [[nodiscard]] std::shared_ptr<rokae_xmate3_ros2::action::MoveAppend::Result>
@@ -105,6 +107,10 @@ class RuntimePublishBridge {
   std::int64_t last_joint_state_publish_ns_ = 0;
   std::int64_t last_operation_state_publish_ns_ = 0;
   std::int64_t last_diagnostics_publish_ns_ = 0;
+  std::array<double, 6> last_authority_joint_position_{};
+  std::array<double, 6> last_authority_joint_velocity_{};
+  std::array<double, 6> last_authority_joint_torque_{};
+  bool has_last_authority_joint_state_ = false;
 };
 
 [[nodiscard]] FeedbackSnapshot buildMoveAppendFeedback(const RuntimeStatus &status,

@@ -416,7 +416,7 @@ struct RuntimeProfileCapability {
   // Semantic fidelity class exposed to SDK/business consumers.
   std::string fidelity_class{"simulation_grade"};
   // Model/catalog revision that produced the advertised capability set.
-  std::string model_revision{"xmate6_public_v2026_04"};
+  std::string model_revision{"xmate_er3_public_v2026_04"};
   bool rt_capable = false;
   bool sim_approx = true;
   bool experimental = false;

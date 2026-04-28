@@ -41,7 +41,7 @@ std::string summarizeMotionExtensionContracts(const std::vector<MotionExtensionC
            << "=surface:" << entry.request_surface
            << "|planner:" << entry.planner_output
            << "|backend:" << entry.backend_capability
-           << "|public:" << (entry.public_xmate6 ? "true" : "false")
+           << "|public:" << (entry.public_xmate_er3 ? "true" : "false")
            << "|experimental:" << (entry.experimental ? "true" : "false");
   }
   stream << ']';
@@ -59,7 +59,7 @@ bool validateMotionExtensionContracts(const std::vector<MotionExtensionContract>
       error = std::string{"missing motion extension contract for "} + kindName(kind);
       return false;
     }
-    if (!it->public_xmate6) {
+    if (!it->public_xmate_er3) {
       error = std::string{"required public motion contract hidden for "} + kindName(kind);
       return false;
     }

@@ -18,7 +18,7 @@ class ProgramState {
    * @brief Load the currently selected RL project metadata into the runtime cache.
    * @param project_path Filesystem path recorded as the current project origin.
    * @param project_name Human-readable project name exposed through query services.
-   * @note Public xMate6 lane does not expose RL as a supported contract, but the runtime still
+   * @note Public xMateER3 lane does not expose RL as a supported contract, but the runtime still
    *       tracks this state for internal compatibility paths.
    */
   void loadRlProject(const std::string &project_path, const std::string &project_name);
@@ -34,7 +34,7 @@ class ProgramState {
   [[nodiscard]] std::vector<rokae::RLProjectInfo> rlProjectCatalog() const;
 
   /**
-   * @brief Begin capturing a replayable xMate6 recorded-path asset using default tooling context.
+   * @brief Begin capturing a replayable xMateER3 recorded-path asset using default tooling context.
    * @note Captured samples are reset on every start; timestamps are re-originated from the first
    *       accepted sample.
    */
@@ -69,7 +69,7 @@ class ProgramState {
    * @param name Stable asset name used by replay/query/remove operations.
    * @param error_message Optional validation error sink. Populated when the save is rejected.
    * @return true when the capture buffer was normalized, validated, and stored successfully.
-   * @note Saved assets carry the public xMate6 compatibility identity while preserving the
+   * @note Saved assets carry the public xMateER3 compatibility identity while preserving the
    *       underlying simulated xMate3 model provenance. Empty names, empty buffers, or assets
    *       that fail replay contract validation are rejected. Analysis/report readiness is computed separately from the saved asset coverage report.
    */

@@ -15,6 +15,7 @@ add_library(${PROJECT_NAME}_sdk SHARED
   src/sdk/robot_motion_dispatch.cpp
   src/sdk/robot_rt.cpp
   src/sdk/robot_model.cpp
+  src/sdk/xmate_model.cpp
 )
 ament_target_dependencies(${PROJECT_NAME}_sdk
   ament_index_cpp rclcpp rclcpp_action std_msgs sensor_msgs geometry_msgs control_msgs trajectory_msgs kdl_parser

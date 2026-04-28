@@ -7,7 +7,7 @@
 #include <mutex>
 
 #include "runtime/runtime_types.hpp"
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -76,20 +76,20 @@ class HeadlessMockRuntimeBackend final : public BackendInterface {
       double effort = 0.0;
       if (has_command_ && control_owner_.load() == ControlOwner::effort) {
         effort = std::clamp(last_command_.effort[i],
-                            -rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i],
-                            rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i]);
+                            -rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i],
+                            rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i]);
       }
 
       const double accel = std::clamp(0.05 * effort, -2.5, 2.5);
       snapshot_.joint_velocity[i] =
           std::clamp(snapshot_.joint_velocity[i] + accel * safe_dt,
-                     -rokae_xmate3_ros2::spec::xmate3::kJointVelocityLimit[i],
-                     rokae_xmate3_ros2::spec::xmate3::kJointVelocityLimit[i]);
+                     -rokae_xmate3_ros2::spec::xmate_er3_truth::kJointVelocityLimit[i],
+                     rokae_xmate3_ros2::spec::xmate_er3_truth::kJointVelocityLimit[i]);
       snapshot_.joint_velocity[i] *= 0.995;
       snapshot_.joint_position[i] += snapshot_.joint_velocity[i] * safe_dt;
       snapshot_.joint_position[i] = std::clamp(snapshot_.joint_position[i],
-                                               rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[i],
-                                               rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[i]);
+                                               rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMin[i],
+                                               rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMax[i]);
       snapshot_.joint_torque[i] = effort;
     }
   }

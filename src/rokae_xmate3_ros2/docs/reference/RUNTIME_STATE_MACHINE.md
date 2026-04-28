@@ -69,6 +69,8 @@ progress event 如携带 observed state，则 phase 收敛规则固定为：
 
 `request_queued -> planning_requested -> plan_queued -> execution_started -> progress_updated -> completed|completed_relaxed|failed|stopped`
 
+Recorded-path `replayPath()` 不走 `request_queued` / `moveStart()` staged queue 主链；它属于 immediate-submit side-lane，直接从 planning/execution 起步，但仍受同一 runtime authority / NRT gate 约束。
+
 补充规则：
 - `planning_rejected` 与 `watchdog_triggered` 直接进入 `failed / faulted`
 - `paused` 会把 coarse phase 收敛回 `idle`，但 execution state 保持 `paused`

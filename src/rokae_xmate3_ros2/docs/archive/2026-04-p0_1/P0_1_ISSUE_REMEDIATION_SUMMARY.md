@@ -2,7 +2,7 @@
 
 本轮修复针对上一轮深度复核中明确暴露的问题，继续保持范围收口：
 
-- 只处理 xMate 六轴 compatibility lane
+- 只处理 xMateER3 六轴 compatibility lane
 - 不做 RL 语义硬化
 - 不做标定链
 - 不按官方基础参数回退

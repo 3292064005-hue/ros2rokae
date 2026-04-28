@@ -10,7 +10,8 @@
   <xacro:arg name="enable_ros2_control" default="true"/>
   <xacro:arg name="enable_xcore_plugin" default="true"/>
   <xacro:arg name="backend_mode" default="jtc"/>
-  <xacro:arg name="service_exposure_profile" default="public_xmate6_only"/>
+  <xacro:arg name="service_exposure_profile" default="public_xmate_er3_only"/>
+  <xacro:arg name="compatibility_alias_policy" default="canonical_plus_compat"/>
   <xacro:arg name="joint_damping" default="0.5"/>
   <xacro:arg name="joint_friction" default="0.1"/>
   <xacro:arg name="flange_to_tool0_xyz" default="0 0 0"/>
@@ -24,6 +25,7 @@
   <xacro:property name="xcore_plugin_enabled" value="$(arg enable_xcore_plugin)"/>
   <xacro:property name="backend_mode_value" value="$(arg backend_mode)"/>
   <xacro:property name="service_exposure_profile_value" value="$(arg service_exposure_profile)"/>
+  <xacro:property name="compatibility_alias_policy_value" value="$(arg compatibility_alias_policy)"/>
   <xacro:property name="joint_damping_value" value="$(arg joint_damping)"/>
   <xacro:property name="joint_friction_value" value="$(arg joint_friction)"/>
 
@@ -296,6 +298,7 @@
       <plugin name="xcore_controller_gazebo_plugin" filename="libxcore_controller_gazebo_plugin.so">
         <backend_mode>${backend_mode_value}</backend_mode>
         <service_exposure_profile>${service_exposure_profile_value}</service_exposure_profile>
+        <compatibility_alias_policy>${compatibility_alias_policy_value}</compatibility_alias_policy>
       </plugin>
     </gazebo>
   </xacro:if>

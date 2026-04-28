@@ -52,6 +52,17 @@ for rel in required_install_helpers:
     if rel not in packaging:
         FAILURES.append(f'cmake/targets_packaging.cmake must install helper token: {rel}')
 
+service_path_expectations = {
+    'tools/run_real_dryrun_acceptance.sh': '${NAMESPACE}/cobot/get_runtime_diagnostics',
+    'tools/run_full_task_acceptance.sh': '${NAMESPACE}/cobot/get_runtime_diagnostics',
+}
+for rel, expected in service_path_expectations.items():
+    content = (ROOT / rel).read_text(encoding='utf-8')
+    if expected not in content:
+        FAILURES.append(f"{rel} must use canonical diagnostics service path: {expected}")
+    if '${NAMESPACE}/internal/get_runtime_diagnostics' in content:
+        FAILURES.append(f"{rel} must not call legacy internal diagnostics service path")
+
 acceptance_scripts = [
     'tools/run_acceptance_layers.sh',
     'tools/run_launch_smoke.sh',

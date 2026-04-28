@@ -9,7 +9,7 @@
 ## 1. Platform identity
 
 本仓当前身份是：
-- **xMate6 public SDK compatibility lane**
+- **xMateER3 public SDK compatibility lane**
 - 通过 ROS2/Gazebo-backed runtime 提供 install-facing compat facade
 - 保留 legacy `rokae_xmate3_ros2` 包名与部分历史入口，仅用于兼容
 
@@ -31,7 +31,7 @@
 所有状态真值都必须回到 runtime/coordinator authority surface。
 
 ### Main contracts and legacy contracts must be explicit
-- preferred surface: public xMate6 lane
+- preferred surface: public xMateER3 lane
 - legacy facade: 兼容历史名称，但不能伪装成新的主契约
 
 ### Kinematics uses one primary backend per request
@@ -58,7 +58,7 @@ RT 与 NRT 语义永久分层；RT 在 Gazebo 中只声明 simulation-grade，�
 ## 6. Extension domains
 
 允许扩展：
-- xMate6 public lane 文档与 compat facade
+- xMateER3 public lane 文档与 compat facade
 - runtime query authority
 - diagnostics / catalog / host lifecycle
 
@@ -73,3 +73,6 @@ RT 与 NRT 语义永久分层；RT 在 Gazebo 中只声明 simulation-grade，�
 - [`PROVIDER_BOUNDARY.md`](PROVIDER_BOUNDARY.md)
 - [`../public/RUNTIME_PROFILES.md`](../public/RUNTIME_PROFILES.md)
 - [`../public/KINEMATICS_AND_MODEL.md`](../public/KINEMATICS_AND_MODEL.md)
+
+
+- target-level layering contract: `docs/architecture/TARGET_LAYERING.md`

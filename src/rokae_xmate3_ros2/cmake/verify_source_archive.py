@@ -16,7 +16,7 @@ REQUIRED_WORKSPACE_RELATIVE_PATHS = (
 
 REQUIRED_PACKAGE_RELATIVE_PATHS = (
     "src/runtime/owner_arbiter.hpp",
-    "urdf/xMate3.xacro",
+    "urdf/xMateER3.xacro",
 )
 
 FORBIDDEN_DIR_PARTS = {
@@ -54,6 +54,16 @@ def _load_tree_file(root: Path, relative_path: str) -> str:
     if not target.exists():
         raise FileNotFoundError(f"missing required source file: {target}")
     return target.read_text(encoding="utf-8")
+
+
+def _load_workspace_sidecar(package_root: Path, workspace_root: Path, relative_path: str) -> str:
+    candidates = [workspace_root / relative_path]
+    if package_root != workspace_root:
+        candidates.append(package_root / relative_path)
+    for target in candidates:
+        if target.exists():
+            return target.read_text(encoding='utf-8')
+    raise FileNotFoundError(f"missing required workspace sidecar: {relative_path}")
 
 
 def _load_archive_file(archive: zipfile.ZipFile, relative_path: str) -> str:
@@ -131,7 +141,7 @@ def main() -> int:
 
     with zipfile.ZipFile(archive_path) as archive:
         for relative_path in REQUIRED_WORKSPACE_RELATIVE_PATHS:
-            tree_content = _load_tree_file(workspace_root, relative_path)
+            tree_content = _load_workspace_sidecar(package_root, workspace_root, relative_path)
             archive_content = _load_archive_file(archive, relative_path)
             _verify_exact_match(f"workspace sidecar {relative_path}", tree_content, archive_content)
 
@@ -140,8 +150,8 @@ def main() -> int:
             archive_content = _load_archive_file(archive, relative_path)
             _verify_exact_match(f"package file {relative_path}", tree_content, archive_content)
 
-        tree_xacro = _load_tree_file(package_root, "urdf/xMate3.xacro")
-        archive_xacro = _load_archive_file(archive, "urdf/xMate3.xacro")
+        tree_xacro = _load_tree_file(package_root, "urdf/xMateER3.xacro")
+        archive_xacro = _load_archive_file(archive, "urdf/xMateER3.xacro")
         
         _verify_markers("working tree xacro", tree_xacro)
         _verify_markers("archive xacro", archive_xacro)

@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _simulation_support import (
     resolve_canonical_artifact, resolve_canonical_metadata, resolve_canonical_model,
     resolved_backend_mode_expression, resolved_enable_ros2_control_expression,
-    resolved_enable_xcore_plugin_expression, resolved_service_profile_expression
+    resolved_enable_xcore_plugin_expression, resolved_service_profile_expression,
+    resolved_compatibility_alias_policy_expression
 )
 
 
@@ -24,7 +25,7 @@ def generate_launch_description():
     urdf_file = resolve_canonical_model(pkg_share)
     canonical_artifact = resolve_canonical_artifact(pkg_share) or urdf_file
     canonical_metadata = resolve_canonical_metadata(pkg_share)
-    rviz_config = os.path.join(pkg_share, "config", "xMate3.rviz")
+    rviz_config = os.path.join(pkg_share, "config", "xMateER3.rviz")
 
     model_arg = DeclareLaunchArgument(
         "model",
@@ -48,7 +49,7 @@ def generate_launch_description():
     )
     launch_profile_arg = DeclareLaunchArgument(
         "launch_profile",
-        default_value="public_xmate6_jtc",
+        default_value="public_xmate_er3_jtc",
         description="能力矩阵 profile；空缺的后端/暴露参数将跟随该 profile",
     )
     backend_mode_arg = DeclareLaunchArgument(
@@ -60,6 +61,11 @@ def generate_launch_description():
         "service_exposure_profile",
         default_value="",
         description="robot_description 生成使用的服务暴露 profile",
+    )
+    compatibility_alias_policy_arg = DeclareLaunchArgument(
+        "compatibility_alias_policy",
+        default_value="",
+        description="robot_description / runtime 兼容别名发布策略；留空时跟随 launch_profile",
     )
     enable_xcore_plugin_arg = DeclareLaunchArgument(
         "enable_xcore_plugin",
@@ -89,6 +95,8 @@ def generate_launch_description():
         resolved_backend_mode_expression(),
         " --service-exposure-profile ",
         resolved_service_profile_expression(),
+        " --compatibility-alias-policy ",
+        resolved_compatibility_alias_policy_expression(),
         " --canonical-model ",
         canonical_artifact,
         " --canonical-metadata ",
@@ -106,7 +114,7 @@ def generate_launch_description():
             {"robot_description": robot_description},
             {"use_sim_time": LaunchConfiguration("use_sim_time")},
         ],
-        remappings=[("/joint_states", "/xmate3/joint_states")],
+        remappings=[("/joint_states", "/xmate_er3/joint_states")],
     )
 
     rviz = Node(
@@ -130,6 +138,7 @@ def generate_launch_description():
         launch_profile_arg,
         backend_mode_arg,
         service_profile_arg,
+        compatibility_alias_policy_arg,
         enable_xcore_plugin_arg,
         enable_ros2_control_arg,
         rsp,

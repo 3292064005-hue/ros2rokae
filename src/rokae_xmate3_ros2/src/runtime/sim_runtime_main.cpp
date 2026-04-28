@@ -20,13 +20,15 @@
 #include "rokae_xmate3_ros2/msg/operation_state.hpp"
 #include "rokae_xmate3_ros2/msg/runtime_diagnostics.hpp"
 #include "rokae_xmate3_ros2/runtime/ros_context_owner.hpp"
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 #include "runtime/backend_provider.hpp"
+#include "runtime/compatibility_alias_policy.hpp"
 #include "runtime/mock_runtime_backend.hpp"
 #include "runtime/ros_bindings.hpp"
 #include "runtime/runtime_context.hpp"
 #include "runtime/runtime_control_bridge.hpp"
 #include "runtime/runtime_host_builder.hpp"
+#include "runtime/kinematics_provider.hpp"
 #include "runtime/runtime_publish_bridge.hpp"
 #include "runtime/rt_runtime_profile.hpp"
 #include "runtime/rt_scheduler.hpp"
@@ -99,6 +101,8 @@ int run_sim_runtime_main() {
       node->declare_parameter<std::string>("service_exposure_profile", getenvOrDefault("ROKAE_SERVICE_EXPOSURE_PROFILE", to_string(defaultServiceExposureProfile())));
   const auto service_exposure_profile = parseServiceExposureProfile(requested_service_exposure_profile);
   const auto requested_runtime_profile = node->declare_parameter<std::string>("runtime_profile", "nrt_strict_parity");
+  const auto requested_alias_policy = node->declare_parameter<std::string>("compatibility_alias_policy", getenvOrDefault("ROKAE_COMPATIBILITY_ALIAS_POLICY", to_string(defaultCompatibilityAliasPolicy())));
+  const auto compatibility_alias_policy = parseCompatibilityAliasPolicy(requested_alias_policy);
   RuntimeHostBuilder host_builder(node);
   RuntimeHostBootstrapConfig host_bootstrap;
   try {
@@ -114,8 +118,14 @@ int run_sim_runtime_main() {
   const auto &runtime_profile = host_bootstrap.rt_profile;
 
   host_builder.configureContext(runtime_context, host_bootstrap, true);
+  runtime_context.diagnosticsState().setRuntimeOptionSummary(
+      summarizeRuntimeRtProfile(host_bootstrap.rt_profile) + std::string{"; compatibility_alias_policy="} +
+      to_string(compatibility_alias_policy));
 
-  gazebo::xMate3Kinematics kinematics;
+  // The current public lane is simulation-only and the runtime composition still uses the Gazebo-backed provider.
+  // Public model-facing headers expose provider-oriented wrapper types instead of re-exporting Gazebo facade aliases.
+  gazebo::xMateER3Kinematics kinematics;
+  rokae_xmate3_ros2::kinematics::GazeboProvider kinematics_provider(kinematics);
 
   auto joint_state_fetcher = [&backend](std::array<double, 6> &position,
                                         std::array<double, 6> &velocity,
@@ -127,7 +137,7 @@ int run_sim_runtime_main() {
   };
 
   auto time_provider = [node]() { return node->get_clock()->now(); };
-  auto trajectory_dt_provider = []() { return rokae_xmate3_ros2::spec::xmate3::kServoTickSec; };
+  auto trajectory_dt_provider = []() { return rokae_xmate3_ros2::spec::xmate_er3_truth::kServoTickSec; };
   auto request_seed = std::make_shared<std::atomic<std::uint64_t>>(1);
   auto request_id_generator = [request_seed](const std::string &prefix) {
     return prefix + std::to_string(request_seed->fetch_add(1));
@@ -137,15 +147,16 @@ int run_sim_runtime_main() {
   auto bindings = host_builder.createRosBindings(
       runtime_context,
       publish_bridge.get(),
-      kinematics,
+      kinematics_provider,
       joint_state_fetcher,
       time_provider,
       trajectory_dt_provider,
       request_id_generator,
       service_exposure_profile,
+      compatibility_alias_policy,
       runtime_profile);
   auto control_bridge = host_builder.createControlBridge(runtime_context, host_bootstrap);
-  auto publishers = host_builder.createPublishers();
+  auto publishers = host_builder.createPublishers(compatibility_alias_policy);
 
   const bool rt_scheduler_enable = node->declare_parameter<bool>("rt_scheduler.enable", true);
   const std::string rt_scheduler_policy = node->declare_parameter<std::string>("rt_scheduler.policy", "fifo");
@@ -154,8 +165,8 @@ int run_sim_runtime_main() {
   const bool rt_memory_lock_all = node->declare_parameter<bool>("rt_memory.lock_all", true);
 
   std::vector<std::string> joint_names;
-  joint_names.reserve(rokae_xmate3_ros2::spec::xmate3::kJointNames.size());
-  for (const auto *name : rokae_xmate3_ros2::spec::xmate3::kJointNames) {
+  joint_names.reserve(rokae_xmate3_ros2::spec::xmate_er3_truth::kJointNames.size());
+  for (const auto *name : rokae_xmate3_ros2::spec::xmate_er3_truth::kJointNames) {
     joint_names.emplace_back(name);
   }
 
@@ -233,10 +244,11 @@ int run_sim_runtime_main() {
 
   RCLCPP_INFO(
       node->get_logger(),
-      "rokae_sim_runtime is running (authoritative runtime daemon). requested_profile=%s effective_profile=%s service_exposure_profile=%s profile_summary=%s",
+      "rokae_sim_runtime is running (authoritative runtime daemon). requested_profile=%s effective_profile=%s service_exposure_profile=%s compatibility_alias_policy=%s profile_summary=%s",
       requested_runtime_profile.c_str(),
       runtime_profile.effective_profile.c_str(),
       to_string(service_exposure_profile),
+      to_string(compatibility_alias_policy),
       summarizeRuntimeRtProfile(runtime_profile).c_str());
   auto executor_state = host_builder.attachExecutor(nullptr, false, runtime_profile.executor_threads);
   executor_state.executor->spin();

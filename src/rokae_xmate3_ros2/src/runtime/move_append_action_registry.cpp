@@ -13,9 +13,10 @@
 namespace rokae_xmate3_ros2::runtime {
 
 void RosBindings::initActionServers() {
-  move_append_action_server_ = rclcpp_action::create_server<rokae_xmate3_ros2::action::MoveAppend>(
+  auto create_move_append_server = [this](const char *name) {
+    return rclcpp_action::create_server<rokae_xmate3_ros2::action::MoveAppend>(
       node_,
-      "/xmate3/cobot/move_append",
+      name,
       [this](const rclcpp_action::GoalUUID &uuid,
              std::shared_ptr<const rokae_xmate3_ros2::action::MoveAppend::Goal> goal) {
         (void)uuid;
@@ -44,13 +45,21 @@ void RosBindings::initActionServers() {
         move_append_workers_.emplace_back(
             std::async(std::launch::async, [this, goal_handle]() { executeMoveAppend(goal_handle); }));
       });
+  };
+  if (publishesCanonicalAliases(compatibility_alias_policy_)) {
+    move_append_action_server_ = create_move_append_server("/xmate_er3/cobot/move_append");
+  }
+  compatibility_move_append_action_servers_.clear();
+  if (publishesCompatibilityAliases(compatibility_alias_policy_)) {
+    compatibility_move_append_action_servers_.push_back(create_move_append_server("/xmate3/cobot/move_append"));
+  }
 }
 
 /**
  * @brief Queue a public-lane NRT MoveAppend request and return as soon as the runtime accepts it.
  * @param goal_handle Accepted ROS action goal handle.
  * @throws None. All runtime and transport failures are converted into deterministic action aborts.
- * @note Boundary behavior: in the public xMate6 lane MoveAppend is queue-only. This action must not
+ * @note Boundary behavior: in the public xMateER3 lane MoveAppend is queue-only. This action must not
  *       wait for execution terminal states; moveStart() remains the sole start/resume authority and
  *       terminal execution outcomes are observed through runtime state / event surfaces afterwards.
  */
@@ -135,7 +144,7 @@ void RosBindings::executeMoveAppend(
     }
 
     // Once the runtime has accepted the request into the queue, MoveAppend is complete in the
-    // public xMate6 lane. Late cancellations do not mutate runtime state or retract the queued work.
+    // public xMateER3 lane. Late cancellations do not mutate runtime state or retract the queued work.
     goal_handle->succeed(publish_bridge_->buildMoveAppendQueuedResult(request_id, submission.message));
   } catch (const std::exception &ex) {
     if (queue_accepted) {

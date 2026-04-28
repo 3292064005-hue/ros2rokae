@@ -150,7 +150,7 @@ void createArchiveFixtureTree(const std::filesystem::path &root, bool dirty_arch
                 "<package format=\"3\"><name>rokae_xmate3_ros2</name><version>2.1.0</version></package>\n");
   writeTextFile(root / "src/rokae_xmate3_ros2/src/runtime/owner_arbiter.hpp",
                 "#pragma once\n// archive fixture\n");
-  writeTextFile(root / "src/rokae_xmate3_ros2/urdf/xMate3.xacro",
+  writeTextFile(root / "src/rokae_xmate3_ros2/urdf/xMateER3.xacro",
                 R"(<robot name="xmate3">
   <link name="flange"/>
   <link name="tool0"/>
@@ -393,7 +393,7 @@ TEST(RuntimeSdkShimModelTest, KdlBackedKinematicsExposeNonZeroVelocityAndAcceler
   const auto cart_vel = model.getCartVel(q, qd);
   const auto cart_acc = model.getCartAcc(q, qd, qdd);
   const auto joint_acc = model.getJointAcc(cart_acc, q, qd);
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const auto expected_cart_vel = rokae_xmate3_ros2::gazebo_model::cartesianVelocity(kinematics, q, qd);
   const auto expected_cart_acc =
       rokae_xmate3_ros2::gazebo_model::cartesianAcceleration(kinematics, q, qd, qdd);
@@ -414,7 +414,7 @@ TEST(RuntimeSdkShimModelTest, KdlBackedKinematicsExposeNonZeroVelocityAndAcceler
 }
 
 TEST(RuntimeSdkShimModelTest, ModelFacadeUnifiesToolPoseLoadAndExpectedTorqueChain) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   rokae_xmate3_ros2::gazebo_model::ModelFacade facade(kinematics);
   facade.setToolPose({0.0, 0.0, 0.08, 0.0, 0.0, 0.0})
       .setLoad({0.6, {0.0, 0.0, 0.05}});
@@ -460,7 +460,7 @@ TEST(RuntimeSdkShimModelTest, ModelFacadeUnifiesToolPoseLoadAndExpectedTorqueCha
 }
 
 TEST(RuntimeSdkShimModelTest, KdlBackendTracksLegacyDhReferenceWithinSmokeTolerance) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   EXPECT_STREQ(kinematics.backendName(), "kdl");
 
   const std::vector<double> q{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
@@ -477,7 +477,7 @@ TEST(RuntimeSdkShimModelTest, KdlBackendTracksLegacyDhReferenceWithinSmokeTolera
 }
 
 TEST(RuntimeSdkShimModelTest, KdlBackedIkCandidateMetricsPreferContinuousNonSingularBranches) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> seed{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   auto continuous = seed;
   continuous[0] += 0.02;
@@ -503,7 +503,7 @@ TEST(RuntimeSdkShimModelTest, KdlBackedIkCandidateMetricsPreferContinuousNonSing
 }
 
 TEST(RuntimeSdkShimModelTest, SeededIkReproducesForwardKinematicsTargetContinuously) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   EXPECT_STREQ(kinematics.backendName(), "kdl");
 
   const std::vector<double> q{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
@@ -525,7 +525,7 @@ TEST(RuntimeSdkShimModelTest, SeededIkReproducesForwardKinematicsTargetContinuou
 }
 
 TEST(RuntimeSdkShimModelTest, MultiBranchIkReturnsContinuousCandidatesForSamePose) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   EXPECT_STREQ(kinematics.backendName(), "kdl");
 
   const std::vector<double> q{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
@@ -541,7 +541,7 @@ TEST(RuntimeSdkShimModelTest, MultiBranchIkReturnsContinuousCandidatesForSamePos
 }
 
 TEST(RuntimeSdkShimModelTest, MultiBranchIkDedupesCanonicalCandidates) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> q{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto target = kinematics.forwardKinematicsRPY(q);
   const auto solutions = kinematics.inverseKinematicsMultiSolution(target, q);
@@ -559,7 +559,7 @@ TEST(RuntimeSdkShimModelTest, BackendSolveMultiBranchReturnsScoredStableCandidat
   auto backend = gazebo::detail::makePreferredKinematicsBackend();
   ASSERT_NE(backend, nullptr);
 
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> q{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto target = kinematics.forwardKinematics(q);
 
@@ -581,7 +581,7 @@ TEST(RuntimeSdkShimModelTest, BackendSolveMultiBranchReturnsScoredStableCandidat
 }
 
 TEST(RuntimeSdkShimModelTest, CartesianTrajectorySolveKeepsBranchStableAndProjectsDerivatives) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> start_joints{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
 
@@ -594,7 +594,7 @@ TEST(RuntimeSdkShimModelTest, CartesianTrajectorySolveKeepsBranchStableAndProjec
     cartesian_path.push_back(std::move(pose));
   }
 
-  gazebo::xMate3Kinematics::CartesianIkOptions options;
+  gazebo::xMateER3Kinematics::CartesianIkOptions options;
   options.avoid_singularity = true;
   std::vector<std::vector<double>> joint_path;
   std::vector<double> last_joints;
@@ -640,7 +640,7 @@ TEST(RuntimeSdkShimModelTest, BackendTrajectoryResultKeepsStableBranchPathAndExp
   auto backend = gazebo::detail::makePreferredKinematicsBackend();
   ASSERT_NE(backend, nullptr);
 
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> start_joints{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
 
@@ -864,7 +864,7 @@ TEST(RuntimeArchiveVerificationTest, PackagingScriptCreatesVerifiedCleanArchiveF
   EXPECT_NE(manifest_text.find(".gitignore"), std::string::npos);
   EXPECT_NE(manifest_text.find("colcon_defaults.yaml"), std::string::npos);
   EXPECT_NE(manifest_text.find("src/runtime/owner_arbiter.hpp"), std::string::npos);
-  EXPECT_NE(manifest_text.find("urdf/xMate3.xacro"), std::string::npos);
+  EXPECT_NE(manifest_text.find("urdf/xMateER3.xacro"), std::string::npos);
   EXPECT_EQ(manifest_text.find("src/rokae_xmate3_ros2"), std::string::npos);
   EXPECT_EQ(manifest_text.find("tmp_launch_probe.log"), std::string::npos);
   EXPECT_EQ(manifest_text.find("xmate3_sdk_manual.pdf"), std::string::npos);
@@ -931,7 +931,7 @@ TEST(RuntimeRequestAdapterTest, ReplayPathConsumptionReportTracksCoverageAndCano
   EXPECT_EQ(report.samples_with_contact_force, 1u);
   EXPECT_EQ(report.samples_with_image_frame_id, 1u);
   EXPECT_EQ(report.phase_transition_count, 1u);
-  EXPECT_NE(report.summary.find("canonical_identity=xCoreSDK:xmate6"), std::string::npos);
+  EXPECT_NE(report.summary.find("canonical_identity=xCoreSDK:xmate_er3"), std::string::npos);
 }
 
 TEST(RuntimeRequestAdapterTest, ReplayPathConsumptionReportRejectsNonMonotonicTimeline) {

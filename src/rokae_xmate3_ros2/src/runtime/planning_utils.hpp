@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
+#include "runtime/kinematics_provider.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -14,7 +15,7 @@ namespace rokae_xmate3_ros2::runtime {
                                     const std::vector<double> &rhs);
 
 [[nodiscard]] bool build_joint_trajectory_from_cartesian(
-    ::gazebo::xMate3Kinematics &kinematics,
+    rokae_xmate3_ros2::kinematics::Provider &kinematics,
     const std::vector<std::vector<double>> &cartesian_trajectory,
     const std::vector<double> &initial_seed,
     const std::vector<int> &requested_conf,
@@ -27,7 +28,7 @@ namespace rokae_xmate3_ros2::runtime {
     std::string &error_message);
 
 [[nodiscard]] bool project_joint_derivatives_from_cartesian(
-    ::gazebo::xMate3Kinematics &kinematics,
+    rokae_xmate3_ros2::kinematics::Provider &kinematics,
     const std::vector<std::vector<double>> &cartesian_trajectory,
     const std::vector<std::vector<double>> &joint_trajectory,
     double trajectory_dt,

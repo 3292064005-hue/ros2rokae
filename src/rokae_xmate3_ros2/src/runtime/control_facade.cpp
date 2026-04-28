@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <sstream>
 
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -251,8 +251,8 @@ void ControlFacade::handleSetSoftLimit(const rokae_xmate3_ros2::srv::SetSoftLimi
         res.message = "soft limit lower bound must be smaller than upper bound";
         return;
       }
-      if (lower < rokae_xmate3_ros2::spec::xmate3::kJointLimitMin[axis] ||
-          upper > rokae_xmate3_ros2::spec::xmate3::kJointLimitMax[axis]) {
+      if (lower < rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMin[axis] ||
+          upper > rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMax[axis]) {
         std::ostringstream oss;
         oss << "soft limit joint " << axis << " exceeds mechanical joint limits";
         res.success = false;
@@ -491,7 +491,7 @@ void ControlFacade::handleSetRtControlMode(const rokae_xmate3_ros2::srv::SetRtCo
   res.error_msg.clear();
 }
 
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
 void ControlFacade::handleSetSimulationMode(
     const rokae_xmate3_ros2::srv::SetSimulationMode::Request &req,
     rokae_xmate3_ros2::srv::SetSimulationMode::Response &res) const {
@@ -580,7 +580,7 @@ void ControlFacade::handleDisableDrag(const rokae_xmate3_ros2::srv::DisableDrag:
   res.message = "drag mode disabled";
 }
 
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
 void ControlFacade::handleSetAvoidSingularity(
     const rokae_xmate3_ros2::srv::SetAvoidSingularity::Request &req,
     rokae_xmate3_ros2::srv::SetAvoidSingularity::Response &res) const {
@@ -591,7 +591,7 @@ void ControlFacade::handleSetAvoidSingularity(
     return;
   }
   res.success = false;
-  res.message = "avoid singularity is not supported on the xMate6 compatibility lane";
+  res.message = "avoid singularity is not supported on the xMateER3 compatibility lane";
 }
 #endif
 

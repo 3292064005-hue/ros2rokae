@@ -90,6 +90,117 @@ TEST(RuntimePublishBridgeTest, PublisherTickBuildsMessagesLogsAndPathSamplesFrom
   EXPECT_NE(logs.front().content.find("request=move_1"), std::string::npos);
 }
 
+TEST(RuntimePublishBridgeTest, PublisherTickCanProjectAuthorityJointStateOverInputSnapshot) {
+  rt::RuntimeContext context;
+  context.motionRuntime().reset();
+  context.sessionState().connect("127.0.0.1");
+  context.sessionState().setPowerOn(true);
+
+  rt::MotionRequest request;
+  request.request_id = "move_authority";
+  request.start_joints = {0.11, 0.22, 0.33, 0.44, 0.55, 0.66};
+  rt::MotionCommandSpec cmd;
+  cmd.kind = rt::MotionKind::move_absj;
+  cmd.target_joints = {0.12, 0.23, 0.34, 0.45, 0.56, 0.67};
+  request.commands.push_back(cmd);
+  std::string submit_message;
+  ASSERT_TRUE(context.motionRuntime().submit(request, submit_message)) << submit_message;
+
+  rt::RuntimePublishBridge bridge(context);
+  const std::vector<std::string> joint_names = {"j1", "j2", "j3", "j4", "j5", "j6"};
+  rt::PublisherTickInput tick_input;
+  tick_input.stamp = rclcpp::Time(223456789);
+  tick_input.frame_id = "base_link";
+  tick_input.joint_names = &joint_names;
+  tick_input.position = {9.0, 9.0, 9.0, 9.0, 9.0, 9.0};
+  tick_input.velocity = {8.0, 8.0, 8.0, 8.0, 8.0, 8.0};
+  tick_input.torque = {7.0, 7.0, 7.0, 7.0, 7.0, 7.0};
+  tick_input.joint_state_publish_period_sec = 0.001;
+  tick_input.operation_state_publish_period_sec = 0.001;
+  tick_input.diagnostics_publish_period_sec = 0.001;
+  tick_input.prefer_authority_joint_state = true;
+  tick_input.allow_input_joint_state_fallback = false;
+
+  const auto tick = bridge.buildPublisherTick(tick_input);
+  ASSERT_TRUE(tick.publish_joint_state);
+  ASSERT_EQ(tick.joint_state.position.size(), 6u);
+  EXPECT_DOUBLE_EQ(tick.joint_state.position[0], 0.11);
+  EXPECT_DOUBLE_EQ(tick.joint_state.position[5], 0.66);
+  EXPECT_DOUBLE_EQ(tick.joint_state.velocity[0], 0.0);
+  EXPECT_DOUBLE_EQ(tick.joint_state.effort[0], 0.0);
+}
+
+
+TEST(RuntimePublishBridgeTest, AuthorityPreferredTickSuppressesPublishWhenNoAuthorityAndNoFallback) {
+  rt::RuntimeContext context;
+  context.motionRuntime().reset();
+  context.sessionState().connect("127.0.0.1");
+  context.sessionState().setPowerOn(true);
+
+  rt::RuntimePublishBridge bridge(context);
+  const std::vector<std::string> joint_names = {"j1", "j2", "j3", "j4", "j5", "j6"};
+  rt::PublisherTickInput tick_input;
+  tick_input.stamp = rclcpp::Time(323456789);
+  tick_input.frame_id = "base_link";
+  tick_input.joint_names = &joint_names;
+  tick_input.position = {9.0, 9.0, 9.0, 9.0, 9.0, 9.0};
+  tick_input.velocity = {8.0, 8.0, 8.0, 8.0, 8.0, 8.0};
+  tick_input.torque = {7.0, 7.0, 7.0, 7.0, 7.0, 7.0};
+  tick_input.joint_state_publish_period_sec = 0.001;
+  tick_input.operation_state_publish_period_sec = 0.001;
+  tick_input.diagnostics_publish_period_sec = 0.001;
+  tick_input.prefer_authority_joint_state = true;
+  tick_input.allow_input_joint_state_fallback = false;
+
+  const auto tick = bridge.buildPublisherTick(tick_input);
+  EXPECT_FALSE(tick.publish_joint_state);
+  EXPECT_FALSE(tick.recorded_path_sample);
+}
+
+TEST(RuntimePublishBridgeTest, AuthorityPreferredTickReusesLastGoodAuthoritySampleWhenLiveAuthorityDrops) {
+  rt::RuntimeContext context;
+  context.motionRuntime().reset();
+  context.sessionState().connect("127.0.0.1");
+  context.sessionState().setPowerOn(true);
+
+  rt::MotionRequest request;
+  request.request_id = "move_authority_cache";
+  request.start_joints = {0.21, 0.22, 0.23, 0.24, 0.25, 0.26};
+  rt::MotionCommandSpec cmd;
+  cmd.kind = rt::MotionKind::move_absj;
+  cmd.target_joints = {0.31, 0.32, 0.33, 0.34, 0.35, 0.36};
+  request.commands.push_back(cmd);
+  std::string submit_message;
+  ASSERT_TRUE(context.motionRuntime().submit(request, submit_message)) << submit_message;
+
+  rt::RuntimePublishBridge bridge(context);
+  const std::vector<std::string> joint_names = {"j1", "j2", "j3", "j4", "j5", "j6"};
+  rt::PublisherTickInput tick_input;
+  tick_input.stamp = rclcpp::Time(423456789);
+  tick_input.frame_id = "base_link";
+  tick_input.joint_names = &joint_names;
+  tick_input.position = {9.0, 9.0, 9.0, 9.0, 9.0, 9.0};
+  tick_input.velocity = {8.0, 8.0, 8.0, 8.0, 8.0, 8.0};
+  tick_input.torque = {7.0, 7.0, 7.0, 7.0, 7.0, 7.0};
+  tick_input.joint_state_publish_period_sec = 0.001;
+  tick_input.operation_state_publish_period_sec = 0.001;
+  tick_input.diagnostics_publish_period_sec = 0.001;
+  tick_input.prefer_authority_joint_state = true;
+  tick_input.allow_input_joint_state_fallback = false;
+
+  const auto live_tick = bridge.buildPublisherTick(tick_input);
+  ASSERT_TRUE(live_tick.publish_joint_state);
+  EXPECT_DOUBLE_EQ(live_tick.joint_state.position[0], 0.21);
+  EXPECT_DOUBLE_EQ(live_tick.joint_state.position[5], 0.26);
+
+  context.motionRuntime().reset();
+  tick_input.stamp = rclcpp::Time(423456789 + 2000000);
+  const auto cached_tick = bridge.buildPublisherTick(tick_input);
+  ASSERT_TRUE(cached_tick.publish_joint_state);
+  EXPECT_DOUBLE_EQ(cached_tick.joint_state.position[0], 0.21);
+  EXPECT_DOUBLE_EQ(cached_tick.joint_state.position[5], 0.26);
+}
+
 TEST(RuntimePublishBridgeTest, BuildsMoveAppendFeedbackFromRuntimeStatus) {
   rt::RuntimeStatus status;
   status.state = rt::ExecutionState::settling;

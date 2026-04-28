@@ -6,6 +6,8 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
+from _launch_profile import default_launch_profile_name
+
 
 def _resolve_package_share():
     env_share = os.environ.get("ROKAE_XMATE3_ROS2_SHARE_DIR", "")
@@ -20,15 +22,16 @@ def _resolve_package_share():
 def generate_launch_description():
     pkg_share = _resolve_package_share()
     simulation_launch = os.path.join(pkg_share, "launch", "simulation.launch.py")
-    canonical_model = os.path.join(pkg_share, "generated", "urdf", "xMate3.urdf")
-    default_model = canonical_model if os.path.isfile(canonical_model) else os.path.join(pkg_share, "urdf", "xMate3.xacro")
+    canonical_model = os.path.join(pkg_share, "generated", "urdf", "xMateER3.urdf")
+    default_model = canonical_model if os.path.isfile(canonical_model) else os.path.join(pkg_share, "urdf", "xMateER3.xacro")
     default_world = os.path.join(pkg_share, "worlds", "empty.world")
     return LaunchDescription([
-        DeclareLaunchArgument("launch_profile", default_value="public_xmate6_jtc"),
+        DeclareLaunchArgument("launch_profile", default_value=default_launch_profile_name()),
         DeclareLaunchArgument("runtime_host", default_value=""),
         DeclareLaunchArgument("runtime_profile", default_value=""),
         DeclareLaunchArgument("backend_mode", default_value=""),
         DeclareLaunchArgument("service_exposure_profile", default_value=""),
+        DeclareLaunchArgument("compatibility_alias_policy", default_value=""),
         DeclareLaunchArgument("enable_ros2_control", default_value=""),
         DeclareLaunchArgument("enable_xcore_plugin", default_value=""),
         DeclareLaunchArgument("model", default_value=default_model),
@@ -46,6 +49,7 @@ def generate_launch_description():
                 "runtime_profile": LaunchConfiguration("runtime_profile"),
                 "backend_mode": LaunchConfiguration("backend_mode"),
                 "service_exposure_profile": LaunchConfiguration("service_exposure_profile"),
+                "compatibility_alias_policy": LaunchConfiguration("compatibility_alias_policy"),
                 "enable_ros2_control": LaunchConfiguration("enable_ros2_control"),
                 "enable_xcore_plugin": LaunchConfiguration("enable_xcore_plugin"),
                 "model": LaunchConfiguration("model"),

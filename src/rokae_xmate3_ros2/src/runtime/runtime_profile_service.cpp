@@ -1,4 +1,5 @@
 #include "runtime/runtime_profile_service.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 
 #include <algorithm>
 #include <sstream>
@@ -81,7 +82,7 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const BackendCo
                                   {"MoveAbsJ", "MoveJ", "MoveL", "MoveC", "MoveCF", "MoveSP", "ReplayPath"},
                                   "runtime_request_coordinator",
                                   "controller_semantic_parity",
-                                  "xmate6_public_v2026_04",
+                                  rokae_xmate3_ros2::spec::xmate_er3_truth::modelRevision(),
                                   "trajectory_executor",
                                   false,
                                   false,
@@ -94,7 +95,7 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const BackendCo
                                   {"JointPosition", "CartesianPosition", "Torque"},
                                   "motion_runtime_view",
                                   "simulation_grade",
-                                  "xmate6_public_v2026_04",
+                                  rokae_xmate3_ros2::spec::xmate_er3_truth::modelRevision(),
                                   "effort_owner",
                                   true,
                                   true,
@@ -107,7 +108,7 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const BackendCo
                                   {"JointPosition", "CartesianPosition", "Torque"},
                                   "motion_runtime_view",
                                   "simulation_grade",
-                                  "xmate6_public_v2026_04",
+                                  rokae_xmate3_ros2::spec::xmate_er3_truth::modelRevision(),
                                   "effort_owner",
                                   true,
                                   true,
@@ -120,7 +121,7 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const BackendCo
                                   {"JointPosition", "CartesianPosition", "Torque"},
                                   "motion_runtime_view",
                                   "simulation_grade",
-                                  "xmate6_public_v2026_04",
+                                  rokae_xmate3_ros2::spec::xmate_er3_truth::modelRevision(),
                                   "effort_owner",
                                   true,
                                   true,
@@ -133,7 +134,7 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const BackendCo
                                   {"MoveAppend", "QueuedNrt", "RtFollow"},
                                   "motion_runtime_view",
                                   "simulation_grade",
-                                  "xmate6_public_v2026_04",
+                                  rokae_xmate3_ros2::spec::xmate_er3_truth::modelRevision(),
                                   "hybrid_executor",
                                   true,
                                   true,
@@ -146,7 +147,7 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const BackendCo
                                   {"Torque", "Hold", "Retreat"},
                                   backend_contract.authority_scope,
                                   backend_contract.fidelity_class,
-                                  "xmate6_public_v2026_04",
+                                  rokae_xmate3_ros2::spec::xmate_er3_truth::modelRevision(),
                                   backend_contract.provider_class,
                                   true,
                                   true,
@@ -159,7 +160,7 @@ std::vector<RuntimeProfileDescriptor> buildRuntimeProfileCatalog(const BackendCo
                                   {"QueuedNrt", "MoveAppend", "ReplayPath"},
                                   backend_contract.authority_scope,
                                   backend_contract.fidelity_class,
-                                  "xmate6_public_v2026_04",
+                                  rokae_xmate3_ros2::spec::xmate_er3_truth::modelRevision(),
                                   backend_contract.provider_class,
                                   false,
                                   backend_contract.fidelity_class != "controller_semantic_parity",

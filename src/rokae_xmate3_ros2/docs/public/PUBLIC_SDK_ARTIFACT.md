@@ -13,10 +13,15 @@
 - `share/rokae_xmate3_ros2/cmake/*` required export glue
 - public examples
 - canonical public launch resources
-- generated canonical description
+- generated canonical description (`generated/urdf/xMateER3.urdf`, `generated/urdf/xMateER3.description.json`)
+- compatibility alias generated description (`generated/urdf/xMate3.urdf`, `generated/urdf/xMate3.description.json`)
 - docs/public + docs/reference + docs/release (install-facing copies)
 - install-facing acceptance entrypoints under `share/rokae_xmate3_ros2/tools/*`
 - mirrored release wrapper scripts under `share/rokae_xmate3_ros2/tools/*` (workspace-source inputs remain required for static sanity / ctest stages)
+- staged public_sdk packaging contract is smoke-verified by `ROKAE_PUBLIC_SDK_REPLAY_ONLY=ON`, followed by a temporary-prefix component install, artifact assembly, and manifest checks
+- 该 replay/install 路径只证明 public_sdk 组件形状、共享策略传播、docs/tools/description 物料存在，不证明真实 target ABI/link/install 消费闭环
+- 真实 install-tree `find_package(xCoreSDK)` 消费验证仍归入 release gate / install-tree consumer tests
+- replay/install smoke 模式与主线 launch/CMake 共享 `config/default_runtime_host_policy.env`；install-facing `xCoreSDK_BACKEND_MODE`、runtime host/profile 与 canonical description metadata 由同一默认策略派生，不再分叉
 
 ## Excluded from public SDK
 

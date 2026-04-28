@@ -5,6 +5,8 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
+from _launch_profile import default_launch_profile_name
+
 from _simulation_support import resolve_canonical_model, resolve_package_share
 
 
@@ -28,6 +30,7 @@ def generate_launch_description():
         "enable_xcore_plugin": LaunchConfiguration("enable_xcore_plugin"),
         "backend_mode": LaunchConfiguration("backend_mode"),
         "service_exposure_profile": LaunchConfiguration("service_exposure_profile"),
+        "compatibility_alias_policy": LaunchConfiguration("compatibility_alias_policy"),
         "allow_noncanonical_model": LaunchConfiguration("allow_noncanonical_model"),
     }
 
@@ -38,13 +41,14 @@ def generate_launch_description():
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("verbose", default_value="true"),
         DeclareLaunchArgument("use_sim_time", default_value="true"),
-        DeclareLaunchArgument("launch_profile", default_value="public_xmate6_jtc"),
+        DeclareLaunchArgument("launch_profile", default_value=default_launch_profile_name()),
         DeclareLaunchArgument("runtime_host", default_value=""),
         DeclareLaunchArgument("runtime_profile", default_value=""),
         DeclareLaunchArgument("enable_ros2_control", default_value=""),
         DeclareLaunchArgument("enable_xcore_plugin", default_value=""),
         DeclareLaunchArgument("backend_mode", default_value=""),
         DeclareLaunchArgument("service_exposure_profile", default_value=""),
+        DeclareLaunchArgument("compatibility_alias_policy", default_value=""),
         DeclareLaunchArgument("allow_noncanonical_model", default_value="false"),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(simulation_launch),

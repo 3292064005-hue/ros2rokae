@@ -134,7 +134,7 @@ SubmissionResult MotionRequestCoordinator::submitReplayPath(
   const bool report_ready = buildReplayPathReportSummary(replay_asset, replay_report, &replay_report_error);
 
   result.success = true;
-  result.message = "submitted";
+  result.message = "submitted immediate side-lane";
   if (report_ready) {
     result.message += "; report_summary=" + replay_report.summary;
   } else if (!replay_report_error.empty()) {

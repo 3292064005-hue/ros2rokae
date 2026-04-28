@@ -14,8 +14,10 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
+#include "runtime/kinematics_provider.hpp"
 #include "rokae_xmate3_ros2/msg/rt_fast_command.hpp"
 #include "runtime/runtime_context.hpp"
+#include "runtime/compatibility_alias_policy.hpp"
 #include "runtime/service_exposure_profile.hpp"
 #include "runtime/service_facade.hpp"
 
@@ -26,6 +28,7 @@ class RuntimePublishBridge;
 struct RosBindingsRtIngressOptions {
   bool enable_topic_rt_ingress = true;
   ServiceExposureProfile service_exposure_profile = defaultServiceExposureProfile();
+  CompatibilityAliasPolicy compatibility_alias_policy = defaultCompatibilityAliasPolicy();
 };
 
 class RosBindings {
@@ -33,7 +36,7 @@ class RosBindings {
   RosBindings(rclcpp::Node::SharedPtr node,
               RuntimeContext &runtime_context,
               RuntimePublishBridge *publish_bridge,
-              gazebo::xMate3Kinematics &kinematics,
+              rokae_xmate3_ros2::kinematics::Provider &kinematics,
               JointStateFetcher joint_state_fetcher,
               TimeProvider time_provider,
               TrajectoryDtProvider trajectory_dt_provider,
@@ -67,6 +70,7 @@ class RosBindings {
   RequestIdGenerator request_id_generator_;
   RosBindingsRtIngressOptions rt_ingress_options_{};
   ServiceExposureProfile service_exposure_profile_ = defaultServiceExposureProfile();
+  CompatibilityAliasPolicy compatibility_alias_policy_ = defaultCompatibilityAliasPolicy();
 
   std::unique_ptr<ControlFacade> control_facade_;
   std::unique_ptr<QueryFacade> query_facade_;
@@ -80,6 +84,7 @@ class RosBindings {
   rclcpp::CallbackGroup::SharedPtr rt_ingress_group_;
   rclcpp::Subscription<rokae_xmate3_ros2::msg::RtFastCommand>::SharedPtr rt_fast_command_sub_;
   rclcpp_action::Server<rokae_xmate3_ros2::action::MoveAppend>::SharedPtr move_append_action_server_;
+  std::vector<rclcpp_action::Server<rokae_xmate3_ros2::action::MoveAppend>::SharedPtr> compatibility_move_append_action_servers_;
   std::atomic<bool> move_append_shutdown_requested_{false};
   std::mutex move_append_workers_mutex_;
   std::vector<std::future<void>> move_append_workers_;

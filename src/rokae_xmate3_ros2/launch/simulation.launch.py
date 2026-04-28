@@ -25,11 +25,11 @@ from _simulation_support import (
 
 def generate_launch_description():
     """
-    xMate3 纯 Gazebo 仿真启动文件。
+    xMateER3 纯 Gazebo 仿真启动文件。
 
     功能:
     - 启动 Gazebo 仿真环境
-    - 加载 xMate3 机器人模型 (使用 xcore_controller_gazebo_plugin)
+    - 加载 xMateER3 机器人模型 (使用 xcore_controller_gazebo_plugin)
     - 启动 RViz 可视化
     """
     pkg_share = resolve_package_share()

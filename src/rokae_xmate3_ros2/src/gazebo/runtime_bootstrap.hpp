@@ -18,6 +18,7 @@
 
 #include "runtime/backend_provider.hpp"
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
+#include "runtime/kinematics_provider.hpp"
 #include "rokae_xmate3_ros2/srv/prepare_shutdown.hpp"
 #include "runtime/runtime_context.hpp"
 #include "runtime/runtime_host_builder.hpp"
@@ -111,7 +112,8 @@ class RuntimeBootstrap {
   RosIntegrationOptions ros_integration_;
   std::unique_ptr<rokae_xmate3_ros2::runtime::RuntimeHostBuilder> host_builder_;
   rokae_xmate3_ros2::runtime::RuntimeHostExecutorState executor_state_{};
-  std::unique_ptr<xMate3Kinematics> kinematics_;
+  std::unique_ptr<xMateER3Kinematics> kinematics_;
+  std::unique_ptr<rokae_xmate3_ros2::kinematics::GazeboProvider> kinematics_provider_;
 
   std::unique_ptr<rokae_xmate3_ros2::runtime::RuntimeContext> runtime_context_;
   std::unique_ptr<rokae_xmate3_ros2::runtime::RosBindings> ros_bindings_;
@@ -122,6 +124,8 @@ class RuntimeBootstrap {
   rokae_xmate3_ros2::runtime::RuntimeRtProfileConfig rt_profile_config_{};
   rokae_xmate3_ros2::runtime::ServiceExposureProfile service_exposure_profile_ =
       rokae_xmate3_ros2::runtime::defaultServiceExposureProfile();
+  rokae_xmate3_ros2::runtime::CompatibilityAliasPolicy compatibility_alias_policy_ =
+      rokae_xmate3_ros2::runtime::defaultCompatibilityAliasPolicy();
   std::atomic<uint64_t> next_request_id_{1};
   double trajectory_sample_dt_ = kRuntimeBootstrapDefaultTrajectorySampleDt;
   std::atomic<bool> shutting_down_{false};

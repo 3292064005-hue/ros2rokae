@@ -110,7 +110,7 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
         active_goal_handles_.push_back(goal_handle);
     }
 
-    // MoveAppend 在 public xMate6 lane 中只负责“排队”，真正启动由 moveStart() 提交。
+    // MoveAppend 在 public xMateER3 lane 中只负责“排队”，真正启动由 moveStart() 提交。
     // 因此此处只检测是否出现即时排队失败，而不等待 operation state 变为 MOVING。
     constexpr auto queue_ack_timeout = std::chrono::milliseconds(250);
     auto queue_ack_start = std::chrono::steady_clock::now();

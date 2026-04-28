@@ -11,7 +11,7 @@
 // ============================================================================
 
 TEST(KinematicsBackendTest, ForwardKinematicsZeroConfigIsValid) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> zero_joints(6, 0.0);
   const auto pose = kinematics.forwardKinematicsRPY(zero_joints);
 
@@ -26,7 +26,7 @@ TEST(KinematicsBackendTest, ForwardKinematicsZeroConfigIsValid) {
 }
 
 TEST(KinematicsBackendTest, ForwardKinematicsHomogeneousMatrixIsValid) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> joints = {0.0, 0.15, 1.55, 0.0, 1.35, M_PI};
   const auto T = kinematics.forwardKinematics(joints);
 
@@ -48,7 +48,7 @@ TEST(KinematicsBackendTest, ForwardKinematicsHomogeneousMatrixIsValid) {
 }
 
 TEST(KinematicsBackendTest, ForwardKinematicsRPYConsistentWithMatrix) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> joints = {0.1, -0.3, 0.5, 0.2, -0.8, 1.0};
   const auto T = kinematics.forwardKinematics(joints);
   const auto rpy_pose = kinematics.forwardKinematicsRPY(joints);
@@ -61,7 +61,7 @@ TEST(KinematicsBackendTest, ForwardKinematicsRPYConsistentWithMatrix) {
 }
 
 TEST(KinematicsBackendTest, ForwardKinematicsMultipleConfigurationsAllFinite) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<std::vector<double>> configs = {
       {0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
       {1.0, -1.0, 1.0, -1.0, 1.0, -1.0},
@@ -83,7 +83,7 @@ TEST(KinematicsBackendTest, ForwardKinematicsMultipleConfigurationsAllFinite) {
 // ============================================================================
 
 TEST(KinematicsBackendTest, InverseKinematicsRoundTrip) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> original_joints = {0.1, 0.2, 1.0, -0.1, 0.8, 0.5};
   const auto target_pose = kinematics.forwardKinematicsRPY(original_joints);
 
@@ -99,7 +99,7 @@ TEST(KinematicsBackendTest, InverseKinematicsRoundTrip) {
 }
 
 TEST(KinematicsBackendTest, InverseKinematicsSeededFastRoundTrip) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> seed = {0.0, 0.15, 1.55, 0.0, 1.35, M_PI};
   const auto target_pose = kinematics.forwardKinematicsRPY(seed);
 
@@ -114,7 +114,7 @@ TEST(KinematicsBackendTest, InverseKinematicsSeededFastRoundTrip) {
 }
 
 TEST(KinematicsBackendTest, InverseKinematicsMultiSolutionReturnsMultipleCandidates) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> joints = {0.0, 0.15, 1.55, 0.0, 1.35, M_PI};
   const auto target_pose = kinematics.forwardKinematicsRPY(joints);
 
@@ -137,7 +137,7 @@ TEST(KinematicsBackendTest, InverseKinematicsMultiSolutionReturnsMultipleCandida
 // ============================================================================
 
 TEST(KinematicsBackendTest, JacobianIsFinite) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> joints = {0.2, -0.1, 0.8, 0.3, -0.5, 1.5};
   const auto J = kinematics.computeJacobian(joints);
 
@@ -150,7 +150,7 @@ TEST(KinematicsBackendTest, JacobianIsFinite) {
 }
 
 TEST(KinematicsBackendTest, JacobianNumericalConsistency) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> joints = {0.0, 0.15, 1.55, 0.0, 1.35, M_PI};
   const auto J = kinematics.computeJacobian(joints);
 
@@ -177,7 +177,7 @@ TEST(KinematicsBackendTest, JacobianNumericalConsistency) {
 // ============================================================================
 
 TEST(KinematicsBackendTest, SingularityMeasureIsNormalized) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> joints = {0.0, 0.15, 1.55, 0.0, 1.35, M_PI};
   const double measure = kinematics.computeSingularityMeasure(joints);
 
@@ -186,7 +186,7 @@ TEST(KinematicsBackendTest, SingularityMeasureIsNormalized) {
 }
 
 TEST(KinematicsBackendTest, IsNearSingularityReturnsConsistentMeasure) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> nominal_joints = {0.1, 0.5, 1.0, 0.1, 0.8, 0.5};
   const bool near_singular = kinematics.isNearSingularity(nominal_joints);
   const double measure = kinematics.computeSingularityMeasure(nominal_joints);
@@ -202,7 +202,7 @@ TEST(KinematicsBackendTest, IsNearSingularityReturnsConsistentMeasure) {
 // ============================================================================
 
 TEST(KinematicsBackendTest, IkCandidateMetricsSelfSeedHasBestCost) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> joints = {0.0, 0.15, 1.55, 0.0, 1.35, M_PI};
 
   const auto metrics = kinematics.evaluateIkCandidate(joints, joints);
@@ -216,7 +216,7 @@ TEST(KinematicsBackendTest, IkCandidateMetricsSelfSeedHasBestCost) {
 // ============================================================================
 
 TEST(KinematicsBackendTest, DebugCountersIncrement) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   kinematics.resetDebugCounters();
 
   const std::vector<double> joints = {0.0, 0.15, 1.55, 0.0, 1.35, M_PI};
@@ -228,7 +228,7 @@ TEST(KinematicsBackendTest, DebugCountersIncrement) {
 }
 
 TEST(KinematicsBackendTest, DebugCountersResetToZero) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> joints = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   kinematics.computeJacobian(joints);
 
@@ -243,14 +243,14 @@ TEST(KinematicsBackendTest, DebugCountersResetToZero) {
 // ============================================================================
 
 TEST(KinematicsBackendTest, BackendNameIsNonNull) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const auto name = kinematics.backendName();
   ASSERT_NE(name, nullptr);
   EXPECT_GT(std::string(name).size(), 0u);
 }
 
 TEST(KinematicsBackendTest, DefaultPolicyUsesKdlPrimaryWithImprovedDhFallback) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const auto &policy = kinematics.policy();
   EXPECT_EQ(policy.primary_backend, gazebo::KinematicsPolicy::PrimaryBackend::Kdl);
   EXPECT_EQ(policy.fallback_mode, gazebo::KinematicsPolicy::FallbackMode::ImprovedDh);
@@ -259,13 +259,13 @@ TEST(KinematicsBackendTest, DefaultPolicyUsesKdlPrimaryWithImprovedDhFallback) {
 
 
 TEST(KinematicsBackendTest, SelectionTraceCapturesBackendBranchAndMetrics) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> seed = {0.0, 0.15, 1.55, 0.0, 1.35, M_PI};
   const auto target_pose = kinematics.forwardKinematicsRPY(seed);
   const auto candidates = kinematics.inverseKinematicsMultiSolution(target_pose, seed);
   ASSERT_FALSE(candidates.empty());
 
-  gazebo::xMate3Kinematics::CartesianIkOptions options;
+  gazebo::xMateER3Kinematics::CartesianIkOptions options;
   const auto selected = kinematics.selectBestIkSolution(candidates, target_pose, seed, options);
   ASSERT_TRUE(selected.success);
 
@@ -279,13 +279,13 @@ TEST(KinematicsBackendTest, SelectionTraceCapturesBackendBranchAndMetrics) {
 }
 
 TEST(KinematicsBackendTest, RequestContractRejectsRelaxedConfFallback) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> seed = {0.5, 0.15, 1.55, 0.0, 1.35, M_PI};
   const auto target_pose = kinematics.forwardKinematicsRPY(seed);
   const auto candidates = kinematics.inverseKinematicsMultiSolution(target_pose, seed);
   ASSERT_FALSE(candidates.empty());
 
-  gazebo::xMate3Kinematics::CartesianIkOptions options;
+  gazebo::xMateER3Kinematics::CartesianIkOptions options;
   options.strict_conf = false;
   options.requested_conf = {-1, 0, 0, 0, 0, 0};
 

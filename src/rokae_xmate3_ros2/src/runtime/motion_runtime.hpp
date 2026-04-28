@@ -34,7 +34,7 @@ class MotionRuntime {
    * @brief Queue a non-realtime motion request without starting execution.
    * @param request Normalized-or-normalizable motion request. `request_id` and at least one command are required.
    * @param message Output status/error text. On success this is cleared.
-   * @return true when the request is accepted into the staged public xMate6 queue.
+   * @return true when the request is accepted into the staged public xMateER3 queue.
    * @throws None.
    * @note Boundary behavior: requires `moveReset()`-initialized queue state and rejects concurrent active requests.
    */

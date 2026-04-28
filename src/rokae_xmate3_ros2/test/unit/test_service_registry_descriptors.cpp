@@ -41,12 +41,12 @@ TEST(ServiceRegistrationDescriptorTest, RejectsEmptyNames) {
 }
 
 TEST(ServiceRegistrationDescriptorTest, PublishesControlQueryManifestForPrimaryAndCompatibilitySurfaces) {
-  auto primary = buildPrimaryServiceDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::public_xmate6_only);
-  auto aliases = buildCompatibilityAliasDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::public_xmate6_only);
+  auto primary = buildPrimaryServiceDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::public_xmate_er3_only);
+  auto aliases = buildCompatibilityAliasDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::public_xmate_er3_only);
   auto internal_primary = buildPrimaryServiceDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::internal_full);
   auto internal_aliases = buildCompatibilityAliasDescriptors(rokae_xmate3_ros2::runtime::ServiceExposureProfile::internal_full);
   ASSERT_FALSE(primary.empty());
-  ASSERT_TRUE(aliases.empty());
+  ASSERT_FALSE(aliases.empty());
 
   std::string error;
   EXPECT_TRUE(validateServiceDescriptors(primary, error)) << error;
@@ -58,25 +58,25 @@ TEST(ServiceRegistrationDescriptorTest, PublishesControlQueryManifestForPrimaryA
   EXPECT_TRUE(validateServiceDescriptors(internal_aliases, error)) << error;
 
   const auto set_toolset = std::find_if(primary.begin(), primary.end(), [](const auto &descriptor) {
-    return std::string(descriptor.name) == "/xmate3/cobot/set_toolset";
+    return std::string(descriptor.name) == "/xmate_er3/cobot/set_toolset";
   });
   ASSERT_NE(set_toolset, primary.end());
   EXPECT_STREQ(set_toolset->domain, "control");
   EXPECT_FALSE(set_toolset->compatibility_alias);
 
   const auto get_toolset = std::find_if(primary.begin(), primary.end(), [](const auto &descriptor) {
-    return std::string(descriptor.name) == "/xmate3/cobot/get_toolset";
+    return std::string(descriptor.name) == "/xmate_er3/cobot/get_toolset";
   });
   ASSERT_NE(get_toolset, primary.end());
   EXPECT_STREQ(get_toolset->domain, "query");
 
   const auto runtime_snapshot = std::find_if(primary.begin(), primary.end(), [](const auto &descriptor) {
-    return std::string(descriptor.name) == "/xmate3/internal/get_runtime_state_snapshot";
+    return std::string(descriptor.name) == "/xmate_er3/cobot/get_runtime_state_snapshot";
   });
   ASSERT_NE(runtime_snapshot, primary.end());
   EXPECT_STREQ(runtime_snapshot->domain, "query");
 
-  EXPECT_TRUE(aliases.empty());
+  EXPECT_FALSE(aliases.empty());
 
 #if ROKAE_ENABLE_INTERNAL_SURFACE
   EXPECT_GT(internal_primary.size(), primary.size());

@@ -55,15 +55,28 @@ export ROKAE_XMATE3_ROS2_LIB_DIR="${WS_ROOT}/install/${PKG_NAME}/lib"
 export ROKAE_PYTHON_EXECUTABLE="${PYTHON_BIN}"
 export LIBGL_ALWAYS_SOFTWARE=1
 
-"${PYTHON_BIN}" -m py_compile   "${INSTALL_SHARE}/launch/_simulation_support.py"   "${INSTALL_SHARE}/launch/_launch_profile.py"   "${INSTALL_SHARE}/launch/rviz_only.launch.py"   "${INSTALL_SHARE}/launch/simulation.launch.py"   "${INSTALL_SHARE}/launch/xmate6_public.launch.py"
+POLICY_FILE="${INSTALL_SHARE}/config/default_runtime_host_policy.env"
+if [ -f "${POLICY_FILE}" ]; then
+  # shellcheck disable=SC1090
+  . "${POLICY_FILE}"
+fi
 
-XACRO_INPUT="${INSTALL_SHARE}/urdf/xMate3.xacro"
+PUBLIC_BACKEND_MODE="${ROKAE_DEFAULT_BACKEND_MODE:-effort}"
+PUBLIC_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE:-public_xmate_er3_only}"
+PUBLIC_ENABLE_ROS2_CONTROL="${ROKAE_DEFAULT_ENABLE_ROS2_CONTROL:-false}"
+PUBLIC_ENABLE_XCORE_PLUGIN="${ROKAE_DEFAULT_ENABLE_XCORE_PLUGIN:-false}"
+PUBLIC_COMPATIBILITY_ALIAS_POLICY="${ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY:-canonical_plus_compat}"
+
+
+"${PYTHON_BIN}" -m py_compile   "${INSTALL_SHARE}/launch/_simulation_support.py"   "${INSTALL_SHARE}/launch/_launch_profile.py"   "${INSTALL_SHARE}/launch/rviz_only.launch.py"   "${INSTALL_SHARE}/launch/simulation.launch.py"   "${INSTALL_SHARE}/launch/xmate_er3_public.launch.py"
+
+XACRO_INPUT="${INSTALL_SHARE}/urdf/xMateER3.xacro"
 if [ ! -f "${XACRO_INPUT}" ]; then
   echo "launch_smoke: installed xacro not found: ${XACRO_INPUT}" >&2
   exit 66
 fi
 
-CANONICAL_URDF="${INSTALL_SHARE}/generated/urdf/xMate3.urdf"
+CANONICAL_URDF="${INSTALL_SHARE}/generated/urdf/xMateER3.urdf"
 if [ ! -f "${CANONICAL_URDF}" ]; then
   echo "launch_smoke: installed canonical URDF not found: ${CANONICAL_URDF}" >&2
   exit 66
@@ -75,7 +88,7 @@ if [ ! -f "${RENDERER}" ]; then
   exit 66
 fi
 
-CANONICAL_METADATA="${INSTALL_SHARE}/generated/urdf/xMate3.description.json"
+CANONICAL_METADATA="${INSTALL_SHARE}/generated/urdf/xMateER3.description.json"
 if [ ! -f "${CANONICAL_METADATA}" ]; then
   echo "launch_smoke: installed canonical metadata not found: ${CANONICAL_METADATA}" >&2
   exit 66
@@ -90,19 +103,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
-xacro "${XACRO_INPUT}"   mesh_root:=model://rokae_xmate3_ros2/meshes/   package_share:="${INSTALL_SHARE}"   enable_ros2_control:=true   enable_xcore_plugin:=true   backend_mode:=hybrid   service_exposure_profile:=internal_full > "${XACRO_OUTPUT}"
+xacro "${XACRO_INPUT}"   mesh_root:=model://rokae_xmate3_ros2/meshes/   package_share:="${INSTALL_SHARE}"   enable_ros2_control:=true   enable_xcore_plugin:=true   backend_mode:=hybrid   service_exposure_profile:=internal_full   compatibility_alias_policy:=canonical_plus_compat > "${XACRO_OUTPUT}"
 
-"${PYTHON_BIN}" "${RENDERER}"   --model "${CANONICAL_URDF}"   --package-share "${INSTALL_SHARE}"   --mesh-root model://rokae_xmate3_ros2/meshes/   --enable-ros2-control true   --enable-xcore-plugin true   --backend-mode jtc   --service-exposure-profile public_xmate6_only   --canonical-model "${CANONICAL_URDF}"   --canonical-metadata "${CANONICAL_METADATA}"   --allow-noncanonical-model false >"${CANONICAL_PUBLIC_OUTPUT}"
-if ! grep -q "<backend_mode>jtc</backend_mode>" "${CANONICAL_PUBLIC_OUTPUT}"; then
-  echo "launch_smoke: canonical public render missing jtc backend tag" >&2
+"${PYTHON_BIN}" "${RENDERER}"   --model "${CANONICAL_URDF}"   --package-share "${INSTALL_SHARE}"   --mesh-root model://rokae_xmate3_ros2/meshes/   --enable-ros2-control "${PUBLIC_ENABLE_ROS2_CONTROL}"   --enable-xcore-plugin "${PUBLIC_ENABLE_XCORE_PLUGIN}"   --backend-mode "${PUBLIC_BACKEND_MODE}"   --service-exposure-profile "${PUBLIC_SERVICE_EXPOSURE_PROFILE}"   --compatibility-alias-policy "${PUBLIC_COMPATIBILITY_ALIAS_POLICY}"   --canonical-model "${CANONICAL_URDF}"   --canonical-metadata "${CANONICAL_METADATA}"   --allow-noncanonical-model false >"${CANONICAL_PUBLIC_OUTPUT}"
+if ! grep -q "<backend_mode>${PUBLIC_BACKEND_MODE}</backend_mode>" "${CANONICAL_PUBLIC_OUTPUT}"; then
+  echo "launch_smoke: canonical public render missing expected backend tag: ${PUBLIC_BACKEND_MODE}" >&2
   exit 70
 fi
-if ! grep -q "<service_exposure_profile>public_xmate6_only</service_exposure_profile>" "${CANONICAL_PUBLIC_OUTPUT}"; then
-  echo "launch_smoke: canonical public render missing public exposure profile tag" >&2
+if ! grep -q "<service_exposure_profile>${PUBLIC_SERVICE_EXPOSURE_PROFILE}</service_exposure_profile>" "${CANONICAL_PUBLIC_OUTPUT}"; then
+  echo "launch_smoke: canonical public render missing expected service exposure profile tag: ${PUBLIC_SERVICE_EXPOSURE_PROFILE}" >&2
+  exit 70
+fi
+if ! grep -q "<compatibility_alias_policy>${PUBLIC_COMPATIBILITY_ALIAS_POLICY}</compatibility_alias_policy>" "${CANONICAL_PUBLIC_OUTPUT}"; then
+  echo "launch_smoke: canonical public render missing expected compatibility alias policy tag: ${PUBLIC_COMPATIBILITY_ALIAS_POLICY}" >&2
   exit 70
 fi
 
-"${PYTHON_BIN}" "${RENDERER}"   --model "${CANONICAL_URDF}"   --package-share "${INSTALL_SHARE}"   --mesh-root model://rokae_xmate3_ros2/meshes/   --enable-ros2-control true   --enable-xcore-plugin true   --backend-mode hybrid   --service-exposure-profile internal_full   --canonical-model "${CANONICAL_URDF}"   --canonical-metadata "${CANONICAL_METADATA}"   --allow-noncanonical-model false >"${CANONICAL_INTERNAL_OUTPUT}"
+"${PYTHON_BIN}" "${RENDERER}"   --model "${CANONICAL_URDF}"   --package-share "${INSTALL_SHARE}"   --mesh-root model://rokae_xmate3_ros2/meshes/   --enable-ros2-control true   --enable-xcore-plugin true   --backend-mode hybrid   --service-exposure-profile internal_full   --compatibility-alias-policy canonical_plus_compat   --canonical-model "${CANONICAL_URDF}"   --canonical-metadata "${CANONICAL_METADATA}"   --allow-noncanonical-model false >"${CANONICAL_INTERNAL_OUTPUT}"
 if ! cmp -s "${XACRO_OUTPUT}" "${CANONICAL_INTERNAL_OUTPUT}"; then
   echo "launch_smoke: canonical install-tree re-render does not match xacro for hybrid/internal_full" >&2
   exit 70
@@ -115,19 +132,23 @@ if ! grep -q "<service_exposure_profile>internal_full</service_exposure_profile>
   echo "launch_smoke: canonical internal render missing internal exposure profile tag" >&2
   exit 70
 fi
+if ! grep -q "<compatibility_alias_policy>canonical_plus_compat</compatibility_alias_policy>" "${CANONICAL_INTERNAL_OUTPUT}"; then
+  echo "launch_smoke: canonical internal render missing compatibility alias policy tag" >&2
+  exit 70
+fi
 
-"${PYTHON_BIN}" "${RENDERER}"   --model "${CANONICAL_URDF}"   --package-share "${INSTALL_SHARE}"   --mesh-root model://rokae_xmate3_ros2/meshes/   --enable-ros2-control true   --enable-xcore-plugin false   --backend-mode jtc   --service-exposure-profile public_xmate6_only   --canonical-model "${CANONICAL_URDF}"   --canonical-metadata "${CANONICAL_METADATA}"   --allow-noncanonical-model false >"${CANONICAL_NO_PLUGIN_OUTPUT}"
+"${PYTHON_BIN}" "${RENDERER}"   --model "${CANONICAL_URDF}"   --package-share "${INSTALL_SHARE}"   --mesh-root model://rokae_xmate3_ros2/meshes/   --enable-ros2-control "${PUBLIC_ENABLE_ROS2_CONTROL}"   --enable-xcore-plugin false   --backend-mode "${PUBLIC_BACKEND_MODE}"   --service-exposure-profile "${PUBLIC_SERVICE_EXPOSURE_PROFILE}"   --compatibility-alias-policy "${PUBLIC_COMPATIBILITY_ALIAS_POLICY}"   --canonical-model "${CANONICAL_URDF}"   --canonical-metadata "${CANONICAL_METADATA}"   --allow-noncanonical-model false >"${CANONICAL_NO_PLUGIN_OUTPUT}"
 if grep -q "xcore_controller_gazebo_plugin" "${CANONICAL_NO_PLUGIN_OUTPUT}"; then
   echo "launch_smoke: canonical install-tree render kept xcore plugin despite enable_xcore_plugin:=false" >&2
   exit 70
 fi
 
-if "${PYTHON_BIN}" "${RENDERER}"   --model "${XACRO_INPUT}"   --package-share "${INSTALL_SHARE}"   --mesh-root model://rokae_xmate3_ros2/meshes/   --enable-ros2-control true   --enable-xcore-plugin true   --backend-mode hybrid   --canonical-model "${CANONICAL_URDF}"   --canonical-metadata "${CANONICAL_METADATA}"   --allow-noncanonical-model false >/dev/null 2>&1; then
+if "${PYTHON_BIN}" "${RENDERER}"   --model "${XACRO_INPUT}"   --package-share "${INSTALL_SHARE}"   --mesh-root model://rokae_xmate3_ros2/meshes/   --enable-ros2-control true   --enable-xcore-plugin true   --backend-mode hybrid   --service-exposure-profile internal_full   --compatibility-alias-policy canonical_plus_compat   --canonical-model "${CANONICAL_URDF}"   --canonical-metadata "${CANONICAL_METADATA}"   --allow-noncanonical-model false >/dev/null 2>&1; then
   echo "launch_smoke: non-canonical xacro override unexpectedly succeeded without developer-mode opt-in" >&2
   exit 70
 fi
 
-"${PYTHON_BIN}" "${RENDERER}"   --model "${XACRO_INPUT}"   --package-share "${INSTALL_SHARE}"   --mesh-root model://rokae_xmate3_ros2/meshes/   --enable-ros2-control true   --enable-xcore-plugin true   --backend-mode hybrid   --canonical-model "${CANONICAL_URDF}"   --canonical-metadata "${CANONICAL_METADATA}"   --allow-noncanonical-model true >/dev/null
+"${PYTHON_BIN}" "${RENDERER}"   --model "${XACRO_INPUT}"   --package-share "${INSTALL_SHARE}"   --mesh-root model://rokae_xmate3_ros2/meshes/   --enable-ros2-control true   --enable-xcore-plugin true   --backend-mode hybrid   --service-exposure-profile internal_full   --compatibility-alias-policy canonical_plus_compat   --canonical-model "${CANONICAL_URDF}"   --canonical-metadata "${CANONICAL_METADATA}"   --allow-noncanonical-model true >/dev/null
 
 ros2 pkg prefix "${PKG_NAME}" >/dev/null
 ros2 launch "${PKG_NAME}" xmate3_simulation.launch.py --show-args >/dev/null

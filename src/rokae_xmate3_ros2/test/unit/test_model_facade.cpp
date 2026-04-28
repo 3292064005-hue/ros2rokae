@@ -13,11 +13,11 @@ namespace gm = rokae_xmate3_ros2::gazebo_model;
 class ModelFacadeTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    kinematics_ = std::make_unique<gazebo::xMate3Kinematics>();
+    kinematics_ = std::make_unique<gazebo::xMateER3Kinematics>();
     facade_ = std::make_unique<gm::ModelFacade>(*kinematics_);
   }
 
-  std::unique_ptr<gazebo::xMate3Kinematics> kinematics_;
+  std::unique_ptr<gazebo::xMateER3Kinematics> kinematics_;
   std::unique_ptr<gm::ModelFacade> facade_;
 
   // Standard test configurations
@@ -299,7 +299,7 @@ TEST(ModelFacadeUtilTest, ToVector6RoundTrip) {
 }
 
 TEST(ModelFacadeUtilTest, MakeModelFacadeFactoryFunction) {
-  gazebo::xMate3Kinematics kin;
+  gazebo::xMateER3Kinematics kin;
   const auto facade = gm::makeModelFacade(kin);
   const auto pose = facade.cartPose<6>(std::array<double, 6>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
 

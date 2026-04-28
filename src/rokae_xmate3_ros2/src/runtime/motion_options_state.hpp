@@ -8,7 +8,7 @@
 
 #include "runtime/runtime_snapshots.hpp"
 #include "runtime/request_adapter.hpp"
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -48,7 +48,7 @@ class MotionOptionsState {
   bool default_conf_opt_forced_ = false;
   bool avoid_singularity_enabled_ = false;
   bool soft_limit_enabled_ = false;
-  std::array<std::array<double, 2>, 6> soft_limits_ = rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits;
+  std::array<std::array<double, 2>, 6> soft_limits_ = rokae_xmate3_ros2::spec::xmate_er3_truth::kDefaultSoftLimits;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

@@ -73,6 +73,7 @@ REPORT_NAME="acceptance_report_container.json"
 ENVIRONMENT_CHECK_STATUS="not_run"
 ROSDEP_INSTALL_STATUS="not_run"
 QUICK_GATE_STATUS="not_run"
+FULL_SOURCE_GATE_STATUS="not_run"
 RELEASE_GATE_STATUS="not_requested"
 LAUNCH_SMOKE_STATUS="not_requested"
 IMAGE_BUILD_STATUS="not_run"
@@ -102,6 +103,7 @@ emit_report_host() {
     --environment-check-status "${ENVIRONMENT_CHECK_STATUS}"
     --rosdep-install-status "${ROSDEP_INSTALL_STATUS}"
     --quick-gate-status "${QUICK_GATE_STATUS}"
+    --full-source-gate-status "${FULL_SOURCE_GATE_STATUS}"
     --release-gate-status "${RELEASE_GATE_STATUS}"
     --launch-smoke-status "${LAUNCH_SMOKE_STATUS}"
     --image-build-status "${IMAGE_BUILD_STATUS}"
@@ -135,7 +137,7 @@ run_local_bundle() {
   fi
 
   if run_logged_step "${REPORT_DIR}/environment_check_local.log" \
-      "${PKG_ROOT}/tools/check_target_environment.sh" --quiet; then
+      "${PKG_ROOT}/tools/check_target_environment.sh"; then
     ENVIRONMENT_CHECK_STATUS="passed"
   else
     ENVIRONMENT_CHECK_STATUS="failed"
@@ -154,6 +156,16 @@ run_local_bundle() {
   else
     ROSDEP_INSTALL_STATUS="failed"
     FAILURE_REASON="rosdep_install_failed"
+    emit_report_host "${tmp_ws}" "${tmp_ws}/src/rokae_xmate3_ros2" "${local_report}"
+    return 1
+  fi
+
+  if run_logged_step "${REPORT_DIR}/full_source_gate_local.log" \
+      "${tmp_ws}/src/rokae_xmate3_ros2/tools/run_full_source_tree_build_gate.sh" "${tmp_ws}"; then
+    FULL_SOURCE_GATE_STATUS="passed"
+  else
+    FULL_SOURCE_GATE_STATUS="failed"
+    FAILURE_REASON="full_source_gate_failed"
     emit_report_host "${tmp_ws}" "${tmp_ws}/src/rokae_xmate3_ros2" "${local_report}"
     return 1
   fi
@@ -198,7 +210,17 @@ run_local_bundle() {
 }
 
 if [ "${RUN_LOCAL_TARGET_ENV}" = "1" ]; then
-  run_local_bundle
+  if run_local_bundle; then
+    verify_args=("${REPORT_DIR}/acceptance_report_local.json")
+    if [ "${RUN_RELEASE_GATE}" = "1" ]; then
+      verify_args+=(--require-release-gate)
+    fi
+    if [ "${RUN_LAUNCH_SMOKE}" = "1" ]; then
+      verify_args+=(--require-launch-smoke)
+    fi
+    python3 "${PKG_ROOT}/tools/verify_target_env_acceptance_report.py" "${verify_args[@]}"
+    exit $?
+  fi
   exit $?
 fi
 
@@ -226,6 +248,7 @@ mkdir -p /artifacts
 ENVIRONMENT_CHECK_STATUS="not_run"
 ROSDEP_INSTALL_STATUS="not_run"
 QUICK_GATE_STATUS="not_run"
+FULL_SOURCE_GATE_STATUS="not_run"
 RELEASE_GATE_STATUS="not_requested"
 LAUNCH_SMOKE_STATUS="not_requested"
 ACCEPTANCE_STATUS="failed"
@@ -252,6 +275,7 @@ emit_report() {
     --environment-check-status "${ENVIRONMENT_CHECK_STATUS}"
     --rosdep-install-status "${ROSDEP_INSTALL_STATUS}"
     --quick-gate-status "${QUICK_GATE_STATUS}"
+    --full-source-gate-status "${FULL_SOURCE_GATE_STATUS}"
     --release-gate-status "${RELEASE_GATE_STATUS}"
     --launch-smoke-status "${LAUNCH_SMOKE_STATUS}"
     --image-build-status passed
@@ -267,7 +291,7 @@ emit_report() {
   python3 "${TMP_WS}/src/rokae_xmate3_ros2/tools/write_target_env_report.py" "${report_args[@]}"
 }
 if run_logged_step /artifacts/environment_check_container.log \
-    "${TMP_WS}/src/rokae_xmate3_ros2/tools/check_target_environment.sh" --quiet; then
+    "${TMP_WS}/src/rokae_xmate3_ros2/tools/check_target_environment.sh"; then
   ENVIRONMENT_CHECK_STATUS="passed"
 else
   ENVIRONMENT_CHECK_STATUS="failed"
@@ -281,6 +305,15 @@ if run_logged_step /artifacts/rosdep_install_container.log \
 else
   ROSDEP_INSTALL_STATUS="failed"
   FAILURE_REASON="rosdep_install_failed"
+  emit_report
+  exit 1
+fi
+if run_logged_step /artifacts/full_source_gate_container.log \
+    "${TMP_WS}/src/rokae_xmate3_ros2/tools/run_full_source_tree_build_gate.sh" "${TMP_WS}"; then
+  FULL_SOURCE_GATE_STATUS="passed"
+else
+  FULL_SOURCE_GATE_STATUS="failed"
+  FAILURE_REASON="full_source_gate_failed"
   emit_report
   exit 1
 fi
@@ -334,5 +367,16 @@ set -e
 if [ ${CONTAINER_STATUS} -ne 0 ] && [ ! -f "${REPORT_DIR}/${REPORT_NAME}" ]; then
   FAILURE_REASON="container_bundle_failed_before_report"
   emit_report_host "${PKG_ROOT}" "${PKG_ROOT}" "${REPORT_DIR}/${REPORT_NAME}"
+fi
+if [ ${CONTAINER_STATUS} -eq 0 ]; then
+  verify_args=("${REPORT_DIR}/${REPORT_NAME}")
+  if [ "${RUN_RELEASE_GATE}" = "1" ]; then
+    verify_args+=(--require-release-gate)
+  fi
+  if [ "${RUN_LAUNCH_SMOKE}" = "1" ]; then
+    verify_args+=(--require-launch-smoke)
+  fi
+  python3 "${PKG_ROOT}/tools/verify_target_env_acceptance_report.py" "${verify_args[@]}"
+  exit $?
 fi
 exit ${CONTAINER_STATUS}

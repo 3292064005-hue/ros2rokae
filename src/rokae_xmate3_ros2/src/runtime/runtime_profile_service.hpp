@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "runtime/backend_contract_catalog.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -17,7 +18,7 @@ struct RuntimeProfileDescriptor {
   std::vector<std::string> allowed_motion_families;
   std::string authority_scope{"runtime_request_coordinator"};
   std::string fidelity_class{"simulation_grade"};
-  std::string model_revision{"xmate6_public_v2026_04"};
+  std::string model_revision{rokae_xmate3_ros2::spec::xmate_er3_truth::modelRevision()};
   std::string provider_class{"unknown_provider"};
   bool rt_capable = false;
   bool sim_approx = true;

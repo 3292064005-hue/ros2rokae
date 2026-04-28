@@ -13,7 +13,7 @@
 #include "runtime/planning_utils.hpp"
 #include "runtime/pose_utils.hpp"
 #include "runtime/service_facade_utils.hpp"
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 #include "runtime/unified_retimer.hpp"
 #include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
 
@@ -32,12 +32,12 @@ void QueryFacade::handleGetPowerState(const rokae_xmate3_ros2::srv::GetPowerStat
 void QueryFacade::handleGetInfo(const rokae_xmate3_ros2::srv::GetInfo::Request &req,
                                 rokae_xmate3_ros2::srv::GetInfo::Response &res) const {
   (void)req;
-  res.model = rokae_xmate3_ros2::spec::xmate3::robotModelName();
-  res.robot_type = "3";
-  res.serial_number = rokae_xmate3_ros2::spec::xmate3::runtimeSerialNumber();
-  res.firmware_version = rokae_xmate3_ros2::spec::xmate3::controlSystemVersion();
-  res.sdk_version = rokae_xmate3_ros2::spec::xmate3::controlSystemVersion();
-  res.joint_num = static_cast<int32_t>(rokae_xmate3_ros2::spec::xmate3::kDoF);
+  res.model = rokae_xmate3_ros2::spec::xmate_er3_truth::robotModelName();
+  res.robot_type = "collaborative";
+  res.serial_number = rokae_xmate3_ros2::spec::xmate_er3_truth::runtimeSerialNumber();
+  res.firmware_version = rokae_xmate3_ros2::spec::xmate_er3_truth::controlSystemVersion();
+  res.sdk_version = rokae_xmate3_ros2::spec::xmate_er3_truth::wrapperVersion();
+  res.joint_num = static_cast<int32_t>(rokae_xmate3_ros2::spec::xmate_er3_truth::kDoF);
   res.success = true;
   res.message = "query_authority=runtime_request_coordinator";
 }
@@ -267,14 +267,14 @@ void QueryFacade::handleGetRtJointData(const rokae_xmate3_ros2::srv::GetRtJointD
   res.error_msg = "query_authority=runtime_request_coordinator";
 }
 
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
 void QueryFacade::handleGetAvoidSingularity(
     const rokae_xmate3_ros2::srv::GetAvoidSingularity::Request &req,
     rokae_xmate3_ros2::srv::GetAvoidSingularity::Response &res) const {
   (void)req;
   res.success = false;
   res.enabled = false;
-  res.message = "avoid singularity is not supported on the xMate6 compatibility lane";
+  res.message = "avoid singularity is not supported on the xMateER3 compatibility lane";
 }
 #endif
 

@@ -22,7 +22,7 @@ double max_joint_step(const std::vector<double> &lhs, const std::vector<double> 
 }
 
 bool build_joint_trajectory_from_cartesian(
-    ::gazebo::xMate3Kinematics &kinematics,
+    rokae_xmate3_ros2::kinematics::Provider &kinematics,
     const std::vector<std::vector<double>> &cartesian_trajectory,
     const std::vector<double> &initial_seed,
     const std::vector<int> &requested_conf,
@@ -33,7 +33,7 @@ bool build_joint_trajectory_from_cartesian(
     std::vector<std::vector<double>> &joint_trajectory,
     std::vector<double> &last_joints,
     std::string &error_message) {
-  ::gazebo::xMate3Kinematics::CartesianIkOptions options;
+  rokae_xmate3_ros2::kinematics::CartesianIkOptions options;
   options.requested_conf = requested_conf;
   options.strict_conf = strict_conf;
   options.avoid_singularity = avoid_singularity;
@@ -44,7 +44,7 @@ bool build_joint_trajectory_from_cartesian(
 }
 
 bool project_joint_derivatives_from_cartesian(
-    ::gazebo::xMate3Kinematics &kinematics,
+    rokae_xmate3_ros2::kinematics::Provider &kinematics,
     const std::vector<std::vector<double>> &cartesian_trajectory,
     const std::vector<std::vector<double>> &joint_trajectory,
     double trajectory_dt,

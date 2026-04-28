@@ -52,6 +52,7 @@ def main():
     parser.add_argument('--environment-check-status', default='not_run')
     parser.add_argument('--rosdep-install-status', default='not_run')
     parser.add_argument('--quick-gate-status', default='not_run')
+    parser.add_argument('--full-source-gate-status', default='not_run')
     parser.add_argument('--release-gate-status', default='not_requested')
     parser.add_argument('--launch-smoke-status', default='not_requested')
     parser.add_argument('--image-build-status', default='not_run')
@@ -67,6 +68,7 @@ def main():
     environment_check_status = validate_status('environment_check_status', args.environment_check_status)
     rosdep_install_status = validate_status('rosdep_install_status', args.rosdep_install_status)
     quick_gate_status = validate_status('quick_gate_status', args.quick_gate_status)
+    full_source_gate_status = validate_status('full_source_gate_status', args.full_source_gate_status)
     release_gate_status = validate_status('release_gate_status', args.release_gate_status)
     launch_smoke_status = validate_status('launch_smoke_status', args.launch_smoke_status)
     image_build_status = validate_status('image_build_status', args.image_build_status)
@@ -83,6 +85,7 @@ def main():
             'environment_check': environment_check_status,
             'rosdep_install': rosdep_install_status,
             'quick_gate': quick_gate_status,
+            'full_source_gate': full_source_gate_status,
             'release_gate': release_gate_status,
             'launch_smoke': launch_smoke_status,
             'image_build': image_build_status,
@@ -116,6 +119,7 @@ def main():
                 'environment_check': f"environment_check_{args.mode}.log",
                 'rosdep_install': f"rosdep_install_{args.mode}.log",
                 'quick_gate': f"quick_gate_{args.mode}.log",
+                'full_source_gate': f"full_source_gate_{args.mode}.log",
                 'release_gate': f"release_gate_{args.mode}.log",
                 'launch_smoke': f"launch_smoke_{args.mode}.log",
                 'image_build': 'image_build.log' if args.mode == 'container' else '',

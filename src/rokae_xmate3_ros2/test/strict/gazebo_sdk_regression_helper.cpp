@@ -644,7 +644,7 @@ double pointToSegmentDistanceMm(const Eigen::Vector3d &point,
 }
 
 double maxLineDeviationMm(const std::vector<JointSample> &samples,
-                          gazebo::xMate3Kinematics &kinematics,
+                          gazebo::xMateER3Kinematics &kinematics,
                           const std::vector<double> &start_pose,
                           const std::vector<double> &end_pose,
                           double window_start_sec,
@@ -686,7 +686,7 @@ bool computeCircleForDeviation(const std::vector<double> &start_pose,
 }
 
 double maxArcRadialDeviationMm(const std::vector<JointSample> &samples,
-                               gazebo::xMate3Kinematics &kinematics,
+                               gazebo::xMateER3Kinematics &kinematics,
                                const std::vector<double> &start_pose,
                                const std::vector<double> &aux_pose,
                                const std::vector<double> &end_pose,
@@ -724,7 +724,7 @@ double pointToPolylineDeviationMm(const Eigen::Vector3d &point, const std::vecto
 }
 
 double maxPolylineDeviationMm(const std::vector<JointSample> &samples,
-                              gazebo::xMate3Kinematics &kinematics,
+                              gazebo::xMateER3Kinematics &kinematics,
                               const std::vector<Eigen::Vector3d> &polyline,
                               double window_start_sec,
                               double window_end_sec) {
@@ -1079,7 +1079,7 @@ void writeSummaryJson(const std::filesystem::path &path, const std::vector<CaseM
 CaseMetrics runScenario(const Scenario &scenario,
                         rokae::xMateRobot &robot,
                         JointStateRecorder &recorder,
-                        gazebo::xMate3Kinematics &kinematics,
+                        gazebo::xMateER3Kinematics &kinematics,
                         const std::array<double, 6> &ready_pose,
                         RegressionMode mode) {
   CaseMetrics metrics;
@@ -1442,7 +1442,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::array<double, 6> ready_pose{0.0, 0.45, 0.08, 0.0, 0.72, 0.0};
   const auto ready_pose_vector = toVector(ready_pose);
   const auto start_pose = kinematics.forwardKinematicsRPY(ready_pose_vector);

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-usage: run_acceptance_layers.sh <workspace-root> [--up-to L0|L1|L2|L3|L4|L5] [--namespace /xmate3]
+usage: run_acceptance_layers.sh <workspace-root> [--up-to L0|L1|L2|L3|L4|L5] [--namespace /xmate_er3]
 
 Execute the confirmed L0-L5 layered acceptance ladder. L0-L2 run by default; L3-L5 require
 real runtime endpoints and environment variables consumed by the corresponding layer scripts.
@@ -18,7 +18,7 @@ fi
 WORKSPACE_ROOT="$1"
 shift
 UP_TO="L2"
-NAMESPACE="${ROKAE_ACCEPTANCE_NAMESPACE:-/xmate3}"
+NAMESPACE="${ROKAE_ACCEPTANCE_NAMESPACE:-/xmate_er3}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --up-to)
@@ -55,9 +55,9 @@ run_layer() {
       ;;
     L1)
       (cd "${WORKSPACE_ROOT}/build/rokae_xmate3_ros2" && ctest -L semantic_gate --output-on-failure)
-      local xmate6_alignment_gate
-      xmate6_alignment_gate="$(rokae_acceptance_tool_path "${SCRIPT_DIR}" "${WORKSPACE_ROOT}" run_xmate6_alignment_behavior_gate.sh)"
-      "${xmate6_alignment_gate}" "${WORKSPACE_ROOT}"
+      local xmate_er3_alignment_gate
+      xmate_er3_alignment_gate="$(rokae_acceptance_tool_path "${SCRIPT_DIR}" "${WORKSPACE_ROOT}" run_xmate_er3_alignment_behavior_gate.sh)"
+      "${xmate_er3_alignment_gate}" "${WORKSPACE_ROOT}"
       ;;
     L2)
       local launch_smoke

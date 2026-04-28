@@ -51,7 +51,7 @@ bool try_snapshot_operate_mode(ImplLike &impl, std::error_code &ec, rokae::Opera
  * @param ec Output error code. Cleared on success, including idempotent re-entry.
  * @throws None.
  * @note Boundary behavior: repeated connect requests are treated as successful idempotent no-ops
- *       so external callers can keep the same control flow they use against the official SDK.
+ *       so external callers can keep the same control flow they use against the SDK compatibility.
  */
 bool xMateRobot::supportsIo() const noexcept { return impl_ != nullptr && impl_->supportsIoPublicLane(); }
 

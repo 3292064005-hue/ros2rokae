@@ -20,7 +20,7 @@ bool allFinite(const Range &values) {
 
 struct xMateModel<6>::Impl {
   std::shared_ptr<detail::CompatRobotHandle> handle;
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   Load load{};
   std::array<double, 16> f_t_ee{detail::identity_matrix16()};
   std::array<double, 16> ee_t_k{detail::identity_matrix16()};
@@ -31,7 +31,7 @@ struct xMateModel<6>::Impl {
     Utils::transArrayToPosture(f_t_ee, posture);
     tool_pose = posture;
     return rokae_xmate3_ros2::gazebo_model::makeModelFacade(
-        const_cast<gazebo::xMate3Kinematics &>(kinematics), tool_pose, {load.mass, load.cog});
+        const_cast<gazebo::xMateER3Kinematics &>(kinematics), tool_pose, {load.mass, load.cog});
   }
 
   [[nodiscard]] std::array<double, 6> current_seed() const {

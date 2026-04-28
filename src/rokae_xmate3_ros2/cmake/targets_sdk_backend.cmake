@@ -15,6 +15,7 @@ set(ROKAE_SDK_BACKEND_SOURCES
   src/sdk/robot_motion_dispatch.cpp
   src/sdk/robot_rt.cpp
   src/sdk/robot_model.cpp
+  src/sdk/xmate_model.cpp
 )
 
 add_library(${PROJECT_NAME}_sdk_backend_objects OBJECT

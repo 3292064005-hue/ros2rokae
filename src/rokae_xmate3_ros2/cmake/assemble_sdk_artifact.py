@@ -82,8 +82,8 @@ def main() -> int:
             )
 
     manifest = {
-        "artifact_kind": "xcoresdk_public_xmate6",
-        "target_family": "xmate6",
+        "artifact_kind": "xcoresdk_public_xmate_er3",
+        "target_family": "xmate_er3",
         "source": str(staging_prefix),
         "file_count": len(entries),
         "files": entries,

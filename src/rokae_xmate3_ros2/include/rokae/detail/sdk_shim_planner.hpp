@@ -313,7 +313,7 @@ private:
         std::lock_guard<std::mutex> inner_lock(mutex_);
         JointPosition command;
         command.joints.assign(command_joints_.begin(), command_joints_.end());
-        const auto limits = rokae_xmate3_ros2::spec::xmate3::kJointVelocityLimit;
+        const auto limits = rokae_xmate3_ros2::spec::xmate_er3_truth::kJointVelocityLimit;
         bool converged = true;
         for (std::size_t axis = 0; axis < DoF; ++axis) {
           const double max_delta = std::max(1e-5, limits[axis] * scale_ * 0.001);

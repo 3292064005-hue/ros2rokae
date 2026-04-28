@@ -33,11 +33,11 @@ void QueryFacade::handleCalcFk(const rokae_xmate3_ros2::srv::CalcFk::Request &re
 void QueryFacade::handleCalcIk(const rokae_xmate3_ros2::srv::CalcIk::Request &req,
                                rokae_xmate3_ros2::srv::CalcIk::Response &res) const {
   struct RequestGuard {
-    explicit RequestGuard(::gazebo::xMate3Kinematics &kinematics) : kinematics_(kinematics) {
+    explicit RequestGuard(rokae_xmate3_ros2::kinematics::Provider &kinematics) : kinematics_(kinematics) {
       kinematics_.beginRequestContract("query_calc_ik");
     }
     ~RequestGuard() { kinematics_.endRequestContract(); }
-    ::gazebo::xMate3Kinematics &kinematics_;
+    rokae_xmate3_ros2::kinematics::Provider &kinematics_;
   } request_guard(kinematics_);
   std::vector<double> target(req.target_posture.begin(), req.target_posture.end());
   target = pose_utils::convertEndInRefToFlangeInBase(
@@ -53,7 +53,7 @@ void QueryFacade::handleCalcIk(const rokae_xmate3_ros2::srv::CalcIk::Request &re
     candidates.insert(candidates.begin(), seeded_fast);
   }
   const auto soft_limit = motion_options_state_.softLimit();
-  ::gazebo::xMate3Kinematics::CartesianIkOptions ik_options;
+  rokae_xmate3_ros2::kinematics::CartesianIkOptions ik_options;
   ik_options.requested_conf.assign(req.conf_data.begin(), req.conf_data.end());
   ik_options.strict_conf = motion_options_state_.defaultConfOptForced();
   ik_options.avoid_singularity = true;
@@ -220,6 +220,136 @@ void QueryFacade::handleGenerateSTrajectory(
 }
 
 #if ROKAE_ENABLE_INTERNAL_SURFACE
+void QueryFacade::handlePlannerPreflightReport(
+    const rokae_xmate3_ros2::srv::PlannerPreflightReport::Request &req,
+    rokae_xmate3_ros2::srv::PlannerPreflightReport::Response &res) const {
+  std::vector<double> start_joints;
+  if (req.use_start_joint_pos) {
+    start_joints.assign(req.start_joint_pos.begin(), req.start_joint_pos.end());
+  } else {
+    std::array<double, 6> pos{};
+    std::array<double, 6> vel{};
+    std::array<double, 6> tau{};
+    readAuthorityJointState(pos, vel, tau);
+    start_joints = detail::snapshot_joints(pos);
+  }
+
+  if (start_joints.size() != 6 || !detail::is_finite_vector(start_joints)) {
+    res.success = false;
+    res.ok = false;
+    res.reject_reason = "unreachable_pose";
+    res.detail = "planner_preflight_report requires 6 finite start joint values";
+    return;
+  }
+
+  MotionRequest request;
+  request.request_id = "planner_preflight_report";
+  request.start_joints = start_joints;
+  request.default_speed = req.speed > 0 ? static_cast<double>(req.speed) : motion_options_state_.defaultSpeed();
+  request.default_zone = req.zone >= 0 ? req.zone : motion_options_state_.defaultZone();
+  request.speed_scale = (std::isfinite(req.speed_scale) && req.speed_scale > 0.0)
+                            ? std::clamp(req.speed_scale, 0.05, 2.0)
+                            : motion_options_state_.speedScale();
+  request.strict_conf = req.strict_conf;
+  request.avoid_singularity = req.avoid_singularity;
+  const auto configured_soft_limit = motion_options_state_.softLimit();
+  request.soft_limit_enabled = req.soft_limit_enabled || configured_soft_limit.enabled;
+  request.soft_limits = req.soft_limit_enabled ? detail::soft_limits_from_request(req.soft_limits)
+                                               : configured_soft_limit.limits;
+  request.trajectory_dt = std::max(trajectory_dt_provider_(), 1e-3);
+
+  MotionCommandSpec command;
+  command.speed = request.default_speed;
+  command.zone = request.default_zone;
+  command.requested_conf.assign(req.conf_data.begin(), req.conf_data.end());
+  const auto toolset = tooling_state_.toolset();
+  switch (req.motion_kind) {
+    case rokae_xmate3_ros2::srv::PlannerPreflightReport::Request::MOTION_MOVE_ABSJ:
+      command.kind = MotionKind::move_absj;
+      command.target_joints.assign(req.target_joint_pos.begin(), req.target_joint_pos.end());
+      break;
+    case rokae_xmate3_ros2::srv::PlannerPreflightReport::Request::MOTION_MOVE_J:
+      command.kind = MotionKind::move_j;
+      command.target_cartesian = pose_utils::convertEndInRefToFlangeInBase(
+          detail::pose_from_array(req.target_posture), toolset.tool_pose, toolset.wobj_pose);
+      break;
+    case rokae_xmate3_ros2::srv::PlannerPreflightReport::Request::MOTION_MOVE_L:
+      command.kind = MotionKind::move_l;
+      command.target_cartesian = pose_utils::convertEndInRefToFlangeInBase(
+          detail::pose_from_array(req.target_posture), toolset.tool_pose, toolset.wobj_pose);
+      break;
+    case rokae_xmate3_ros2::srv::PlannerPreflightReport::Request::MOTION_MOVE_C:
+      command.kind = MotionKind::move_c;
+      command.target_cartesian = pose_utils::convertEndInRefToFlangeInBase(
+          detail::pose_from_array(req.target_posture), toolset.tool_pose, toolset.wobj_pose);
+      command.aux_cartesian = pose_utils::convertEndInRefToFlangeInBase(
+          detail::pose_from_array(req.aux_posture), toolset.tool_pose, toolset.wobj_pose);
+      break;
+    case rokae_xmate3_ros2::srv::PlannerPreflightReport::Request::MOTION_MOVE_CF:
+      command.kind = MotionKind::move_cf;
+      command.target_cartesian = pose_utils::convertEndInRefToFlangeInBase(
+          detail::pose_from_array(req.target_posture), toolset.tool_pose, toolset.wobj_pose);
+      command.aux_cartesian = pose_utils::convertEndInRefToFlangeInBase(
+          detail::pose_from_array(req.aux_posture), toolset.tool_pose, toolset.wobj_pose);
+      command.angle = req.angle;
+      break;
+    case rokae_xmate3_ros2::srv::PlannerPreflightReport::Request::MOTION_MOVE_SP:
+      command.kind = MotionKind::move_sp;
+      command.target_cartesian = pose_utils::convertEndInRefToFlangeInBase(
+          detail::pose_from_array(req.target_posture), toolset.tool_pose, toolset.wobj_pose);
+      command.angle = req.angle;
+      command.radius = req.radius;
+      command.radius_step = req.radius_step;
+      command.direction = req.direction;
+      break;
+    default:
+      res.success = false;
+      res.ok = false;
+      res.reject_reason = "unreachable_pose";
+      res.detail = "unsupported planner_preflight_report kind";
+      return;
+  }
+
+  if ((!command.target_joints.empty() && !detail::is_finite_vector(command.target_joints)) ||
+      (!command.target_cartesian.empty() && !detail::is_finite_vector(command.target_cartesian)) ||
+      (!command.aux_cartesian.empty() && !detail::is_finite_vector(command.aux_cartesian))) {
+    res.success = false;
+    res.ok = false;
+    res.reject_reason = "unreachable_pose";
+    res.detail = "planner_preflight_report targets must be finite";
+    return;
+  }
+
+  request.commands.push_back(command);
+  const auto preflight = runPlannerPreflight(request);
+  res.success = true;
+  res.ok = preflight.ok;
+  res.estimated_duration = preflight.estimated_duration;
+  res.request_profile = preflight.request_profile;
+  res.primary_backend = preflight.primary_backend;
+  res.auxiliary_backend = preflight.auxiliary_backend;
+  res.fallback_backend = preflight.fallback_backend;
+  res.fallback_reason = preflight.fallback_reason;
+  res.retimer_family = preflight.retimer_family;
+  res.branch_policy = preflight.branch_policy;
+  res.selected_branch = preflight.selected_branch;
+  res.dominant_motion_kind = preflight.dominant_motion_kind;
+  res.recommended_stop_point = preflight.recommended_stop_point;
+  res.strict_conf = preflight.strict_conf;
+  res.avoid_singularity = preflight.avoid_singularity;
+  res.soft_limit_enabled = preflight.soft_limit_enabled;
+  res.fallback_permitted = preflight.fallback_permitted;
+  res.fallback_used = preflight.fallback_used;
+  res.command_count = static_cast<uint32_t>(preflight.command_count);
+  res.branch_switch_risk = preflight.branch_switch_risk;
+  res.singularity_risk = preflight.singularity_risk;
+  res.continuity_risk = preflight.continuity_risk;
+  res.soft_limit_risk = preflight.soft_limit_risk;
+  res.reject_reason = preflight.reject_reason;
+  res.detail = preflight.detail;
+  res.notes = preflight.notes;
+}
+
 void QueryFacade::handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMotion::Request &req,
                                        rokae_xmate3_ros2::srv::ValidateMotion::Response &res) const {
   std::vector<double> start_joints;
@@ -367,7 +497,7 @@ void QueryFacade::handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMot
       }
       const auto multi_branch = kinematics_.inverseKinematicsMultiSolution(command.target_cartesian, start_joints);
       candidates.insert(candidates.end(), multi_branch.begin(), multi_branch.end());
-      ::gazebo::xMate3Kinematics::CartesianIkOptions options;
+      rokae_xmate3_ros2::kinematics::CartesianIkOptions options;
       options.requested_conf = command.requested_conf;
       options.strict_conf = request.strict_conf;
       options.avoid_singularity = request.avoid_singularity;

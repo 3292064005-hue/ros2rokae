@@ -13,7 +13,7 @@
 namespace rt = rokae_xmate3_ros2::runtime;
 
 TEST(MotionPlannerCoreTest, PlansReachableCartesianLookaheadSequence) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
 
@@ -201,7 +201,7 @@ TEST(MotionPlannerCoreTest, AppliesJointZoneBlendAndPreservesTimingMetadata) {
 
 
 TEST(MotionPlannerCoreTest, MoveJBranchRiskDisablesZoneBlendAndCarriesPlannerMetadata) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
 
@@ -253,7 +253,7 @@ TEST(MotionPlannerCoreTest, MoveJBranchRiskDisablesZoneBlendAndCarriesPlannerMet
 }
 
 TEST(MotionPlannerCoreTest, MixedModeZoneFallsBackToStopPointWithPlanNote) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const std::vector<double> joint_target = {0.05, 0.20, 1.48, 0.02, 1.28, 3.08};
   const auto start_pose = kinematics.forwardKinematicsRPY(joint_target);
@@ -296,7 +296,7 @@ TEST(MotionPlannerCoreTest, MixedModeZoneFallsBackToStopPointWithPlanNote) {
 }
 
 TEST(MotionPlannerCoreTest, LongCartesianPlansUseAdaptiveSamplingBeyondLegacyCaps) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
 
@@ -346,7 +346,7 @@ TEST(MotionPlannerCoreTest, LongCartesianPlansUseAdaptiveSamplingBeyondLegacyCap
 }
 
 TEST(MotionPlannerCoreTest, CartesianZoneZeroKeepsTrimMetadataAtZero) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
 
@@ -382,7 +382,7 @@ TEST(MotionPlannerCoreTest, CartesianZoneZeroKeepsTrimMetadataAtZero) {
 }
 
 TEST(MotionPlannerCoreTest, AcceptsNoOpMoveLWithoutFailingFollowingOffsetMoveL) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
 
@@ -417,7 +417,7 @@ TEST(MotionPlannerCoreTest, AcceptsNoOpMoveLWithoutFailingFollowingOffsetMoveL) 
 }
 
 TEST(MotionPlannerCoreTest, MoveSpUsesCartesianLookaheadPipelineAndDerivativeMetadata) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
 
@@ -520,7 +520,7 @@ TEST(MotionPlannerCoreTest, JointMoveDurationIsDominatedBySlowestAxisLimit) {
 
 
 TEST(MotionPlannerCoreTest, HighRiskMoveJSelectsConservativePlannerCandidate) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
 
@@ -567,7 +567,7 @@ TEST(MotionPlannerCoreTest, HighRiskMoveJSelectsConservativePlannerCandidate) {
 }
 
 TEST(MotionPlannerCoreTest, RequestContractLocksSinglePrimaryBackendAcrossPlan) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   const std::vector<double> start_joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   const auto start_pose = kinematics.forwardKinematicsRPY(start_joints);
 

@@ -1,0 +1,19 @@
+{
+  "name": "rokae-xmate_er3-dev",
+  "build": {
+    "dockerfile": "../docker/Dockerfile"
+  },
+  "workspaceFolder": "/workspaces/ros2rokae-main/src/rokae_xmate3_ros2",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.formatOnSave": true
+      },
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-python.python"
+      ]
+    }
+  },
+  "remoteUser": "root"
+}

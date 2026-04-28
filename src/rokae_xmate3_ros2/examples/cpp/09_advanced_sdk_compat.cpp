@@ -32,11 +32,11 @@ int main() {
   printSection("1 末端力矩与能力边界");
   robot.setAvoidSingularity(true, ec);
   if (ec) {
-    os << "setAvoidSingularity: xMate6 当前实现返回 unsupported（符合机型能力边界） -> "
+    os << "setAvoidSingularity: xMateER3 当前实现返回 unsupported（符合机型能力边界） -> "
        << ec.message() << std::endl;
     ec.clear();
   }
-  os << "skip getAvoidSingularity on xMate6 because the official manual scopes it to xMateCR/xMateSR only"
+  os << "skip getAvoidSingularity on xMateER3 because the official manual scopes it to xMateCR/xMateSR only"
      << std::endl;
 
   std::array<double, 6> joint_tau{};
@@ -85,7 +85,7 @@ int main() {
   robot.writeRegister("demo_counter", 0, counter, ec);
   if (ec) {
     if (isSimulationOnlyCapabilityError(ec)) {
-      printCapabilityStatus("public-lane", "register workflow is internal/backend only on the install-facing xMate6 SDK lane");
+      printCapabilityStatus("public-lane", "register workflow is internal/backend only on the install-facing xMateER3 SDK lane");
       ec.clear();
     } else if (reportError("writeRegister(demo_counter)", ec)) {
       cleanupRobot(robot);

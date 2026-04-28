@@ -12,12 +12,12 @@ INTERNAL_SERVICES = {
     "GetAvoidSingularity": "get_avoid_singularity",
     "GetDI": "get_di",
     "GetDO": "get_do",
-    "GetProfileCapabilities": "get_profile_capabilities",
     "GetRlProjectInfo": "get_rl_project_info",
     "GetToolCatalog": "get_tool_catalog",
     "GetWobjCatalog": "get_wobj_catalog",
     "LoadRLProject": "load_rl_project",
     "PauseRLProject": "pause_rl_project",
+    "PlannerPreflightReport": "planner_preflight_report",
     "ReadRegister": "read_register",
     "ReadRegisterEx": "read_register_ex",
     "RegisterDataCallback": "register_data_callback",
@@ -39,7 +39,6 @@ INTERNAL_SERVICES = {
 INTERNAL_ONLY_FILES = {
     Path("src/runtime/io_program_facade.cpp"),
     Path("src/runtime/query_catalog_service.cpp"),
-    Path("src/runtime/query_profile_service.cpp"),
 }
 
 SCAN_ROOTS = [

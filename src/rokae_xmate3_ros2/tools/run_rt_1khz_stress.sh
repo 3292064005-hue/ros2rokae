@@ -99,7 +99,7 @@ LAUNCH_LOG="${LOG_DIR}/rt_1khz_stress_launch.log"
 EXAMPLE_LOG="${LOG_DIR}/rt_1khz_stress_example.log"
 DIAG_LOG="${LOG_DIR}/rt_1khz_stress_runtime_status.log"
 
-MODEL_PATH="${WORKSPACE_ROOT}/install/rokae_xmate3_ros2/share/rokae_xmate3_ros2/urdf/xMate3.xacro"
+MODEL_PATH="${WORKSPACE_ROOT}/install/rokae_xmate3_ros2/share/rokae_xmate3_ros2/urdf/xMateER3.xacro"
 LAUNCH_PID=0
 if [[ "${RT_MODE}" == "daemon" ]]; then
   export ROKAE_RT_TRANSPORT_MODE="${ROKAE_RT_TRANSPORT_MODE:-shm_only}"
@@ -124,7 +124,7 @@ if [[ "${RT_MODE}" == "daemon" ]]; then
     -p rt_memory.lock_all:=true >"${LAUNCH_LOG}" 2>&1 &
 elif [[ "${RT_MODE}" == "simulation" ]]; then
   if [[ ! -f "${MODEL_PATH}" ]]; then
-    MODEL_PATH="${WORKSPACE_ROOT}/src/rokae_xmate3_ros2/urdf/xMate3.xacro"
+    MODEL_PATH="${WORKSPACE_ROOT}/src/rokae_xmate3_ros2/urdf/xMateER3.xacro"
   fi
   if [[ ! -f "${MODEL_PATH}" ]]; then
     echo "rt_1khz_stress: missing xacro model for non-canonical launch" >&2
@@ -189,8 +189,8 @@ wait_for_service() {
   done
 }
 
-wait_for_service "/xmate3/cobot/connect" 120
-wait_for_service "/xmate3/cobot/set_motion_control_mode" 60
+wait_for_service "/xmate_er3/cobot/connect" 120
+wait_for_service "/xmate_er3/cobot/set_motion_control_mode" 60
 
 STRESS_EXE="${WORKSPACE_ROOT}/install/rokae_xmate3_ros2/bin/example_27_rt_1khz_stress"
 if [[ ! -x "${STRESS_EXE}" ]]; then
@@ -220,7 +220,7 @@ if ! timeout "${EXAMPLE_TIMEOUT}" \
   exit 1
 fi
 
-if ! timeout 20 ros2 topic echo /xmate3/internal/runtime_status --once >"${DIAG_LOG}" 2>&1; then
+if ! timeout 20 ros2 topic echo /xmate_er3/cobot/runtime_status --once >"${DIAG_LOG}" 2>&1; then
   cat "${DIAG_LOG}" || true
   echo "rt_1khz_stress: failed to capture runtime status topic" >&2
   exit 1

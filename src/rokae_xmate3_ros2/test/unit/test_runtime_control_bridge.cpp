@@ -201,7 +201,7 @@ TEST(RuntimeControlBridgeTest, DirectRtTimeoutUsesConfiguredNetworkToleranceWind
 }
 
 TEST(RuntimeControlBridgeTest, DirectRtCartesianImpedanceConsumesForceControlFrameTransform) {
-  gazebo::xMate3Kinematics kinematics;
+  gazebo::xMateER3Kinematics kinematics;
   std::vector<double> seed_joints;
   std::vector<double> flange_pose;
   const std::vector<std::vector<double>> ik_probe_candidates{

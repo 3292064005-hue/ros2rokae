@@ -56,13 +56,21 @@ def _tracked_workspace_files(workspace_root: Path) -> list[Path]:
             "--others",
             "--exclude-standard",
         ],
-        check=True,
+        check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=30,
     )
     files: list[Path] = []
-    for raw in completed.stdout.split(b"\x00"):
+    if completed.returncode == 0:
+        raw_entries = completed.stdout.split(b"\x00")
+    else:
+        raw_entries = [
+            str(path.relative_to(workspace_root)).encode("utf-8")
+            for path in workspace_root.rglob("*")
+            if path.is_file()
+        ]
+    for raw in raw_entries:
         if not raw:
             continue
         relative = Path(raw.decode("utf-8"))
@@ -77,10 +85,13 @@ def _tracked_workspace_files(workspace_root: Path) -> list[Path]:
 
 
 def _source_files(package_root: Path, workspace_root: Path) -> list[tuple[Path, str]]:
-    try:
-        package_prefix = package_root.relative_to(workspace_root)
-    except ValueError as exc:
-        raise RuntimeError(f"package root {package_root} must live under workspace root {workspace_root}") from exc
+    if package_root == workspace_root:
+        package_prefix = Path('.')
+    else:
+        try:
+            package_prefix = package_root.relative_to(workspace_root)
+        except ValueError as exc:
+            raise RuntimeError(f"package root {package_root} must live under workspace root {workspace_root}") from exc
 
     archive_files: dict[str, Path] = {}
     for relative in _tracked_workspace_files(workspace_root):

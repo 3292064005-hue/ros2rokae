@@ -31,7 +31,7 @@ template <unsigned short DoF>
 class RtMotionControlCobot;
 
 /**
- * @brief Official-shaped RT motion control base for the xMate6 compatibility lane.
+ * @brief Official-shaped RT motion control base for the xMateER3 compatibility lane.
  */
 class XCORE_API BaseMotionControl {
  public:
@@ -48,7 +48,7 @@ class XCORE_API BaseMotionControl {
 
 /**
  * @brief Official-shaped realtime command specialization.
- * @note Deprecated helpers are retained for source compatibility and now forward to the robot-scoped RT state stream on the xMate6 public lane. They remain deprecated because the authoritative API lives on BaseRobot/Robot_T.
+ * @note Deprecated helpers are retained for source compatibility and now forward to the robot-scoped RT state stream on the xMateER3 public lane. They remain deprecated because the authoritative API lives on BaseRobot/Robot_T.
  */
 template <>
 class XCORE_API MotionControl<MotionControlMode::RtCommand> : public BaseMotionControl {
@@ -126,7 +126,7 @@ class XCORE_API MotionControl<MotionControlMode::RtCommand> : public BaseMotionC
 };
 
 /**
- * @brief xMate6-only RT motion control template specialization.
+ * @brief xMateER3-only RT motion control template specialization.
  */
 template <>
 class XCORE_API RtMotionControl<WorkType::collaborative, 6> : public MotionControl<MotionControlMode::RtCommand> {

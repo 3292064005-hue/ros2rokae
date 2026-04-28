@@ -4,7 +4,7 @@
 #include <cmath>
 
 #include "runtime/pose_utils.hpp"
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 
 namespace rokae_xmate3_ros2::runtime::detail {
 
@@ -72,7 +72,7 @@ rokae_xmate3_ros2::gazebo_model::LoadContext resolve_load_context(const ToolsetS
 }
 
 rokae_xmate3_ros2::gazebo_model::ModelFacade make_runtime_model_facade(
-    gazebo::xMate3Kinematics &kinematics,
+    rokae_xmate3_ros2::kinematics::Provider &kinematics,
     const ToolsetSnapshot &toolset) {
   return rokae_xmate3_ros2::gazebo_model::makeModelFacade(
       kinematics,
@@ -86,7 +86,7 @@ std::vector<double> pose_from_array(const std::array<double, 6> &pose) {
 }
 
 std::array<std::array<double, 2>, 6> soft_limits_from_request(const std::array<double, 12> &values) {
-  auto soft_limits = rokae_xmate3_ros2::spec::xmate3::kDefaultSoftLimits;
+  auto soft_limits = rokae_xmate3_ros2::spec::xmate_er3_truth::kDefaultSoftLimits;
   for (std::size_t axis = 0; axis < 6; ++axis) {
     soft_limits[axis][0] = values[axis * 2];
     soft_limits[axis][1] = values[axis * 2 + 1];

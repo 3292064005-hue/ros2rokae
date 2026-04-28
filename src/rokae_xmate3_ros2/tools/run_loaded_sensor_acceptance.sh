@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-usage: run_loaded_sensor_acceptance.sh <workspace-root> [--namespace /xmate3]
+usage: run_loaded_sensor_acceptance.sh <workspace-root> [--namespace /xmate_er3]
 
 Run the L4 loaded-sensor acceptance bundle. Required environment variables:
   ROKAE_ACCEPTANCE_REMOTE_IP
@@ -20,7 +20,7 @@ fi
 
 WORKSPACE_ROOT="$1"
 shift
-NAMESPACE="${ROKAE_ACCEPTANCE_NAMESPACE:-/xmate3}"
+NAMESPACE="${ROKAE_ACCEPTANCE_NAMESPACE:-/xmate_er3}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --namespace)

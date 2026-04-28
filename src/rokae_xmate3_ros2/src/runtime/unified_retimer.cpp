@@ -802,7 +802,7 @@ std::vector<std::vector<double>> resampleCartesianPosePath(const std::vector<std
 }
 
 UnifiedTrajectoryResult buildApproximateCartesianSTrajectory(
-    ::gazebo::xMate3Kinematics &kinematics,
+    rokae_xmate3_ros2::kinematics::Provider &kinematics,
     const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &request,
     double sample_dt,
     RetimerPolicy policy) {

@@ -16,13 +16,13 @@ def require_contains(path: Path, needle: str, label: str) -> None:
         failures.append(f"{label}: missing '{needle}' in {path.relative_to(ROOT)}")
 
 
-manifest_path = ROOT / "docs" / "reference" / "xmate6_official_alignment_manifest.json"
+manifest_path = ROOT / "docs" / "reference" / "xmate_er3_alignment_manifest.json"
 if not manifest_path.is_file():
     failures.append(f"missing alignment manifest: {manifest_path}")
 else:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("target_family") != "xmate6":
-        failures.append("manifest target_family must be xmate6")
+    if manifest.get("target_family") != "xmate_er3":
+        failures.append("manifest target_family must be xmate_er3")
     if manifest.get("alignment_scope") != "call_build_only":
         failures.append("manifest alignment_scope must be call_build_only")
     if manifest.get("contract_source") != "single_source_manifest":
@@ -43,7 +43,7 @@ else:
     behavior = manifest.get("behavior_evidence", {})
     if not behavior.get("unit_tests"):
         failures.append("manifest behavior_evidence.unit_tests must be non-empty")
-    if behavior.get("static_gate") != "test/harness/check_xmate6_alignment_behaviors.py":
+    if behavior.get("static_gate") != "test/harness/check_xmate_er3_alignment_behaviors.py":
         failures.append("manifest behavior_evidence.static_gate mismatch")
 
     if profiles.get("nrt") != "nrt_strict_parity":
@@ -81,9 +81,9 @@ else:
             require_contains(path, contains, f"manifest checks.{key}")
 
 if failures:
-    print("xmate6 official alignment check failed:")
+    print("xmate_er3 alignment check failed:")
     for item in failures:
         print(f"- {item}")
     sys.exit(1)
 
-print("xmate6 official alignment check passed")
+print("xmate_er3 alignment check passed")

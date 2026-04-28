@@ -18,7 +18,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 
 namespace gazebo::detail {
 
@@ -64,12 +64,12 @@ using Matrix6d = Eigen::Matrix<double, 6, 6>;
 using Vector6d = Eigen::Matrix<double, 6, 1>;
 using IKBackendConfig = KinematicsBackend::IKBackendConfig;
 
-constexpr auto kDhA = rokae_xmate3_ros2::spec::xmate3::improved_dh::kA;
-constexpr auto kDhAlpha = rokae_xmate3_ros2::spec::xmate3::improved_dh::kAlpha;
-constexpr auto kDhD = rokae_xmate3_ros2::spec::xmate3::improved_dh::kD;
-constexpr auto kJointOffset = rokae_xmate3_ros2::spec::xmate3::improved_dh::kJointOffset;
-constexpr auto kJointLimitsMin = rokae_xmate3_ros2::spec::xmate3::kJointLimitMin;
-constexpr auto kJointLimitsMax = rokae_xmate3_ros2::spec::xmate3::kJointLimitMax;
+constexpr auto kDhA = rokae_xmate3_ros2::spec::xmate_er3_truth::improved_dh::kA;
+constexpr auto kDhAlpha = rokae_xmate3_ros2::spec::xmate_er3_truth::improved_dh::kAlpha;
+constexpr auto kDhD = rokae_xmate3_ros2::spec::xmate_er3_truth::improved_dh::kD;
+constexpr auto kJointOffset = rokae_xmate3_ros2::spec::xmate_er3_truth::improved_dh::kJointOffset;
+constexpr auto kJointLimitsMin = rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMin;
+constexpr auto kJointLimitsMax = rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMax;
 
 
 
@@ -78,7 +78,7 @@ constexpr auto kJointLimitsMax = rokae_xmate3_ros2::spec::xmate3::kJointLimitMax
 
 constexpr std::array<double, 6> kSmokeReferenceJoints{0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
 constexpr const char *kPackageName = "rokae_xmate3_ros2";
-constexpr const char *kModelRoot = "xMate3_base";
+constexpr std::array<const char *, 2> kModelRoots{"xMateER3_base", "xMate3_base"};
 constexpr const char *kModelTip = "flange";
 constexpr double kConfAngleStrictToleranceDeg = 45.0;
 
@@ -1091,6 +1091,9 @@ std::string resolvePackageShareDir() {
     return ament_index_cpp::get_package_share_directory(kPackageName);
   } catch (const std::exception &) {
     const auto fallback = fallbackSourceShareDir();
+    if (std::filesystem::exists(fallback / "urdf" / "xMateER3.xacro")) {
+      return fallback.string();
+    }
     if (std::filesystem::exists(fallback / "urdf" / "xMate3.xacro")) {
       return fallback.string();
     }
@@ -1139,12 +1142,15 @@ std::string loadUrdfXml(std::string &origin) {
   std::vector<std::filesystem::path> candidates;
   if (const auto share_dir = resolvePackageShareDir(); !share_dir.empty()) {
     const auto share_path = std::filesystem::path(share_dir);
+    candidates.emplace_back(share_path / "generated" / "urdf" / "xMateER3.urdf");
     candidates.emplace_back(share_path / "generated" / "urdf" / "xMate3.urdf");
+    candidates.emplace_back(share_path / "generated" / "xMateER3.urdf");  // canonical installed layout
     candidates.emplace_back(share_path / "generated" / "xMate3.urdf");  // backward-compatible installed layout
+    candidates.emplace_back(share_path / "urdf" / "xMateER3.urdf");
     candidates.emplace_back(share_path / "urdf" / "xMate3.urdf");
   }
-#ifdef ROKAE_XMATE3_GENERATED_URDF_PATH
-  candidates.emplace_back(std::filesystem::path(ROKAE_XMATE3_GENERATED_URDF_PATH));
+#ifdef ROKAE_XMATE_ER3_GENERATED_URDF_PATH
+  candidates.emplace_back(std::filesystem::path(ROKAE_XMATE_ER3_GENERATED_URDF_PATH));
 #endif
 
   for (const auto &candidate : candidates) {
@@ -1237,8 +1243,15 @@ SharedKdlModel buildSharedKdlModel() {
     return model;
   }
 
-  if (!tree.getChain(kModelRoot, kModelTip, model.chain)) {
-    model.reason = "failed to extract xMate3_base -> flange chain";
+  bool chain_found = false;
+  for (const char *root_name : kModelRoots) {
+    if (tree.getChain(root_name, kModelTip, model.chain)) {
+      chain_found = true;
+      break;
+    }
+  }
+  if (!chain_found) {
+    model.reason = "failed to extract xMateER3_base/xMate3_base -> flange chain";
     return model;
   }
 
@@ -1248,7 +1261,7 @@ SharedKdlModel buildSharedKdlModel() {
   }
 
   if (!smokeCheckKdlChain(model.chain)) {
-    model.reason = "URDF-derived KDL chain failed legacy DH smoke validation from " + urdf_origin;
+    model.reason = "URDF-derived KDL chain failed ER3 DH smoke validation from " + urdf_origin;
     return model;
   }
 

@@ -6,7 +6,7 @@
 namespace rokae_xmate3_ros2::runtime {
 
 enum class ServiceExposureProfile {
-  public_xmate6_only,
+  public_xmate_er3_only,
   internal_full,
 };
 
@@ -14,9 +14,9 @@ inline const char *to_string(ServiceExposureProfile profile) noexcept {
   switch (profile) {
     case ServiceExposureProfile::internal_full:
       return "internal_full";
-    case ServiceExposureProfile::public_xmate6_only:
+    case ServiceExposureProfile::public_xmate_er3_only:
     default:
-      return "public_xmate6_only";
+      return "public_xmate_er3_only";
   }
 }
 
@@ -24,9 +24,9 @@ inline ServiceExposureProfile defaultServiceExposureProfile() noexcept {
 #ifdef ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE
   constexpr const char *kDefaultProfile = ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE;
   return (std::string{kDefaultProfile} == "internal_full") ? ServiceExposureProfile::internal_full
-                                                            : ServiceExposureProfile::public_xmate6_only;
+                                                            : ServiceExposureProfile::public_xmate_er3_only;
 #else
-  return ServiceExposureProfile::public_xmate6_only;
+  return ServiceExposureProfile::public_xmate_er3_only;
 #endif
 }
 
@@ -34,7 +34,7 @@ inline ServiceExposureProfile parseServiceExposureProfile(const std::string &pro
   if (profile_name == "internal_full" || profile_name == "full" || profile_name == "internal") {
     return ServiceExposureProfile::internal_full;
   }
-  return ServiceExposureProfile::public_xmate6_only;
+  return ServiceExposureProfile::public_xmate_er3_only;
 }
 
 }  // namespace rokae_xmate3_ros2::runtime

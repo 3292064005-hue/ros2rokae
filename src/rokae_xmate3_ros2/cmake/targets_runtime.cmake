@@ -1,9 +1,10 @@
 # 1. 内部 runtime 私有分层（不导出私有头）
-if(ROKAE_PUBLIC_XMATE6_ONLY)
-  set(ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE "public_xmate6_only")
+if(ROKAE_PUBLIC_XMATE_ER3_ONLY)
+  set(ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE "public_xmate_er3_only")
 else()
   set(ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE "internal_full")
 endif()
+set(ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY_VALUE "${ROKAE_PUBLIC_DEFAULT_COMPATIBILITY_ALIAS_POLICY}")
 
 add_library(${PROJECT_NAME}_runtime_motion_core OBJECT
   src/gazebo/kinematics_backend.cpp
@@ -28,7 +29,7 @@ add_library(${PROJECT_NAME}_runtime_motion_core OBJECT
 )
 add_dependencies(${PROJECT_NAME}_runtime_motion_core ${PROJECT_NAME}_generated_urdf)
 target_compile_definitions(${PROJECT_NAME}_runtime_motion_core
-  PRIVATE ROKAE_XMATE3_GENERATED_URDF_PATH="${ROKAE_GENERATED_XMATE3_URDF}"
+  PRIVATE ROKAE_XMATE_ER3_GENERATED_URDF_PATH="${ROKAE_GENERATED_XMATE_ER3_URDF}"
 )
 
 add_library(${PROJECT_NAME}_runtime_state OBJECT
@@ -65,12 +66,12 @@ set(ROKAE_RUNTIME_FACADE_SOURCES
   src/runtime/query_state_service.cpp
   src/runtime/query_kinematics_service.cpp
   src/runtime/query_diagnostics_service.cpp
+  src/runtime/query_profile_service.cpp
   src/runtime/path_facade.cpp
 )
-if(ROKAE_ENABLE_INTERNAL_SURFACE)
+if(ROKAE_ENABLE_INTERNAL_SURFACE AND ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES)
   list(APPEND ROKAE_RUNTIME_FACADE_SOURCES
     src/runtime/query_catalog_service.cpp
-    src/runtime/query_profile_service.cpp
     src/runtime/io_program_facade.cpp
   )
 endif()
@@ -81,6 +82,7 @@ add_library(${PROJECT_NAME}_runtime_facade OBJECT
 
 add_library(${PROJECT_NAME}_runtime_ros_bridge OBJECT
   src/runtime/ros_bindings.cpp
+  src/runtime/service_contract_manifest.cpp
   src/runtime/ros_service_registry.cpp
   src/runtime/compatibility_alias_registry.cpp
   src/runtime/move_append_action_registry.cpp
@@ -124,7 +126,10 @@ foreach(runtime_target IN LISTS RUNTIME_PRIVATE_TARGETS)
     kdl_parser
   )
   target_compile_features(${runtime_target} PUBLIC cxx_std_17)
-  target_compile_definitions(${runtime_target} PRIVATE ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}")
+  target_compile_definitions(${runtime_target} PRIVATE
+    ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}"
+    ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY="${ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY_VALUE}"
+  )
   set_target_properties(${runtime_target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
   rokae_add_rosidl_dependency(${runtime_target})
 endforeach()
@@ -163,7 +168,10 @@ target_link_libraries(${PROJECT_NAME}_runtime_core
   "${cpp_typesupport_target}"
 )
 target_compile_features(${PROJECT_NAME}_runtime_core PUBLIC cxx_std_17)
-target_compile_definitions(${PROJECT_NAME}_runtime_core PRIVATE ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}")
+target_compile_definitions(${PROJECT_NAME}_runtime_core PRIVATE
+  ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}"
+  ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY="${ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY_VALUE}"
+)
 rokae_add_rosidl_dependency(${PROJECT_NAME}_runtime_core)
 
 add_executable(rokae_sim_runtime
@@ -204,7 +212,10 @@ target_link_libraries(rokae_sim_runtime
 )
 target_link_options(rokae_sim_runtime PRIVATE "-Wl,--disable-new-dtags")
 target_compile_features(rokae_sim_runtime PUBLIC cxx_std_17)
-target_compile_definitions(rokae_sim_runtime PRIVATE ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}")
+target_compile_definitions(rokae_sim_runtime PRIVATE
+  ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}"
+  ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY="${ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY_VALUE}"
+)
 rokae_add_rosidl_dependency(rokae_sim_runtime)
 
 set(_rokae_runtime_ros_lib "/opt/ros/humble/lib")
@@ -255,7 +266,10 @@ if(BUILD_TESTING)
     action_msgs
     kdl_parser
   )
-  target_compile_definitions(${PROJECT_NAME}_runtime_test PRIVATE ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}")
+  target_compile_definitions(${PROJECT_NAME}_runtime_test PRIVATE
+    ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE_VALUE}"
+    ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY="${ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY_VALUE}"
+  )
   target_link_libraries(${PROJECT_NAME}_runtime_test
     ${GAZEBO_LIBRARIES}
     "${cpp_typesupport_target}"

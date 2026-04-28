@@ -13,9 +13,11 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
+#include "runtime/kinematics_provider.hpp"
 #include "rokae_xmate3_ros2/msg/operation_state.hpp"
 #include "rokae_xmate3_ros2/msg/runtime_diagnostics.hpp"
 #include "runtime/backend_contract_catalog.hpp"
+#include "runtime/compatibility_alias_policy.hpp"
 #include "runtime/ros_bindings.hpp"
 #include "runtime/runtime_context.hpp"
 #include "runtime/runtime_control_bridge.hpp"
@@ -34,8 +36,11 @@ struct RuntimeHostBootstrapConfig {
 
 struct RuntimeHostPublishers {
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub;
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_compat_pub;
   rclcpp::Publisher<rokae_xmate3_ros2::msg::OperationState>::SharedPtr operation_state_pub;
+  rclcpp::Publisher<rokae_xmate3_ros2::msg::OperationState>::SharedPtr operation_state_compat_pub;
   rclcpp::Publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>::SharedPtr runtime_diagnostics_pub;
+  rclcpp::Publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>::SharedPtr runtime_diagnostics_compat_pub;
 };
 
 struct RuntimeHostExecutorState {
@@ -90,7 +95,7 @@ class RuntimeHostBuilder {
                         const RuntimeHostBootstrapConfig &host_bootstrap,
                         bool simulation_mode) const;
 
-  [[nodiscard]] RuntimeHostPublishers createPublishers() const;
+  [[nodiscard]] RuntimeHostPublishers createPublishers(CompatibilityAliasPolicy compatibility_alias_policy) const;
 
   [[nodiscard]] std::unique_ptr<RuntimePublishBridge> createPublishBridge(
       RuntimeContext &runtime_context) const;
@@ -102,12 +107,13 @@ class RuntimeHostBuilder {
   [[nodiscard]] std::unique_ptr<RosBindings> createRosBindings(
       RuntimeContext &runtime_context,
       RuntimePublishBridge *publish_bridge,
-      gazebo::xMate3Kinematics &kinematics,
+      rokae_xmate3_ros2::kinematics::Provider &kinematics,
       RuntimeHostJointStateFetcher joint_state_fetcher,
       RuntimeHostTimeProvider time_provider,
       RuntimeHostTrajectoryDtProvider trajectory_dt_provider,
       RuntimeHostRequestIdGenerator request_id_generator,
       ServiceExposureProfile service_exposure_profile,
+      CompatibilityAliasPolicy compatibility_alias_policy,
       const RuntimeRtProfileConfig &rt_profile) const;
 
   [[nodiscard]] rclcpp::TimerBase::SharedPtr createPublishTimer(

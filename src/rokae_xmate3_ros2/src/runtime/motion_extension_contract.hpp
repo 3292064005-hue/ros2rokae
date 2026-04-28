@@ -13,7 +13,7 @@ struct MotionExtensionContract {
   std::string request_surface;
   std::string planner_output;
   std::string backend_capability;
-  bool public_xmate6 = true;
+  bool public_xmate_er3 = true;
   bool experimental = false;
 };
 

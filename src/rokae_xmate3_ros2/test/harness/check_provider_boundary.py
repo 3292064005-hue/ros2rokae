@@ -20,7 +20,7 @@ bootstrap = read('src/gazebo/runtime_bootstrap.cpp')
 sim_main = read('src/runtime/sim_runtime_main.cpp')
 arch = read('docs/architecture/ARCHITECTURE.md')
 provider_doc = read('docs/architecture/PROVIDER_BOUNDARY.md')
-manifest = read('docs/reference/xmate6_official_alignment_manifest.json')
+manifest = read('docs/reference/xmate_er3_alignment_manifest.json')
 for legacy in ['RuntimeBackendHostFlavor','createSimulationBackend(','createHeadlessMockBackend(','host.hostFlavor()']:
     if legacy in hpp or legacy in cpp:
         failures.append(f'provider boundary still exposes legacy symbol: {legacy}')

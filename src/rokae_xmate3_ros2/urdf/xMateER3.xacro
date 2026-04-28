@@ -1,0 +1,306 @@
+<?xml version="1.0" ?>
+<robot name="xMateER3" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="xMateER3.ros2_control.xacro"/>
+
+  <!-- ==================== 常量定义 ==================== -->
+  <xacro:property name="M_PI" value="3.1415926535897931"/>
+  <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>
+  <xacro:arg name="mesh_root" default="package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/"/>
+  <xacro:arg name="package_share" default="."/>
+  <xacro:arg name="enable_ros2_control" default="true"/>
+  <xacro:arg name="enable_xcore_plugin" default="true"/>
+  <xacro:arg name="backend_mode" default="jtc"/>
+  <xacro:arg name="service_exposure_profile" default="public_xmate_er3_only"/>
+  <xacro:arg name="compatibility_alias_policy" default="canonical_plus_compat"/>
+  <xacro:arg name="joint_damping" default="0.5"/>
+  <xacro:arg name="joint_friction" default="0.1"/>
+  <xacro:arg name="flange_to_tool0_xyz" default="0 0 0"/>
+  <xacro:arg name="tool0_to_tcp_xyz" default="0 0 0"/>
+  <xacro:arg name="payload_xyz" default="0 0 0"/>
+  <xacro:arg name="payload_mass" default="0.0001"/>
+  <xacro:property name="mesh_prefix_root" value="$(arg mesh_root)"/>
+  <xacro:property name="mesh_prefix_vis" value="${mesh_prefix_root}visual/"/>
+  <xacro:property name="mesh_prefix_col" value="${mesh_prefix_root}collision/"/>
+  <xacro:property name="ros2_control_enabled" value="$(arg enable_ros2_control)"/>
+  <xacro:property name="xcore_plugin_enabled" value="$(arg enable_xcore_plugin)"/>
+  <xacro:property name="backend_mode_value" value="$(arg backend_mode)"/>
+  <xacro:property name="service_exposure_profile_value" value="$(arg service_exposure_profile)"/>
+  <xacro:property name="compatibility_alias_policy_value" value="$(arg compatibility_alias_policy)"/>
+  <xacro:property name="joint_damping_value" value="$(arg joint_damping)"/>
+  <xacro:property name="joint_friction_value" value="$(arg joint_friction)"/>
+
+  <!-- ==================== 材料定义 ==================== -->
+  <xacro:macro name="material_color" params="name r g b">
+    <material name="${name}">
+      <color rgba="${r} ${g} ${b} 1.0"/>
+    </material>
+  </xacro:macro>
+
+  <xacro:material_color name="black" r="0.0" g="0.0" b="0.0"/>
+  <xacro:material_color name="blue" r="0.0" g="0.0" b="0.8"/>
+  <xacro:material_color name="green" r="0.0" g="0.8" b="0.0"/>
+  <xacro:material_color name="grey" r="0.2" g="0.2" b="0.2"/>
+  <xacro:material_color name="orange" r="1.0" g="0.423529411765" b="0.0392156862745"/>
+  <xacro:material_color name="brown" r="0.870588235294" g="0.811764705882" b="0.764705882353"/>
+  <xacro:material_color name="red" r="0.8" g="0.0" b="0.0"/>
+  <xacro:material_color name="white" r="1.0" g="1.0" b="1.0"/>
+  <xacro:material_color name="Beige" r="1.0" g="0.784" b="0.5765"/>
+
+  <!-- ==================== Link宏 ==================== -->
+  <xacro:macro name="robot_link" params="name vis_mesh col_mesh mass ixx ixy ixz iyy iyz izz ox oy oz vis_material:=white">
+    <link name="${name}">
+      <visual>
+        <geometry>
+          <mesh filename="${mesh_prefix_vis}${vis_mesh}" scale="${mesh_scale}"/>
+        </geometry>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <material name="${vis_material}"/>
+      </visual>
+      <inertial>
+        <mass value="${mass}"/>
+        <inertia ixx="${ixx}" ixy="${ixy}" ixz="${ixz}" iyy="${iyy}" iyz="${iyz}" izz="${izz}"/>
+        <origin rpy="0 0 0" xyz="${ox} ${oy} ${oz}"/>
+      </inertial>
+      <collision>
+        <geometry>
+          <mesh filename="${mesh_prefix_col}${col_mesh}" scale="${mesh_scale}"/>
+        </geometry>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+      </collision>
+    </link>
+  </xacro:macro>
+
+  <!-- ==================== Joint宏 ==================== -->
+  <xacro:macro name="robot_joint" params="name parent child axis_x axis_y axis_z limit_effort limit_lower limit_upper limit_vel ox oy oz damping:=${joint_damping_value} friction:=${joint_friction_value}">
+    <joint name="${name}" type="revolute">
+      <parent link="${parent}"/>
+      <child link="${child}"/>
+      <limit effort="${limit_effort}" lower="${limit_lower}" upper="${limit_upper}" velocity="${limit_vel}"/>
+      <axis xyz="${axis_x} ${axis_y} ${axis_z}"/>
+      <origin rpy="0 0 0" xyz="${ox} ${oy} ${oz}"/>
+      <dynamics damping="${damping}" friction="${friction}"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="frame_link" params="name mass:=0.0001">
+    <link name="${name}">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="${mass}"/>
+        <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+      </inertial>
+    </link>
+  </xacro:macro>
+
+  <!-- ==================== Transmission宏 ==================== -->
+  <xacro:macro name="robot_transmission" params="name joint_name actuator_name">
+    <!-- Legacy transmissions are intentionally omitted in the ros2_control/Gazebo path.
+         The current simulation stack drives joints via ros2_control interfaces and the
+         xCore Gazebo plugin directly, so emitting ROS1-style transmissions only adds
+         redundant metadata and has been a frequent source of startup instability. -->
+  </xacro:macro>
+
+  <!-- ==================== 世界固定关节 ==================== -->
+  <link name="world"/>
+  <joint name="fixed" type="fixed">
+    <parent link="world"/>
+    <child link="xMateER3_base"/>
+  </joint>
+
+  <!-- ==================== Base Link ==================== -->
+  <xacro:robot_link
+    name="xMateER3_base"
+    vis_mesh="xMateER3_base.stl"
+    col_mesh="xMateER3_base.stl"
+    mass="3.44074938"
+    ixx="0.0176" ixy="0" ixz="0" iyy="0.0166" iyz="0" izz="0.0172"
+    ox="-0.000072769597" oy="-0.01679187012" oz="0.2986854502"
+    vis_material="white"/>
+
+  <xacro:robot_joint
+    name="xmate_joint_1"
+    parent="xMateER3_base"
+    child="xMateER3_link1"
+    axis_x="0" axis_y="0" axis_z="1"
+    limit_effort="85" limit_lower="-3.0527" limit_upper="3.0527" limit_vel="2.175"
+    ox="0" oy="0" oz="0" damping="0.5"/>
+
+  <xacro:robot_transmission
+    name="tran1"
+    joint_name="xmate_joint_1"
+    actuator_name="motor1"/>
+
+  <!-- ==================== Link 1 ==================== -->
+  <xacro:robot_link
+    name="xMateER3_link1"
+    vis_mesh="xMateER3_link1.stl"
+    col_mesh="xMateER3_link1.stl"
+    mass="3.44074938"
+    ixx="0.0176" ixy="0" ixz="0" iyy="0.0166" iyz="0" izz="0.0342"
+    ox="-0.000072769597" oy="-0.01679187012" oz="0.2986854502"
+    vis_material="white"/>
+
+  <xacro:robot_joint
+    name="xmate_joint_2"
+    parent="xMateER3_link1"
+    child="xMateER3_link2"
+    axis_x="0" axis_y="1" axis_z="0"
+    limit_effort="85" limit_lower="-2.0933" limit_upper="2.0933" limit_vel="2.175"
+    ox="0" oy="0" oz="0.3415" damping="0.5"/>
+
+  <xacro:robot_transmission
+    name="tran2"
+    joint_name="xmate_joint_2"
+    actuator_name="motor2"/>
+
+  <!-- ==================== Link 2 ==================== -->
+  <xacro:robot_link
+    name="xMateER3_link2"
+    vis_mesh="xMateER3_link2.stl"
+    col_mesh="xMateER3_link2.stl"
+    mass="5.024380503"
+    ixx="0.145" ixy="0" ixz="0" iyy="0.148" iyz="-0.024" izz="0.015"
+    ox="0" oy="0.003491209523" oz="0.2410487354"
+    vis_material="white"/>
+
+  <xacro:robot_joint
+    name="xmate_joint_3"
+    parent="xMateER3_link2"
+    child="xMateER3_link3"
+    axis_x="0" axis_y="1" axis_z="0"
+    limit_effort="85" limit_lower="-2.0933" limit_upper="2.0933" limit_vel="2.175"
+    ox="0" oy="0" oz="0.394" damping="0.5"/>
+
+  <xacro:robot_transmission
+    name="tran3"
+    joint_name="xmate_joint_3"
+    actuator_name="motor3"/>
+
+  <!-- ==================== Link 3 ==================== -->
+  <xacro:robot_link
+    name="xMateER3_link3"
+    vis_mesh="xMateER3_link3.stl"
+    col_mesh="xMateER3_link3.stl"
+    mass="2.439584706"
+    ixx="0.0262" ixy="0" ixz="0" iyy="0.0243" iyz="0" izz="0.0505"
+    ox="0" oy="0.023" oz="0.097"
+    vis_material="white"/>
+
+  <xacro:robot_joint
+    name="xmate_joint_4"
+    parent="xMateER3_link3"
+    child="xMateER3_link4"
+    axis_x="0" axis_y="0" axis_z="1"
+    limit_effort="85" limit_lower="-3.0527" limit_upper="3.0527" limit_vel="2.610"
+    ox="0" oy="0" oz="0.366" damping="0.5"/>
+
+  <xacro:robot_transmission
+    name="tran4"
+    joint_name="xmate_joint_4"
+    actuator_name="motor4"/>
+
+  <!-- ==================== Link 4 ==================== -->
+  <xacro:robot_link
+    name="xMateER3_link4"
+    vis_mesh="xMateER3_link4.stl"
+    col_mesh="xMateER3_link4.stl"
+    mass="2.439584706"
+    ixx="0.022" ixy="0" ixz="0" iyy="0.022" iyz="0" izz="0.004"
+    ox="0" oy="-0.020" oz="-0.046"
+    vis_material="white"/>
+
+  <xacro:robot_joint
+    name="xmate_joint_5"
+    parent="xMateER3_link4"
+    child="xMateER3_link5"
+    axis_x="0" axis_y="1" axis_z="0"
+    limit_effort="36" limit_lower="-2.0933" limit_upper="2.0933" limit_vel="2.610"
+    ox="0" oy="0" oz="0" damping="0.5"/>
+
+  <xacro:robot_transmission
+    name="tran5"
+    joint_name="xmate_joint_5"
+    actuator_name="motor5"/>
+
+  <!-- ==================== Link 5 ==================== -->
+  <xacro:robot_link
+    name="xMateER3_link5"
+    vis_mesh="xMateER3_link5.stl"
+    col_mesh="xMateER3_link5.stl"
+    mass="2.422757896"
+    ixx="0.016" ixy="0" ixz="0" iyy="0.015" iyz="0" izz="0.031"
+    ox="0" oy="0.012" oz="0.096"
+    vis_material="white"/>
+
+  <xacro:robot_joint
+    name="xmate_joint_6"
+    parent="xMateER3_link5"
+    child="xMateER3_link6"
+    axis_x="0" axis_y="0" axis_z="1"
+    limit_effort="36" limit_lower="-6.1082" limit_upper="6.1082" limit_vel="2.610"
+    ox="0" oy="0" oz="0.2503" damping="0.5"/>
+
+  <xacro:robot_transmission
+    name="tran6"
+    joint_name="xmate_joint_6"
+    actuator_name="motor6"/>
+
+  <!-- ==================== Link 6 ==================== -->
+  <xacro:robot_link
+    name="xMateER3_link6"
+    vis_mesh="xMateER3_link6.stl"
+    col_mesh="xMateER3_link6.stl"
+    mass="1.229800857"
+    ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"
+    ox="0" oy="0.017" oz="-0.043"
+    vis_material="white"/>
+
+  <xacro:frame_link name="flange"/>
+  <joint name="xmate_flange_joint" type="fixed">
+    <parent link="xMateER3_link6"/>
+    <child link="flange"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:frame_link name="tool0"/>
+  <joint name="xmate_tool0_joint" type="fixed">
+    <parent link="flange"/>
+    <child link="tool0"/>
+    <origin xyz="$(arg flange_to_tool0_xyz)" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:frame_link name="tcp"/>
+  <joint name="xmate_tcp_joint" type="fixed">
+    <parent link="tool0"/>
+    <child link="tcp"/>
+    <origin xyz="$(arg tool0_to_tcp_xyz)" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:frame_link name="payload" mass="$(arg payload_mass)"/>
+  <joint name="xmate_payload_joint" type="fixed">
+    <parent link="tcp"/>
+    <child link="payload"/>
+    <origin xyz="$(arg payload_xyz)" rpy="0 0 0"/>
+  </joint>
+
+  <!-- 强制锁定基座，Gazebo中不会被重力影响、不会移动 -->
+  <gazebo reference="xMateER3_base">
+    <static>true</static>
+  </gazebo>
+
+  <xacro:if value="${str(ros2_control_enabled).lower() == 'true' and str(backend_mode_value) != 'effort'}">
+    <xacro:xMateER3_ros2_control package_share="$(arg package_share)" backend_mode="$(arg backend_mode)"/>
+  </xacro:if>
+
+  <!-- xCore SDK 服务插件 - 提供 xCore SDK 兼容服务与 runtime，jtc 模式下仅让执行权保持在外部 JTC -->
+  <xacro:if value="${str(xcore_plugin_enabled).lower() == 'true'}">
+    <gazebo>
+      <plugin name="xcore_controller_gazebo_plugin" filename="libxcore_controller_gazebo_plugin.so">
+        <backend_mode>${backend_mode_value}</backend_mode>
+        <service_exposure_profile>${service_exposure_profile_value}</service_exposure_profile>
+        <compatibility_alias_policy>${compatibility_alias_policy_value}</compatibility_alias_policy>
+      </plugin>
+    </gazebo>
+  </xacro:if>
+
+</robot>

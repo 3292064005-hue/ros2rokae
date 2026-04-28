@@ -8,7 +8,7 @@
 
 ## 1. 适用范围
 
-该 schema 描述 **xMate6 public compatibility lane** 下的路径录制/回放资产最小消费契约。
+该 schema 描述 **xMateER3 public compatibility lane** 下的路径录制/回放资产最小消费契约。
 
 明确不描述：
 - RL 数据
@@ -21,16 +21,16 @@
 `ReplayPathAssetMetadata` 当前字段：
 
 - `version = v2`
-- `robot = xMate6`
-- `robot_model = xMate3`
-- `canonical_identity = xCoreSDK:xmate6`
+- `robot = xMateER3`
+- `robot_model = xMateER3`
+- `canonical_identity = xCoreSDK:xmate_er3`
 - `source = <producer label>`
 - `created_at_sec = <absolute capture timestamp of first accepted sample>`
 - `monotonic_step_sec = 0.01`
 
 说明：
 - `robot` 表示 public lane 家族身份，不再把 source-tree legacy 包名或 Gazebo model 名称当成 replay schema 的主身份。
-- `robot_model` 保留底层仿真模型来源，当前仍为 `xMate3`。
+- `robot_model` 固定为 canonical ER3 模型身份，不再把 legacy alias 或底层仿真资源名称写入 replay schema。
 - `canonical_identity` 是 install-facing 契约锚点。
 - `v1 -> v2` 的兼容策略是：消费侧允许读取 `v1`，并在归一化阶段补齐默认字段后按 `v2` 解释。
 

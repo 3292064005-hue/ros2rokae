@@ -18,10 +18,5 @@ elif [ -f "/opt/ros/humble/setup.bash" ]; then
   # shellcheck disable=SC1091
   . "/opt/ros/humble/setup.bash"
 fi
-"${SCRIPT_DIR}/check_target_environment.sh" --quiet
-"${SOURCE_TOOLS}/run_static_sanity.sh"
-"${SCRIPT_DIR}/clean_build_env.sh" colcon build --packages-select "${PKG_NAME}" --symlink-install
-cd "${WS_ROOT}/build/${PKG_NAME}"
-"${SCRIPT_DIR}/clean_build_env.sh" ctest -L quick_gate --output-on-failure
-"${SCRIPT_DIR}/clean_build_env.sh" ctest -L semantic_gate --output-on-failure
-"${SCRIPT_DIR}/run_xmate6_alignment_behavior_gate.sh" "${WS_ROOT}"
+"${SOURCE_TOOLS}/run_full_source_tree_build_gate.sh" "${WS_ROOT}" --ctest-labels "quick_gate;semantic_gate"
+"${SCRIPT_DIR}/run_xmate_er3_alignment_behavior_gate.sh" "${WS_ROOT}"

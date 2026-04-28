@@ -618,7 +618,7 @@ bool sample_cartesian_segment(CartesianRunSegment &segment,
   return true;
 }
 
-bool build_cartesian_run(::gazebo::xMate3Kinematics &kinematics,
+bool build_cartesian_run(::gazebo::xMateER3Kinematics &kinematics,
                          const MotionRequest &request,
                          const PlannerPreflightReport &preflight,
                          const std::vector<MotionCommandSpec> &commands,
@@ -988,18 +988,18 @@ void apply_joint_zone_blending(std::vector<PlannedSegment> &segments,
 
 namespace {
 struct KinematicsRequestGuard {
-  explicit KinematicsRequestGuard(::gazebo::xMate3Kinematics& kinematics, std::string request_id)
+  explicit KinematicsRequestGuard(::gazebo::xMateER3Kinematics& kinematics, std::string request_id)
       : kinematics_(kinematics) {
     kinematics_.beginRequestContract(request_id);
   }
   ~KinematicsRequestGuard() {
     kinematics_.endRequestContract();
   }
-  ::gazebo::xMate3Kinematics& kinematics_;
+  ::gazebo::xMateER3Kinematics& kinematics_;
 };
 }  // namespace
 
-MotionPlanner::MotionPlanner() : kinematics_(std::make_unique<::gazebo::xMate3Kinematics>()) {}
+MotionPlanner::MotionPlanner() : kinematics_(std::make_unique<::gazebo::xMateER3Kinematics>()) {}
 
 MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
   MotionPlan plan;
@@ -1142,7 +1142,7 @@ MotionPlan MotionPlanner::plan(const MotionRequest &request) const {
         }
         const auto multi_branch = kinematics_->inverseKinematicsMultiSolution(cmd.target_cartesian, current_joints);
         candidate_solutions.insert(candidate_solutions.end(), multi_branch.begin(), multi_branch.end());
-        ::gazebo::xMate3Kinematics::CartesianIkOptions ik_options;
+        ::gazebo::xMateER3Kinematics::CartesianIkOptions ik_options;
         ik_options.requested_conf = cmd.requested_conf;
         ik_options.strict_conf = request.strict_conf;
         ik_options.avoid_singularity = request.avoid_singularity;
@@ -1327,7 +1327,7 @@ void MotionPlanner::resetDebugCounters() const {
   kinematics_->resetDebugCounters();
 }
 
-::gazebo::xMate3Kinematics::DebugCounters MotionPlanner::debugCounters() const {
+::gazebo::xMateER3Kinematics::DebugCounters MotionPlanner::debugCounters() const {
   return kinematics_->debugCounters();
 }
 

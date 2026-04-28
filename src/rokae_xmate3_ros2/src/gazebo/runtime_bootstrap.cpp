@@ -296,7 +296,8 @@ void RuntimeBootstrap::start() {
       node_->declare_parameter("collision_retreat_distance", control_bridge_config.collision_retreat_distance),
       0.0);
 
-  kinematics_ = std::make_unique<xMate3Kinematics>();
+  kinematics_ = std::make_unique<xMateER3Kinematics>();
+  kinematics_provider_ = std::make_unique<rokae_xmate3_ros2::kinematics::GazeboProvider>(*kinematics_);
   const auto &backend_contract = backend_provider_->contract();
   GazeboRuntimeBackendHost backend_host(node_, joint_names_, joints_, original_joint_limits_);
   motion_backend_ = backend_provider_->createBackend(backend_host);
@@ -310,6 +311,13 @@ void RuntimeBootstrap::start() {
               "ROKAE_SERVICE_EXPOSURE_PROFILE",
               runtime::to_string(runtime::defaultServiceExposureProfile())));
   service_exposure_profile_ = runtime::parseServiceExposureProfile(requested_service_exposure_profile);
+  const std::string requested_compatibility_alias_policy =
+      node_->declare_parameter(
+          "compatibility_alias_policy",
+          getenvOrDefault(
+              "ROKAE_COMPATIBILITY_ALIAS_POLICY",
+              runtime::to_string(runtime::defaultCompatibilityAliasPolicy())));
+  compatibility_alias_policy_ = runtime::parseCompatibilityAliasPolicy(requested_compatibility_alias_policy);
   const std::string requested_runtime_profile = node_->declare_parameter("runtime_profile", inferred_runtime_profile);
   auto host_bootstrap = host_builder_->resolveBootstrap(
       requested_runtime_profile,
@@ -351,14 +359,15 @@ void RuntimeBootstrap::start() {
 
   RCLCPP_INFO(
       node_->get_logger(),
-      "runtime diagnostics ready: backend=%s provider=%s requested_profile=%s effective_profile=%s service_exposure_profile=%s rt_level=%s aliases=[get_joint_torque,get_end_torque] "
-      "services=[/xmate3/internal/get_runtime_diagnostics] "
-      "topic=[/xmate3/internal/runtime_status] profile_summary=%s",
+      "runtime diagnostics ready: backend=%s provider=%s requested_profile=%s effective_profile=%s service_exposure_profile=%s compatibility_alias_policy=%s rt_level=%s aliases=[get_joint_torque,get_end_torque] "
+      "services=[/xmate_er3/cobot/get_runtime_diagnostics] compatibility_aliases=[/xmate3/internal/get_runtime_diagnostics] "
+      "topic=[/xmate_er3/cobot/runtime_status] compatibility_alias_topic=[/xmate3/internal/runtime_status] profile_summary=%s",
       backend_contract.backend_mode.c_str(),
       backend_contract.provider_class.c_str(),
       requested_runtime_profile.c_str(),
       rt_profile_config_.effective_profile.c_str(),
       runtime::to_string(service_exposure_profile_),
+      runtime::to_string(compatibility_alias_policy_),
       backend_contract.public_rt_policy.c_str(),
       runtime::summarizeRuntimeRtProfile(rt_profile_config_).c_str());
 }
@@ -383,12 +392,13 @@ void RuntimeBootstrap::initRuntimeBindings(const runtime::RuntimeHostBootstrapCo
   ros_bindings_ = host_builder_->createRosBindings(
       *runtime_context_,
       publish_bridge_.get(),
-      *kinematics_,
+      *kinematics_provider_,
       joint_state_fetcher_,
       time_provider,
       trajectory_dt_provider,
       request_id_generator,
       service_exposure_profile_,
+      compatibility_alias_policy_,
       rt_profile_config_);
   control_bridge_ = host_builder_->createControlBridge(*runtime_context_, host_bootstrap);
   initPublishTimer();
@@ -406,8 +416,15 @@ void RuntimeBootstrap::initPublishTimer() {
       joint_state_fetcher_,
       rt_profile_config_,
       [this]() {
-        if (shutting_down_.load() || !publish_bridge_ || !host_publishers_.joint_state_pub ||
-            !host_publishers_.operation_state_pub) {
+        const bool has_joint_state_publisher =
+            host_publishers_.joint_state_pub != nullptr || host_publishers_.joint_state_compat_pub != nullptr;
+        const bool has_operation_state_publisher =
+            host_publishers_.operation_state_pub != nullptr || host_publishers_.operation_state_compat_pub != nullptr;
+        const bool has_runtime_diagnostics_publisher =
+            host_publishers_.runtime_diagnostics_pub != nullptr ||
+            host_publishers_.runtime_diagnostics_compat_pub != nullptr;
+        if (shutting_down_.load() || !publish_bridge_ ||
+            (!has_joint_state_publisher && !has_operation_state_publisher && !has_runtime_diagnostics_publisher)) {
           return false;
         }
         static_cast<void>(collectShutdownContractState(false));
@@ -531,7 +548,7 @@ runtime::ShutdownContractView RuntimeBootstrap::collectShutdownContractState(boo
 }
 
 void RuntimeBootstrap::initPublishers() {
-  host_publishers_ = host_builder_->createPublishers();
+  host_publishers_ = host_builder_->createPublishers(compatibility_alias_policy_);
 }
 
 }  // namespace gazebo

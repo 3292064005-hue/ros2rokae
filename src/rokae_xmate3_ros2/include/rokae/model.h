@@ -19,7 +19,7 @@ template <unsigned short DoF>
 class Cobot;
 
 /**
- * @brief Segment selector used by the xMate6 compatibility model.
+ * @brief Segment selector used by the xMateER3 compatibility model.
  * @details The compatibility lane only promises xMate 6-axis semantics. Values that are
  *          not meaningful for the current simulation backend are accepted but may be mapped
  *          to the nearest supported segment frame.

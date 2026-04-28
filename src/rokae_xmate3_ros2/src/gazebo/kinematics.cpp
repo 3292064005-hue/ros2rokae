@@ -1,11 +1,11 @@
 /**
  * @file kinematics.cpp
- * @brief xMate3 运动学计算实现 (改进 DH 版 - 有限差分雅可比修复版)
+ * @brief xMateER3 运动学计算实现 (改进 DH 版 - 有限差分雅可比修复版)
  */
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 #include "gazebo/kinematics_backend.hpp"
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 
 #include <algorithm>
 #include <array>
@@ -32,9 +32,9 @@ detail::KinematicsBackend::IKRequest makeIkRequest(
     return request;
 }
 
-xMate3Kinematics::IkCandidateMetrics toPublicMetrics(
+xMateER3Kinematics::IkCandidateMetrics toPublicMetrics(
     const detail::KinematicsBackend::SeededIkCandidateMetrics &metrics) {
-    xMate3Kinematics::IkCandidateMetrics result;
+    xMateER3Kinematics::IkCandidateMetrics result;
     result.branch_distance = metrics.branch_distance;
     result.continuity_cost = metrics.continuity_cost;
     result.joint_limit_penalty = metrics.joint_limit_penalty;
@@ -47,19 +47,19 @@ xMate3Kinematics::IkCandidateMetrics toPublicMetrics(
 
 }  // namespace
 
-xMate3Kinematics::xMate3Kinematics() {
+xMateER3Kinematics::xMateER3Kinematics() {
     // Improved DH helper model kept as the authoritative auxiliary solver seed / fallback model.
-    dh_a_.assign(rokae_xmate3_ros2::spec::xmate3::improved_dh::kA.begin(),
-                 rokae_xmate3_ros2::spec::xmate3::improved_dh::kA.end());
-    dh_alpha_.assign(rokae_xmate3_ros2::spec::xmate3::improved_dh::kAlpha.begin(),
-                     rokae_xmate3_ros2::spec::xmate3::improved_dh::kAlpha.end());
-    dh_d_.assign(rokae_xmate3_ros2::spec::xmate3::improved_dh::kD.begin(),
-                 rokae_xmate3_ros2::spec::xmate3::improved_dh::kD.end());
+    dh_a_.assign(rokae_xmate3_ros2::spec::xmate_er3_truth::improved_dh::kA.begin(),
+                 rokae_xmate3_ros2::spec::xmate_er3_truth::improved_dh::kA.end());
+    dh_alpha_.assign(rokae_xmate3_ros2::spec::xmate_er3_truth::improved_dh::kAlpha.begin(),
+                     rokae_xmate3_ros2::spec::xmate_er3_truth::improved_dh::kAlpha.end());
+    dh_d_.assign(rokae_xmate3_ros2::spec::xmate_er3_truth::improved_dh::kD.begin(),
+                 rokae_xmate3_ros2::spec::xmate_er3_truth::improved_dh::kD.end());
 
-    joint_limits_min_.assign(rokae_xmate3_ros2::spec::xmate3::kJointLimitMin.begin(),
-                             rokae_xmate3_ros2::spec::xmate3::kJointLimitMin.end());
-    joint_limits_max_.assign(rokae_xmate3_ros2::spec::xmate3::kJointLimitMax.begin(),
-                             rokae_xmate3_ros2::spec::xmate3::kJointLimitMax.end());
+    joint_limits_min_.assign(rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMin.begin(),
+                             rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMin.end());
+    joint_limits_max_.assign(rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMax.begin(),
+                             rokae_xmate3_ros2::spec::xmate_er3_truth::kJointLimitMax.end());
     policy_ = detail::resolveKinematicsPolicy();
     backend_ = detail::makePreferredKinematicsBackend();
     last_trace_.primary_backend = backendName();
@@ -72,7 +72,7 @@ xMate3Kinematics::xMate3Kinematics() {
 // ==================================================
 // 核心辅助函数：100%保留你的初始偏移逻辑
 // ==================================================
-std::vector<Matrix4d> xMate3Kinematics::computeAllTransforms(const std::vector<double>& joints) {
+std::vector<Matrix4d> xMateER3Kinematics::computeAllTransforms(const std::vector<double>& joints) {
     if (backend_) {
         return backend_->computeAllTransforms(joints);
     }
@@ -88,7 +88,7 @@ std::vector<Matrix4d> xMate3Kinematics::computeAllTransforms(const std::vector<d
 }
 
 // -------------------------- 正运动学 - 完全保留你的原版 --------------------------
-Matrix4d xMate3Kinematics::forwardKinematics(const std::vector<double>& joints) {
+Matrix4d xMateER3Kinematics::forwardKinematics(const std::vector<double>& joints) {
     last_trace_.request_kind = "fk";
     last_trace_.primary_backend = backendName();
     last_trace_.fallback_backend = policy_.fallbackBackendName();
@@ -106,7 +106,7 @@ Matrix4d xMate3Kinematics::forwardKinematics(const std::vector<double>& joints) 
 }
 
 // -------------------------- 正运动学RPY - 完全保留你的原版 --------------------------
-std::vector<double> xMate3Kinematics::forwardKinematicsRPY(const std::vector<double>& joints) {
+std::vector<double> xMateER3Kinematics::forwardKinematicsRPY(const std::vector<double>& joints) {
     Matrix4d T = forwardKinematics(joints);
     std::vector<double> pose(6);
 
@@ -140,7 +140,7 @@ std::vector<double> xMate3Kinematics::forwardKinematicsRPY(const std::vector<dou
 
     return pose;
 }
-struct xMate3Kinematics::SingularityAnalysis {
+struct xMateER3Kinematics::SingularityAnalysis {
     Matrix6d jacobian = Matrix6d::Zero();
     JacobiSVD<Matrix6d> svd;
     double min_sigma = 0.0;
@@ -150,12 +150,12 @@ struct xMate3Kinematics::SingularityAnalysis {
     SingularityAnalysis();
 };
 
-xMate3Kinematics::SingularityAnalysis::SingularityAnalysis()
+xMateER3Kinematics::SingularityAnalysis::SingularityAnalysis()
     : svd(Matrix6d::Identity(), ComputeFullU | ComputeFullV) {}
 
 // -------------------------- 逆运动学 - 多解输出版（带奇异位处理） --------------------------
 // 新增返回值：所有满足精度的有效逆解，按与当前关节的运动距离从小到大排序
-std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolution(
+std::vector<std::vector<double>> xMateER3Kinematics::inverseKinematicsMultiSolution(
         const std::vector<double>& target,
         const std::vector<double>& current_joints) {
     last_trace_.request_kind = "ik_multi";
@@ -192,7 +192,7 @@ std::vector<std::vector<double>> xMate3Kinematics::inverseKinematicsMultiSolutio
     return candidates;
 }
 
-std::vector<double> xMate3Kinematics::inverseKinematics(
+std::vector<double> xMateER3Kinematics::inverseKinematics(
         const std::vector<double>& target,
         const std::vector<double>& current_joints) {
     const auto solutions = inverseKinematicsMultiSolution(target, current_joints);
@@ -202,7 +202,7 @@ std::vector<double> xMate3Kinematics::inverseKinematics(
     return solutions.front();
 }
 
-std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
+std::vector<double> xMateER3Kinematics::inverseKinematicsSeededFast(
         const std::vector<double>& target,
         const std::vector<double>& seed_joints) {
     last_trace_.request_kind = "ik_seeded";
@@ -232,7 +232,7 @@ std::vector<double> xMate3Kinematics::inverseKinematicsSeededFast(
     return solved.q;
 }
 
-xMate3Kinematics::Matrix6d xMate3Kinematics::computeJacobian(const std::vector<double>& joints) {
+xMateER3Kinematics::Matrix6d xMateER3Kinematics::computeJacobian(const std::vector<double>& joints) {
     ++debug_counters_.jacobian_calls;
     last_trace_.request_kind = "jacobian";
     last_trace_.primary_backend = backendName();
@@ -259,7 +259,7 @@ xMate3Kinematics::Matrix6d xMate3Kinematics::computeJacobian(const std::vector<d
     return J;
 }
 
-xMate3Kinematics::SingularityAnalysis xMate3Kinematics::analyzeSingularity(const std::vector<double>& joints) {
+xMateER3Kinematics::SingularityAnalysis xMateER3Kinematics::analyzeSingularity(const std::vector<double>& joints) {
     SingularityAnalysis analysis;
     if (!backend_ || joints.size() < 6) {
         return analysis;
@@ -278,22 +278,22 @@ xMate3Kinematics::SingularityAnalysis xMate3Kinematics::analyzeSingularity(const
     return analysis;
 }
 
-bool xMate3Kinematics::isNearSingularity(const std::vector<double>& joints) {
+bool xMateER3Kinematics::isNearSingularity(const std::vector<double>& joints) {
     return analyzeSingularity(joints).near_singularity;
 }
 
-double xMate3Kinematics::computeSingularityMeasure(const std::vector<double>& joints) {
+double xMateER3Kinematics::computeSingularityMeasure(const std::vector<double>& joints) {
     return analyzeSingularity(joints).singularity_measure;
 }
 
-bool xMate3Kinematics::avoidSingularity(std::vector<double>& joints) {
+bool xMateER3Kinematics::avoidSingularity(std::vector<double>& joints) {
     if (!backend_) {
         return false;
     }
     return backend_->avoidSingularity(joints);
 }
 
-double xMate3Kinematics::branchDistance(const std::vector<double>& lhs,
+double xMateER3Kinematics::branchDistance(const std::vector<double>& lhs,
                                         const std::vector<double>& rhs) const {
     if (backend_) {
         return backend_->branchDistance(lhs, rhs);
@@ -305,7 +305,7 @@ double xMate3Kinematics::branchDistance(const std::vector<double>& lhs,
     return max_distance;
 }
 
-xMate3Kinematics::IkCandidateMetrics xMate3Kinematics::evaluateIkCandidate(
+xMateER3Kinematics::IkCandidateMetrics xMateER3Kinematics::evaluateIkCandidate(
         const std::vector<double>& candidate,
         const std::vector<double>& seed_joints) const {
     if (candidate.size() < 6 || seed_joints.size() < 6) {
@@ -345,7 +345,7 @@ xMate3Kinematics::IkCandidateMetrics xMate3Kinematics::evaluateIkCandidate(
     return metrics;
 }
 
-xMate3Kinematics::IkSelectionResult xMate3Kinematics::selectBestIkSolution(
+xMateER3Kinematics::IkSelectionResult xMateER3Kinematics::selectBestIkSolution(
         const std::vector<std::vector<double>>& candidates,
         const std::vector<double>& target_pose,
         const std::vector<double>& seed_joints,
@@ -393,7 +393,7 @@ xMate3Kinematics::IkSelectionResult xMate3Kinematics::selectBestIkSolution(
     return result;
 }
 
-bool xMate3Kinematics::buildCartesianJointTrajectory(
+bool xMateER3Kinematics::buildCartesianJointTrajectory(
         const std::vector<std::vector<double>>& cartesian_trajectory,
         const std::vector<double>& initial_seed,
         const CartesianIkOptions& options,
@@ -440,7 +440,7 @@ bool xMate3Kinematics::buildCartesianJointTrajectory(
     return ok;
 }
 
-bool xMate3Kinematics::projectCartesianJointDerivatives(
+bool xMateER3Kinematics::projectCartesianJointDerivatives(
         const std::vector<std::vector<double>>& cartesian_trajectory,
         const std::vector<std::vector<double>>& joint_trajectory,
         double trajectory_dt,
@@ -478,15 +478,15 @@ bool xMate3Kinematics::projectCartesianJointDerivatives(
     return ok;
 }
 
-void xMate3Kinematics::resetDebugCounters() {
+void xMateER3Kinematics::resetDebugCounters() {
     debug_counters_ = DebugCounters{};
 }
 
-xMate3Kinematics::DebugCounters xMate3Kinematics::debugCounters() const {
+xMateER3Kinematics::DebugCounters xMateER3Kinematics::debugCounters() const {
     return debug_counters_;
 }
 
-const char *xMate3Kinematics::backendName() const noexcept {
+const char *xMateER3Kinematics::backendName() const noexcept {
     if (!backend_) {
         return "none";
     }
@@ -500,15 +500,15 @@ const char *xMate3Kinematics::backendName() const noexcept {
     return "unknown";
 }
 
-const KinematicsPolicy &xMate3Kinematics::policy() const noexcept {
+const KinematicsPolicy &xMateER3Kinematics::policy() const noexcept {
     return policy_;
 }
 
-const xMate3Kinematics::RequestTrace &xMate3Kinematics::lastTrace() const noexcept {
+const xMateER3Kinematics::RequestTrace &xMateER3Kinematics::lastTrace() const noexcept {
     return last_trace_;
 }
 
-void xMate3Kinematics::beginRequestContract(const std::string& request_id) const {
+void xMateER3Kinematics::beginRequestContract(const std::string& request_id) const {
     request_contract_ = RequestContractState{};
     request_contract_.active = true;
     request_contract_.request_id = request_id;
@@ -516,15 +516,15 @@ void xMate3Kinematics::beginRequestContract(const std::string& request_id) const
     request_contract_.locked_fallback_backend = policy_.fallbackBackendName();
 }
 
-void xMate3Kinematics::endRequestContract() const {
+void xMateER3Kinematics::endRequestContract() const {
     request_contract_.active = false;
 }
 
-xMate3Kinematics::RequestContractState xMate3Kinematics::requestContractState() const noexcept {
+xMateER3Kinematics::RequestContractState xMateER3Kinematics::requestContractState() const noexcept {
     return request_contract_;
 }
 
-void xMate3Kinematics::applyRequestContract() const {
+void xMateER3Kinematics::applyRequestContract() const {
     if (!request_contract_.active) {
         return;
     }
@@ -550,7 +550,7 @@ void xMate3Kinematics::applyRequestContract() const {
 }
 
 // -------------------------- 改进DH变换矩阵 - 完全保留你的原版 --------------------------
-Matrix4d xMate3Kinematics::dhTransform(int i, double theta) {
+Matrix4d xMateER3Kinematics::dhTransform(int i, double theta) {
     Matrix4d T;
     double ct = cos(theta);
     double st = sin(theta);
@@ -566,7 +566,7 @@ Matrix4d xMate3Kinematics::dhTransform(int i, double theta) {
 }
 
 // -------------------------- RPY转变换矩阵 - 完全保留你的原版 --------------------------
-Matrix4d xMate3Kinematics::rpyToTransform(const std::vector<double>& pose) {
+Matrix4d xMateER3Kinematics::rpyToTransform(const std::vector<double>& pose) {
     double rx = pose[3];
     double ry = pose[4];
     double rz = pose[5];
@@ -594,8 +594,8 @@ Matrix4d xMate3Kinematics::rpyToTransform(const std::vector<double>& pose) {
 }
 
 // -------------------------- 位姿误差计算 - 完全保留你的原版 --------------------------
-xMate3Kinematics::Vector6d
-xMate3Kinematics::computePoseError(
+xMateER3Kinematics::Vector6d
+xMateER3Kinematics::computePoseError(
         const Matrix4d& T_target,
         const Matrix4d& T_current) {
 

@@ -229,7 +229,7 @@ if(BUILD_TESTING)
     endif()
   endforeach()
 
-  set_tests_properties(test_move_queue_semantics PROPERTIES LABELS "quick_gate;semantic_gate;xmate6_alignment")
+  set_tests_properties(test_move_queue_semantics PROPERTIES LABELS "quick_gate;semantic_gate;xmate_er3_alignment")
   set_tests_properties(test_register_semantics PROPERTIES LABELS "quick_gate")
 
   foreach(target_name IN ITEMS test_ros_context_owner test_sdk_catalog_policy test_service_registry_descriptors)
@@ -284,6 +284,27 @@ add_test(
 )
 set_tests_properties(repo_contract PROPERTIES LABELS "quick_gate")
 rokae_disable_test_python_bytecode(repo_contract)
+
+add_test(
+  NAME runtime_source_integrity
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_runtime_source_integrity.py"
+)
+set_tests_properties(runtime_source_integrity PROPERTIES LABELS "quick_gate;contract_gate")
+rokae_disable_test_python_bytecode(runtime_source_integrity)
+
+add_test(
+  NAME full_source_build_gate_contract
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_full_source_build_gate_contract.py"
+)
+set_tests_properties(full_source_build_gate_contract PROPERTIES LABELS "quick_gate;contract_gate")
+rokae_disable_test_python_bytecode(full_source_build_gate_contract)
+
+add_test(
+  NAME target_env_acceptance_report_contract
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_target_env_acceptance_report_contract.py"
+)
+set_tests_properties(target_env_acceptance_report_contract PROPERTIES LABELS "quick_gate;contract_gate")
+rokae_disable_test_python_bytecode(target_env_acceptance_report_contract)
 
 add_test(
   NAME public_contract_manifest
@@ -402,7 +423,7 @@ rokae_disable_test_python_bytecode(public_internal_boundary)
     target_compile_features(test_implementation_audit PUBLIC cxx_std_17)
   endif()
 
-  set_tests_properties(test_runtime_state_machine PROPERTIES LABELS "quick_gate;semantic_gate;xmate6_alignment")
+  set_tests_properties(test_runtime_state_machine PROPERTIES LABELS "quick_gate;semantic_gate;xmate_er3_alignment")
 
   if(TARGET test_runtime_state_machine)
     target_include_directories(test_runtime_state_machine
@@ -487,7 +508,7 @@ rokae_disable_test_python_bytecode(public_internal_boundary)
     rokae_add_rosidl_dependency(test_runtime_state)
   endif()
 
-  set_tests_properties(test_service_facade PROPERTIES LABELS "quick_gate;semantic_gate;xmate6_alignment")
+  set_tests_properties(test_service_facade PROPERTIES LABELS "quick_gate;semantic_gate;xmate_er3_alignment")
 
   if(TARGET test_service_facade)
     target_include_directories(test_service_facade
@@ -1191,11 +1212,11 @@ if(BUILD_TESTING AND ROKAE_BUILD_COMPAT_SDK)
   rokae_disable_test_python_bytecode(compat_public_abi)
 
   add_test(
-    NAME xmate6_official_alignment
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_xmate6_official_alignment.py"
+    NAME xmate_er3_official_alignment
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_xmate_er3_alignment.py"
   )
-  set_tests_properties(xmate6_official_alignment PROPERTIES LABELS "quick_gate;abi_gate")
-  rokae_disable_test_python_bytecode(xmate6_official_alignment)
+  set_tests_properties(xmate_er3_official_alignment PROPERTIES LABELS "quick_gate;abi_gate")
+  rokae_disable_test_python_bytecode(xmate_er3_official_alignment)
 
   add_test(
     NAME compat_install_tree_consumer

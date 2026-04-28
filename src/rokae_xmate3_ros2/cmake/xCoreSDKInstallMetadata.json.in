@@ -1,0 +1,16 @@
+{
+  "canonical_package": "xCoreSDK",
+  "canonical_identity": "xCoreSDK:xmate_er3",
+  "target_family": "xmate_er3",
+  "primary_install_consumer": "@ROKAE_PUBLIC_PRIMARY_INSTALL_CONSUMER@",
+  "default_backend_mode": "@ROKAE_PUBLIC_DEFAULT_BACKEND_MODE@",
+  "backend_mode": "@ROKAE_PUBLIC_BACKEND_MODE@",
+  "default_runtime_host": "@ROKAE_PUBLIC_DEFAULT_RUNTIME_HOST@",
+  "default_runtime_profile": "@ROKAE_PUBLIC_DEFAULT_RUNTIME_PROFILE@",
+  "default_launch_profile": "@ROKAE_PUBLIC_DEFAULT_LAUNCH_PROFILE@",
+  "default_service_exposure_profile": "@ROKAE_PUBLIC_DEFAULT_SERVICE_EXPOSURE_PROFILE@",
+  "default_enable_ros2_control": "@ROKAE_PUBLIC_DEFAULT_ENABLE_ROS2_CONTROL@",
+  "default_enable_xcore_plugin": "@ROKAE_PUBLIC_DEFAULT_ENABLE_XCORE_PLUGIN@",
+  "default_compatibility_alias_policy": "@ROKAE_PUBLIC_DEFAULT_COMPATIBILITY_ALIAS_POLICY@",
+  "runtime_daemon_default": "@ROKAE_DAEMONIZED_RUNTIME_DEFAULT@"
+}

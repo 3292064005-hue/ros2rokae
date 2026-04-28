@@ -1,6 +1,6 @@
 /**
  * @file 27_rt_1khz_stress.cpp
- * @brief xMate6 RT 1kHz stress runner (official SDK calling style).
+ * @brief xMateER3 RT 1kHz stress runner (SDK compatibility calling style).
  */
 
 #include <algorithm>

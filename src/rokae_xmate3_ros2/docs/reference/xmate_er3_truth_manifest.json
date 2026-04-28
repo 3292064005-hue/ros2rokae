@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "target_family": "xmate_er3",
+  "canonical_identity": "xCoreSDK:xmate_er3",
+  "model_revision": "xmate_er3_public_v2026_04",
+  "canonical_description": {
+    "source_xacro": "urdf/xMateER3.xacro",
+    "generated_urdf": "<build>/generated/urdf/xMateER3.urdf",
+    "generated_metadata": "<build>/generated/urdf/xMateER3.description.json",
+    "compatibility_alias_source_xacro": "urdf/xMate3.xacro",
+    "compatibility_alias_generated_urdf": "<build>/generated/urdf/xMate3.urdf",
+    "compatibility_alias_generated_metadata": "<build>/generated/urdf/xMate3.description.json"
+  },
+  "joint_names": [
+    "xmate_joint_1",
+    "xmate_joint_2",
+    "xmate_joint_3",
+    "xmate_joint_4",
+    "xmate_joint_5",
+    "xmate_joint_6"
+  ],
+  "joint_limits_min": [
+    -3.0527,
+    -2.0933,
+    -2.0933,
+    -3.0527,
+    -2.0933,
+    -6.1082
+  ],
+  "joint_limits_max": [
+    3.0527,
+    2.0933,
+    2.0933,
+    3.0527,
+    2.0933,
+    6.1082
+  ],
+  "joint_velocity_limit": [
+    2.175,
+    2.175,
+    2.175,
+    2.61,
+    2.61,
+    2.61
+  ],
+  "joint_acceleration_limit": [
+    15.0,
+    7.5,
+    10.0,
+    15.0,
+    15.0,
+    20.0
+  ],
+  "joint_jerk_hint": [
+    5000.0,
+    3500.0,
+    5000.0,
+    7500.0,
+    7500.0,
+    7500.0
+  ],
+  "direct_torque_limit": [
+    85.0,
+    85.0,
+    85.0,
+    36.0,
+    36.0,
+    36.0
+  ],
+  "direct_torque_rate_limit": [
+    1500.0,
+    1500.0,
+    1500.0,
+    1000.0,
+    1000.0,
+    1000.0
+  ],
+  "dh": {
+    "official": {
+      "a": [
+        0.0,
+        0.394,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "alpha": [
+        -1.5707963267948966,
+        0.0,
+        1.5707963267948966,
+        -1.5707963267948966,
+        1.5707963267948966,
+        0.0
+      ],
+      "d": [
+        0.3415,
+        0.0,
+        0.0,
+        0.366,
+        0.0,
+        0.2503
+      ],
+      "theta_offset": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "improved": {
+      "a": [
+        0.0,
+        0.0,
+        0.394,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "alpha": [
+        0.0,
+        -1.5707963267948966,
+        0.0,
+        1.5707963267948966,
+        -1.5707963267948966,
+        1.5707963267948966
+      ],
+      "d": [
+        0.3415,
+        0.0,
+        0.0,
+        0.366,
+        0.0,
+        0.2503
+      ],
+      "joint_offset": [
+        0.0,
+        -1.5707963267948966,
+        1.5707963267948966,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "truth_basis": "project_owned_xmate_er3_6axis_canonical_profile",
+  "compatibility_alias": "xMate3"
+}

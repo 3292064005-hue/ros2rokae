@@ -196,7 +196,7 @@ SDK-compatible wrappers (`rokae::Robot_T`, `rokae::Cobot`, `rokae::xMateRobot`) 
 
 - SDK RT state cache updates now enforce strict RT state semantics: rejected subscription downgrades and no silent fallback to `GetJointPos/GetJointVel/GetJointTorques` during `updateRobotState()`.
 - Install-facing compatibility headers now expose `rokae::Robot_T<collaborative, 6>`, the official `connectToRobot(remoteIP, localIP="")` overload, the official soft-limit array type, and direct `executeCommand(MoveC)` in the public ABI lane.
-- xMate6 public wrapper now requires an explicit remote endpoint before `connectToRobot(error_code&)`; the no-`ec` overload throws on failure and `xMateRobot(remoteIP, localIP)` follows the official constructor-initiated connect workflow.
+- xMateER3 public wrapper now requires an explicit remote endpoint before `connectToRobot(error_code&)`; the no-`ec` overload throws on failure and `xMateRobot(remoteIP, localIP)` follows the official constructor-initiated connect workflow.
 - RT compatibility semantics were hardened so `MoveC` now executes a geometric circular interpolation path with explicit start validation, degenerate-circle rejection, spherical orientation interpolation, and timeout-backed target wait; `setFilterLimit()` publishes a dedicated runtime config topic, collision thresholds no longer reuse the Cartesian desired-wrench channel, and the affected RT config setters now reject NaN/range-invalid inputs before publishing.
 
 
@@ -211,7 +211,7 @@ SDK-compatible wrappers (`rokae::Robot_T`, `rokae::Cobot`, `rokae::xMateRobot`) 
 ## 2026-04 RT state follow-up
 
 - strict in-loop field classification now rejects service-backed cartesian / external-torque fields from 1 ms subscriptions; xMate3 六轴 shim 不再把 `psi_*` / `elbow*` 暴露成任何 RT 可订阅字段。
-- spec/xacro contract checks were added so joint names, limits, axes and origins cannot silently drift from `xmate3_spec.hpp`.
+- spec/xacro contract checks were added so joint names, limits, axes and origins cannot silently drift from `xmate_er3_truth.hpp`.
 
 
 - 2026-04-02 follow-up hardening: fixed SDK wrapper semantics for `setSoftLimit(false, ...)`, moved remaining servo-loop metadata reads to `DataStoreState::RtSemanticSnapshot`, guarded `RuntimeBootstrap` executor release with ownership tracking, and unified native SDK facade `lastErrorCode()` recording across all public `std::error_code& ec` entrypoints.
@@ -221,7 +221,7 @@ SDK-compatible wrappers (`rokae::Robot_T`, `rokae::Cobot`, `rokae::xMateRobot`) 
 
 - Added `GetRuntimeStateSnapshot` as a runtime-owned aggregated read surface so the native SDK can reuse one coherent snapshot for multiple high-frequency read APIs.
 - Collapsed primary service descriptors and compatibility aliases into `service_contract_manifest.hpp` to reduce multi-file manual drift.
-- Added canonical robot-description provenance metadata (`xMate3.description.json`) so build-time and launch-time description consumption can be audited against one canonical artifact family.
+- Added canonical robot-description provenance metadata (`xMateER3.description.json`, compatibility alias `xMate3.description.json`) so build-time and launch-time description consumption can be audited against one canonical artifact family.
 - Replaced detached `MoveAppend` execution threads with tracked async workers drained by `RosBindings` teardown.
 
 

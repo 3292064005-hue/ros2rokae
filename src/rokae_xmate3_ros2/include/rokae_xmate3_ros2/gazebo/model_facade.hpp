@@ -11,6 +11,7 @@
 #include <Eigen/Geometry>
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
+#include "rokae_xmate3_ros2/runtime/kinematics_provider_interface.hpp"
 
 namespace rokae_xmate3_ros2::gazebo_model {
 
@@ -91,7 +92,12 @@ inline std::array<double, DoF> toJointArray(const Vector6d &values) {
 }
 
 template <std::size_t DoF>
-inline Matrix6d jacobian(::gazebo::xMate3Kinematics &kinematics, const std::array<double, DoF> &joint_position) {
+inline Matrix6d jacobian(::gazebo::xMateER3Kinematics &kinematics, const std::array<double, DoF> &joint_position) {
+  return kinematics.computeJacobian(toJointVector(joint_position));
+}
+
+template <typename ProviderT, std::size_t DoF>
+inline Matrix6d jacobian(ProviderT &kinematics, const std::array<double, DoF> &joint_position) {
   return kinematics.computeJacobian(toJointVector(joint_position));
 }
 
@@ -153,9 +159,9 @@ inline std::array<double, 6> matrixToPose(const Matrix4d &matrix) {
   return pose;
 }
 
-template <std::size_t DoF>
+template <std::size_t DoF, typename ProviderT>
 inline std::array<double, 6> cartesianPose(const std::array<double, DoF> &joint_position,
-                                           ::gazebo::xMate3Kinematics &kinematics,
+                                           ProviderT &kinematics,
                                            const std::array<double, 6> &tool_pose = {}) {
   std::array<double, 6> pose{};
   const auto flange_pose = kinematics.forwardKinematicsRPY(toJointVector(joint_position));
@@ -172,7 +178,14 @@ inline std::array<double, 6> cartesianPose(const std::array<double, DoF> &joint_
 }
 
 template <std::size_t DoF>
-inline std::array<double, 6> cartesianVelocity(::gazebo::xMate3Kinematics &kinematics,
+inline std::array<double, 6> cartesianPose(const std::array<double, DoF> &joint_position,
+                                           ::gazebo::xMateER3Kinematics &kinematics,
+                                           const std::array<double, 6> &tool_pose = {}) {
+  return cartesianPose<DoF, ::gazebo::xMateER3Kinematics>(joint_position, kinematics, tool_pose);
+}
+
+template <typename ProviderT, std::size_t DoF>
+inline std::array<double, 6> cartesianVelocity(ProviderT &kinematics,
                                                const std::array<double, DoF> &joint_position,
                                                const std::array<double, DoF> &joint_velocity) {
   const auto jac = jacobian(kinematics, joint_position);
@@ -180,7 +193,14 @@ inline std::array<double, 6> cartesianVelocity(::gazebo::xMate3Kinematics &kinem
 }
 
 template <std::size_t DoF>
-inline std::array<double, 6> cartesianAcceleration(::gazebo::xMate3Kinematics &kinematics,
+inline std::array<double, 6> cartesianVelocity(::gazebo::xMateER3Kinematics &kinematics,
+                                               const std::array<double, DoF> &joint_position,
+                                               const std::array<double, DoF> &joint_velocity) {
+  return cartesianVelocity< ::gazebo::xMateER3Kinematics, DoF>(kinematics, joint_position, joint_velocity);
+}
+
+template <typename ProviderT, std::size_t DoF>
+inline std::array<double, 6> cartesianAcceleration(ProviderT &kinematics,
                                                    const std::array<double, DoF> &joint_position,
                                                    const std::array<double, DoF> &joint_velocity,
                                                    const std::array<double, DoF> &joint_acceleration) {
@@ -203,7 +223,15 @@ inline std::array<double, 6> cartesianAcceleration(::gazebo::xMate3Kinematics &k
 }
 
 template <std::size_t DoF>
-inline std::array<double, DoF> jointAccelerationFromCartesian(::gazebo::xMate3Kinematics &kinematics,
+inline std::array<double, 6> cartesianAcceleration(::gazebo::xMateER3Kinematics &kinematics,
+                                                   const std::array<double, DoF> &joint_position,
+                                                   const std::array<double, DoF> &joint_velocity,
+                                                   const std::array<double, DoF> &joint_acceleration) {
+  return cartesianAcceleration< ::gazebo::xMateER3Kinematics, DoF>(kinematics, joint_position, joint_velocity, joint_acceleration);
+}
+
+template <typename ProviderT, std::size_t DoF>
+inline std::array<double, DoF> jointAccelerationFromCartesian(ProviderT &kinematics,
                                                               const std::array<double, DoF> &joint_position,
                                                               const std::array<double, 6> &cartesian_acceleration) {
   const auto jac = jacobian(kinematics, joint_position);
@@ -213,7 +241,14 @@ inline std::array<double, DoF> jointAccelerationFromCartesian(::gazebo::xMate3Ki
 }
 
 template <std::size_t DoF>
-inline DynamicsBreakdown computeApproximateDynamics(::gazebo::xMate3Kinematics &kinematics,
+inline std::array<double, DoF> jointAccelerationFromCartesian(::gazebo::xMateER3Kinematics &kinematics,
+                                                              const std::array<double, DoF> &joint_position,
+                                                              const std::array<double, 6> &cartesian_acceleration) {
+  return jointAccelerationFromCartesian< ::gazebo::xMateER3Kinematics, DoF>(kinematics, joint_position, cartesian_acceleration);
+}
+
+template <typename ProviderT, std::size_t DoF>
+inline DynamicsBreakdown computeApproximateDynamics(ProviderT &kinematics,
                                                     const std::array<double, DoF> &joint_position,
                                                     const std::array<double, DoF> &joint_velocity,
                                                     const std::array<double, DoF> &joint_acceleration,
@@ -242,7 +277,8 @@ inline DynamicsBreakdown computeApproximateDynamics(::gazebo::xMate3Kinematics &
   return breakdown;
 }
 
-inline std::array<double, 6> expectedTorqueProxy(::gazebo::xMate3Kinematics &kinematics,
+template <typename ProviderT>
+inline std::array<double, 6> expectedTorqueProxy(ProviderT &kinematics,
                                                  const std::array<double, 6> &joint_position,
                                                  const std::array<double, 6> &joint_velocity,
                                                  const LoadContext &load) {
@@ -308,9 +344,112 @@ class ModelFacade {
     [[nodiscard]] virtual const std::array<double, 6> &toolPose() const noexcept = 0;
   };
 
+  class ProviderModelBackend final : public ModelBackend {
+   public:
+    ProviderModelBackend(rokae_xmate3_ros2::kinematics::Provider &kinematics,
+                         const std::array<double, 6> &tool_pose,
+                         const LoadContext &load)
+        : kinematics_(&kinematics), load_(load), tool_pose_(tool_pose) {}
+
+    [[nodiscard]] std::array<double, 6> cartPose(
+        const std::array<double, 6> &joint_position) const override {
+      return gazebo_model::cartesianPose(joint_position, *kinematics_, tool_pose_);
+    }
+
+    [[nodiscard]] std::array<double, 6> cartVelocity(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity) const override {
+      return gazebo_model::cartesianVelocity(*kinematics_, joint_position, joint_velocity);
+    }
+
+    [[nodiscard]] std::array<double, 6> cartAcceleration(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity,
+        const std::array<double, 6> &joint_acceleration) const override {
+      return gazebo_model::cartesianAcceleration(*kinematics_, joint_position, joint_velocity, joint_acceleration);
+    }
+
+    [[nodiscard]] std::array<double, 6> jointAcceleration(
+        const std::array<double, 6> &cartesian_acceleration,
+        const std::array<double, 6> &joint_position) const override {
+      return gazebo_model::jointAccelerationFromCartesian(*kinematics_, joint_position, cartesian_acceleration);
+    }
+
+    [[nodiscard]] Matrix6d jacobian(const std::array<double, 6> &joint_position) const override {
+      return gazebo_model::jacobian(*kinematics_, joint_position);
+    }
+
+    [[nodiscard]] Matrix6d massMatrix(const std::array<double, 6> &joint_position) const override {
+      return gazebo_model::massMatrixProxy(joint_position, load_);
+    }
+
+    [[nodiscard]] std::array<double, 6> coriolis(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity) const override {
+      const std::array<double, 6> zero_joint_acc{};
+      const std::array<double, 6> zero_external_force{};
+      return gazebo_model::computeApproximateDynamics(
+                 *kinematics_, joint_position, joint_velocity, zero_joint_acc, zero_external_force, load_)
+          .coriolis;
+    }
+
+    [[nodiscard]] std::array<double, 6> gravity(
+        const std::array<double, 6> &joint_position) const override {
+      const std::array<double, 6> zero_joint_velocity{};
+      const std::array<double, 6> zero_joint_acc{};
+      const std::array<double, 6> zero_external_force{};
+      return gazebo_model::computeApproximateDynamics(
+                 *kinematics_, joint_position, zero_joint_velocity, zero_joint_acc, zero_external_force, load_)
+          .gravity;
+    }
+
+    [[nodiscard]] std::array<double, 6> inverseDynamics(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity,
+        const std::array<double, 6> &joint_acceleration,
+        const std::array<double, 6> &external_force) const override {
+      return gazebo_model::computeApproximateDynamics(
+                 *kinematics_, joint_position, joint_velocity, joint_acceleration, external_force, load_)
+          .full;
+    }
+
+    [[nodiscard]] DynamicsBreakdown dynamics(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity,
+        const std::array<double, 6> &joint_acceleration,
+        const std::array<double, 6> &external_force) const override {
+      return gazebo_model::computeApproximateDynamics(
+          *kinematics_, joint_position, joint_velocity, joint_acceleration, external_force, load_);
+    }
+
+    [[nodiscard]] std::array<double, 6> expectedTorque(
+        const std::array<double, 6> &joint_position,
+        const std::array<double, 6> &joint_velocity) const override {
+      return gazebo_model::expectedTorqueProxy(*kinematics_, joint_position, joint_velocity, load_);
+    }
+
+    [[nodiscard]] ModelObservability observability() const override {
+      ModelObservability state;
+      state.load = load_;
+      state.tool_pose = tool_pose_;
+      state.effective_payload = load_.mass;
+      state.uses_approximate_jacobian = true;
+      state.uses_simplified_inertia = true;
+      return state;
+    }
+
+    [[nodiscard]] const LoadContext &load() const noexcept override { return load_; }
+    [[nodiscard]] const std::array<double, 6> &toolPose() const noexcept override { return tool_pose_; }
+
+   private:
+    rokae_xmate3_ros2::kinematics::Provider *kinematics_ = nullptr;
+    LoadContext load_{};
+    std::array<double, 6> tool_pose_{};
+  };
+
   class ApproximateModelBackend final : public ModelBackend {
    public:
-    ApproximateModelBackend(::gazebo::xMate3Kinematics &kinematics,
+    ApproximateModelBackend(::gazebo::xMateER3Kinematics &kinematics,
                             const std::array<double, 6> &tool_pose,
                             const LoadContext &load)
         : kinematics_(&kinematics), load_(load), tool_pose_(tool_pose) {}
@@ -407,29 +546,36 @@ class ModelFacade {
     [[nodiscard]] const std::array<double, 6> &toolPose() const noexcept override { return tool_pose_; }
 
    private:
-    ::gazebo::xMate3Kinematics *kinematics_;
+    ::gazebo::xMateER3Kinematics *kinematics_;
     LoadContext load_{};
     std::array<double, 6> tool_pose_{};
   };
 
   explicit ModelFacade(std::shared_ptr<ModelBackend> backend) : backend_(std::move(backend)) {}
 
-  ModelFacade(::gazebo::xMate3Kinematics &kinematics,
+  ModelFacade(::gazebo::xMateER3Kinematics &kinematics,
               const std::array<double, 6> &tool_pose = {},
               const LoadContext &load = {})
       : kinematics_(&kinematics), load_(load), tool_pose_(tool_pose) {
-    rebuildApproximateBackend();
+    rebuildBackend();
+  }
+
+  ModelFacade(rokae_xmate3_ros2::kinematics::Provider &kinematics,
+              const std::array<double, 6> &tool_pose = {},
+              const LoadContext &load = {})
+      : provider_(&kinematics), load_(load), tool_pose_(tool_pose) {
+    rebuildBackend();
   }
 
   ModelFacade &setToolPose(const std::array<double, 6> &tool_pose) {
     tool_pose_ = tool_pose;
-    rebuildApproximateBackend();
+    rebuildBackend();
     return *this;
   }
 
   ModelFacade &setLoad(const LoadContext &load) {
     load_ = load;
-    rebuildApproximateBackend();
+    rebuildBackend();
     return *this;
   }
 
@@ -517,20 +663,30 @@ class ModelFacade {
   }
 
  private:
-  void rebuildApproximateBackend() {
-    if (kinematics_ == nullptr) {
+  void rebuildBackend() {
+    if (provider_ != nullptr) {
+      backend_ = std::make_shared<ProviderModelBackend>(*provider_, tool_pose_, load_);
       return;
     }
-    backend_ = std::make_shared<ApproximateModelBackend>(*kinematics_, tool_pose_, load_);
+    if (kinematics_ != nullptr) {
+      backend_ = std::make_shared<ApproximateModelBackend>(*kinematics_, tool_pose_, load_);
+    }
   }
 
   std::shared_ptr<ModelBackend> backend_;
-  ::gazebo::xMate3Kinematics *kinematics_ = nullptr;
+  ::gazebo::xMateER3Kinematics *kinematics_ = nullptr;
+  rokae_xmate3_ros2::kinematics::Provider *provider_ = nullptr;
   LoadContext load_{};
   std::array<double, 6> tool_pose_{};
 };
 
-inline ModelFacade configuredModelFacade(::gazebo::xMate3Kinematics &kinematics,
+inline ModelFacade configuredModelFacade(::gazebo::xMateER3Kinematics &kinematics,
+                                         const std::array<double, 6> &tool_pose,
+                                         const LoadContext &load) {
+  return ModelFacade(kinematics, tool_pose, load);
+}
+
+inline ModelFacade configuredModelFacade(rokae_xmate3_ros2::kinematics::Provider &kinematics,
                                          const std::array<double, 6> &tool_pose,
                                          const LoadContext &load) {
   return ModelFacade(kinematics, tool_pose, load);
@@ -542,7 +698,13 @@ using ModelLoadContext = LoadContext;
 using ModelDynamicsBreakdown = DynamicsBreakdown;
 using ModelDiagnostics = ModelObservability;
 
-[[nodiscard]] inline ModelFacade makeModelFacade(::gazebo::xMate3Kinematics &kinematics,
+[[nodiscard]] inline ModelFacade makeModelFacade(::gazebo::xMateER3Kinematics &kinematics,
+                                                 const std::array<double, 6> &tool_pose = {},
+                                                 const LoadContext &load = {}) {
+  return configuredModelFacade(kinematics, tool_pose, load);
+}
+
+[[nodiscard]] inline ModelFacade makeModelFacade(rokae_xmate3_ros2::kinematics::Provider &kinematics,
                                                  const std::array<double, 6> &tool_pose = {},
                                                  const LoadContext &load = {}) {
   return configuredModelFacade(kinematics, tool_pose, load);

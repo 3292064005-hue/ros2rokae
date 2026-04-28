@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 FAILURES: list[str] = []
-manifest = json.loads((ROOT / 'docs' / 'reference' / 'xmate6_official_alignment_manifest.json').read_text(encoding='utf-8'))
+manifest = json.loads((ROOT / 'docs' / 'reference' / 'xmate_er3_alignment_manifest.json').read_text(encoding='utf-8'))
 public_examples = manifest.get('public_examples', [])
 internal_examples = manifest.get('internal_examples', [])
 identity = manifest.get('identity', {})
@@ -43,7 +43,7 @@ if example_bullets('public') != public_examples:
 if example_bullets('internal') != internal_examples:
     FAILURES.append('internal examples drift between docs and manifest')
 
-for token in ['MoveSP', '路径录制/回放', 'public xMate6 lane']:
+for token in ['MoveSP', '路径录制/回放', 'public xMateER3 lane']:
     if token not in compat_text:
         FAILURES.append(f'COMPATIBILITY.md missing token: {token}')
 for required in ['xCoreSDK_CANONICAL_PACKAGE', 'xCoreSDK_LEGACY_SOURCE_PACKAGE', 'xCoreSDK_CANONICAL_IDENTITY']:
@@ -51,7 +51,7 @@ for required in ['xCoreSDK_CANONICAL_PACKAGE', 'xCoreSDK_LEGACY_SOURCE_PACKAGE',
         FAILURES.append(f'xCoreSDKConfig.cmake.in missing {required}')
 if 'canonical install-facing identity: `xCoreSDK`' not in readme_text:
     FAILURES.append('README.md missing canonical install-facing identity')
-if identity.get('canonical_package') != 'xCoreSDK' or identity.get('legacy_source_package') != 'rokae_xmate3_ros2' or identity.get('canonical_identity') != 'xCoreSDK:xmate6':
+if identity.get('canonical_package') != 'xCoreSDK' or identity.get('legacy_source_package') != 'rokae_xmate3_ros2' or identity.get('canonical_identity') != 'xCoreSDK:xmate_er3':
     FAILURES.append('manifest identity block drift')
 layout = manifest.get('source_layout', {})
 expected_layout = {'public_rosidl_root':'srv/','internal_rosidl_root':'internal_interfaces/srv/','public_examples_root':'examples/cpp/','internal_examples_root':'examples/internal/cpp/'}

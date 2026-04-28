@@ -31,7 +31,7 @@ def resolve_package_lib_dir(pkg_share):
 
 
 def resolve_canonical_artifact(pkg_share):
-    canonical = os.path.join(pkg_share, "generated", "urdf", "xMate3.urdf")
+    canonical = os.path.join(pkg_share, "generated", "urdf", "xMateER3.urdf")
     if os.path.isfile(canonical):
         return canonical
     return ""
@@ -41,11 +41,11 @@ def resolve_canonical_model(pkg_share):
     canonical = resolve_canonical_artifact(pkg_share)
     if canonical:
         return canonical
-    return os.path.join(pkg_share, "urdf", "xMate3.xacro")
+    return os.path.join(pkg_share, "urdf", "xMateER3.xacro")
 
 
 def resolve_canonical_metadata(pkg_share):
-    return os.path.join(pkg_share, "generated", "urdf", "xMate3.description.json")
+    return os.path.join(pkg_share, "generated", "urdf", "xMateER3.description.json")
 
 
 def declare_arguments(pkg_share):
@@ -65,7 +65,8 @@ def declare_arguments(pkg_share):
         launch.actions.DeclareLaunchArgument("enable_ros2_control", default_value="", description="是否启用 ros2_control / joint_trajectory_controller；留空时跟随 launch_profile"),
         launch.actions.DeclareLaunchArgument("enable_xcore_plugin", default_value="", description="是否加载 xCore Gazebo plugin；留空时跟随 launch_profile"),
         launch.actions.DeclareLaunchArgument("backend_mode", default_value="", description="后端装配模式: effort | jtc | hybrid；留空时跟随 launch_profile"),
-        launch.actions.DeclareLaunchArgument("service_exposure_profile", default_value="", description="服务暴露面: public_xmate6_only | internal_full；留空时跟随 launch_profile"),
+        launch.actions.DeclareLaunchArgument("service_exposure_profile", default_value="", description="服务暴露面: public_xmate_er3_only | internal_full；留空时跟随 launch_profile"),
+        launch.actions.DeclareLaunchArgument("compatibility_alias_policy", default_value="", description="兼容别名发布策略: canonical_plus_compat | canonical_only | legacy_only；留空时跟随 launch_profile"),
         launch.actions.DeclareLaunchArgument("allow_noncanonical_model", default_value="false", description="是否允许显式使用非 canonical 模型输入（开发者兼容旁路）"),
     ]
 
@@ -93,6 +94,7 @@ def build_runtime_host_group(pkg_share, robot_state_publisher_node, env_actions,
         parameters=[{
             "service_exposure_profile": resolved_service_profile_expression(),
             "runtime_profile": resolved_runtime_profile_expression(),
+            "compatibility_alias_policy": resolved_compatibility_alias_policy_expression(),
         }],
         condition=launch.conditions.IfCondition(
             launch.substitutions.PythonExpression(["'", resolved_runtime_host_expression(), "' == 'daemonized_runtime'"]))
@@ -104,7 +106,7 @@ def build_runtime_host_group(pkg_share, robot_state_publisher_node, env_actions,
     )
     return [
         validate_launch_profile_action(),
-        launch.actions.LogInfo(msg=["启动 canonical xMate6 launch_profile=", launch.substitutions.LaunchConfiguration("launch_profile")]),
+        launch.actions.LogInfo(msg=["启动 canonical xMateER3 launch_profile=", launch.substitutions.LaunchConfiguration("launch_profile")]),
         *env_actions,
         robot_state_publisher_node,
         gazebo_group,
@@ -149,6 +151,10 @@ def resolved_enable_xcore_plugin_expression():
     return profile_field_substitution('enable_xcore_plugin')
 
 
+def resolved_compatibility_alias_policy_expression():
+    return profile_field_substitution('compatibility_alias_policy')
+
+
 def ros2_control_enabled_expression():
     return PythonExpression([
         "'", resolved_enable_ros2_control_expression(), "' == 'true' and '", resolved_backend_mode_expression(), "' != 'effort'"
@@ -174,6 +180,8 @@ def build_robot_description(pkg_share):
         resolved_backend_mode_expression(),
         " --service-exposure-profile ",
         resolved_service_profile_expression(),
+        " --compatibility-alias-policy ",
+        resolved_compatibility_alias_policy_expression(),
         " --canonical-model ",
         resolve_canonical_model(pkg_share),
         " --canonical-metadata ",
@@ -193,7 +201,7 @@ def build_robot_state_publisher(robot_description):
             {"robot_description": robot_description},
             {"use_sim_time": LaunchConfiguration("use_sim_time")},
         ],
-        remappings=[("/joint_states", "/xmate3/joint_states")],
+        remappings=[("/joint_states", "/xmate_er3/joint_states")],
     )
 
 
@@ -210,8 +218,8 @@ def build_environment_actions(pkg_share, pkg_lib_dir):
     existing_gazebo_plugin_path = os.environ.get("GAZEBO_PLUGIN_PATH", "")
     gazebo_worlds_dir = os.path.join(pkg_share, "worlds")
     gazebo_models_dir = os.path.join(pkg_share, "models")
-    canonical_urdf = os.path.join(pkg_share, "generated", "urdf", "xMate3.urdf")
-    canonical_metadata = os.path.join(pkg_share, "generated", "urdf", "xMate3.description.json")
+    canonical_urdf = os.path.join(pkg_share, "generated", "urdf", "xMateER3.urdf")
+    canonical_metadata = os.path.join(pkg_share, "generated", "urdf", "xMateER3.description.json")
 
     gazebo_model_path_entries = []
     if existing_gazebo_model_path:
@@ -240,6 +248,7 @@ def build_environment_actions(pkg_share, pkg_lib_dir):
         launch.actions.SetEnvironmentVariable("GAZEBO_RESOURCE_PATH", os.pathsep.join(gazebo_resource_path_entries)),
         launch.actions.SetEnvironmentVariable("GAZEBO_PLUGIN_PATH", os.pathsep.join(gazebo_plugin_path_entries)),
         launch.actions.SetEnvironmentVariable("ROKAE_SERVICE_EXPOSURE_PROFILE", resolved_service_profile_expression()),
+        launch.actions.SetEnvironmentVariable("ROKAE_COMPATIBILITY_ALIAS_POLICY", resolved_compatibility_alias_policy_expression()),
     ]
     if os.path.isfile(canonical_urdf):
         actions.append(launch.actions.SetEnvironmentVariable("ROKAE_XMATE3_CANONICAL_URDF", canonical_urdf))
@@ -335,17 +344,15 @@ def build_spawn_exit_handler(spawn_entity_node, ros2_control_enabled, joint_stat
                 log_info(["当前 launch_profile=", LaunchConfiguration("launch_profile")]),
                 log_info(["当前 runtime_host=", resolved_runtime_host_expression(), " runtime_profile=", resolved_runtime_profile_expression()]),
                 log_info(["当前 backend_mode=", resolved_backend_mode_expression(), " enable_xcore_plugin=", resolved_enable_xcore_plugin_expression(), " enable_ros2_control=", resolved_enable_ros2_control_expression()]),
-                log_info(["当前 service_exposure_profile=", resolved_service_profile_expression()]),
+                log_info(["当前 service_exposure_profile=", resolved_service_profile_expression(), " compatibility_alias_policy=", resolved_compatibility_alias_policy_expression()]),
                 log_info(["模型来源=", LaunchConfiguration("model")]),
                 log_info(["allow_noncanonical_model=", LaunchConfiguration("allow_noncanonical_model")]),
                 log_info(["RT 能力级别: experimental  diagnostics backend=", resolved_backend_mode_expression(), " runtime_profile=", resolved_runtime_profile_expression()]),
-                log_info("可用服务和话题:"),
-                log_info("  - /xmate3/cobot/*  (SDK服务)"),
-                log_info("  - /xmate3/joint_states  (关节状态)"),
-                log_info("  - /xmate3/internal/get_runtime_diagnostics  (运行时诊断服务)"),
-                log_info("  - /xmate3/internal/runtime_status  (只读运行时诊断话题)"),
-                log_info("  - /xmate3/internal/validate_motion  (仅 service_exposure_profile=internal_full 时暴露)"),
-                log_info("兼容别名: /xmate3/cobot/get_joint_torque, /xmate3/cobot/get_end_torque"),
+                log_info(["服务/话题命名由 compatibility_alias_policy 控制，当前策略=", resolved_compatibility_alias_policy_expression()]),
+                log_info("  - canonical 允许时发布: /xmate_er3/cobot/*, /xmate_er3/joint_states, /xmate_er3/cobot/runtime_status"),
+                log_info("  - compatibility 允许时发布: /xmate3/cobot/*, /xmate3/joint_states, /xmate3/internal/runtime_status"),
+                log_info("  - internal service 仅在 service_exposure_profile=internal_full 时发布: /xmate3/internal/validate_motion"),
+                log_info("兼容扭矩别名是否发布取决于 compatibility_alias_policy: /xmate3/cobot/get_joint_torque, /xmate3/cobot/get_end_torque"),
                 log_info("运行示例程序:"),
                 log_info("  ros2 run rokae_xmate3_ros2 example_04_motion_basic"),
                 log_info("=" * 60),
@@ -355,7 +362,7 @@ def build_spawn_exit_handler(spawn_entity_node, ros2_control_enabled, joint_stat
 
 
 def build_rviz_node(pkg_share):
-    rviz_config = os.path.join(pkg_share, "config", "xMate3.rviz")
+    rviz_config = os.path.join(pkg_share, "config", "xMateER3.rviz")
     return Node(
         package="rviz2",
         executable="rviz2",

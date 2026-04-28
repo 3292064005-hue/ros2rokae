@@ -10,7 +10,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 #include "rokae_xmate3_ros2/types.hpp"
 #include "runtime/rt_field_registry.hpp"
 #include "runtime/rt_prearm_checks.hpp"
@@ -24,7 +24,7 @@
 namespace rokae_xmate3_ros2::runtime {
 namespace {
 
-constexpr double kServoTickSec = rokae_xmate3_ros2::spec::xmate3::kServoTickSec;
+constexpr double kServoTickSec = rokae_xmate3_ros2::spec::xmate_er3_truth::kServoTickSec;
 constexpr double kRtDeadlineWarnSec = 0.0012;
 constexpr std::array<double, 6> kCollisionRetreatEffort = {18.0, 18.0, 16.0, 8.0, 5.0, 3.0};
 constexpr double kDefaultCollisionRetreatDistance = 0.04;
@@ -155,8 +155,8 @@ ControlCommand make_pd_effort(const RobotSnapshot &snapshot,
     const double unclamped = kp[i] * position_error + kd[i] * velocity_error;
     command.effort[i] = std::clamp(
         unclamped,
-        -rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i],
-        rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i]);
+        -rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i],
+        rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i]);
   }
   return command;
 }
@@ -199,7 +199,7 @@ ControlCommand make_retreat_command(const RobotSnapshot &snapshot,
 
 bool detect_collision_event(const RobotSnapshot &snapshot,
                             const CollisionDetectionSnapshot &collision_detection,
-                            ::gazebo::xMate3Kinematics &kinematics,
+                            ::gazebo::xMateER3Kinematics &kinematics,
                             const ToolsetSnapshot &toolset,
                             const RuntimeControlBridgeConfig &config,
                             double dt,
@@ -383,8 +383,8 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   runtime_context_.diagnosticsState().setContractMetadata(
       backend_contract.authority_scope,
       backend_contract.fidelity_class,
-      "xmate6_public_v2026_04",
-      "xCoreSDK:xmate6");
+      "xmate_er3_public_v2026_04",
+      "xCoreSDK:xmate_er3");
   runtime_context_.diagnosticsState().setModelExactnessSummary(
       "kinematics=simulation_grade;model_primary_backend=kdl;model_fallback_used=false;dynamics=approximate;jacobian=simulation_grade;wrench=approximate;rt_state_source=" +
       rt_state_source);
@@ -684,8 +684,8 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
         for (std::size_t i = 0; i < 6; ++i) {
           direct_effort.effort[i] = std::clamp(
               direct_effort.effort[i] + gravity_comp[i],
-              -rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i],
-              rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i]);
+              -rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i],
+              rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i]);
         }
       } else if (rt_mode == rokae::RtControllerMode::cartesianPosition ||
                  rt_mode == rokae::RtControllerMode::cartesianImpedance) {
@@ -736,8 +736,8 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
           for (std::size_t i = 0; i < 6; ++i) {
             direct_effort.effort[i] = std::clamp(
                 direct_effort.effort[i] + gravity_comp[i],
-                -rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i],
-                rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i]);
+                -rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i],
+                rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i]);
           }
           if (rt_mode == rokae::RtControllerMode::cartesianImpedance) {
             const auto desired_wrench_local = configured_or(
@@ -754,8 +754,8 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
             for (std::size_t i = 0; i < 6; ++i) {
               direct_effort.effort[i] = std::clamp(
                   direct_effort.effort[i] + joint_bias(static_cast<int>(i)),
-                  -rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i],
-                  rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i]);
+                  -rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i],
+                  rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i]);
             }
           }
         } else {
@@ -777,8 +777,8 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
             filtered[i] = last_torque_command_[i] + alpha * (filtered[i] - last_torque_command_[i]);
           }
           direct_effort.effort[i] = std::clamp(filtered[i] + gravity_comp[i],
-              -rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i],
-              rokae_xmate3_ros2::spec::xmate3::kDirectTorqueLimit[i]);
+              -rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i],
+              rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i]);
         }
         last_torque_command_ = direct_effort.effort;
         has_last_torque_command_ = true;

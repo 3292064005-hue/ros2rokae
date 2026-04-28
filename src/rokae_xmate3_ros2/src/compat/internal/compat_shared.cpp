@@ -24,7 +24,7 @@ void CompatRobotHandle::resetBackend(const std::string &remote, const std::strin
 [[nodiscard]] std::string publicLaneUnsupportedMessage(const CompatRobotHandle &handle,
                                                        const char *feature) {
   const auto &caps = handle.sdkCapabilities();
-  const std::string scope = caps.xmate6_only ? "public xMate6 compat lane" : "public compat lane";
+  const std::string scope = caps.xmate_er3_only ? "public xMateER3 compat lane" : "public compat lane";
   return scope + " does not support " + (feature != nullptr ? std::string(feature) : std::string{"the requested feature"});
 }
 

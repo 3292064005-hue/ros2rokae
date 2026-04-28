@@ -19,7 +19,7 @@ bool try_snapshot_motion_mode(ImplLike &impl, std::error_code &ec, rokae::Motion
  * @param ec Output error code.
  * @return true when the queued append may proceed.
  * @throws None.
- * @note Boundary behavior: the xMate6 public lane requires moveReset() before queued NRT
+ * @note Boundary behavior: the xMateER3 public lane requires moveReset() before queued NRT
  *       appends and rejects mixed command families to preserve a single deterministic request lane.
  */
 template <typename ImplLike>
@@ -123,7 +123,7 @@ bool try_snapshot_motion_mode(ImplLike &impl, std::error_code &ec, rokae::Motion
 }
 
 /**
- * @brief Set the high-level motion-control mode for the xMate6 compatibility lane.
+ * @brief Set the high-level motion-control mode for the xMateER3 compatibility lane.
  * @param mode Target public SDK motion-control mode.
  * @param ec Output error code.
  * @throws None.

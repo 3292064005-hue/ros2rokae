@@ -3,7 +3,7 @@
 <package format="3">
   <name>rokae_xmate3_ros2</name>
   <version>2.1.0</version>
-  <description>ROKAE xMate6 public SDK compatibility lane (package name retained as legacy rokae_xmate3_ros2 alias). Install-facing public_sdk artifacts are separated from internal_runtime / internal_devel assets; canonical install-facing identity is xCoreSDK while this package name remains the legacy source-tree alias; launch/profile selection and query authority are explicitly gated.</description>
+  <description>ROKAE xMateER3 public SDK compatibility lane (package name retained as legacy rokae_xmate3_ros2 alias). Install-facing public_sdk artifacts are separated from internal_runtime / internal_devel assets; canonical install-facing identity is xCoreSDK while this package name remains the legacy source-tree alias; launch/profile selection and query authority are explicitly gated.</description>
   <maintainer email="support@rokae.com">ROKAE Support</maintainer>
   <license>Apache-2.0</license>
 
@@ -12,7 +12,7 @@
   <url type="bugtracker">https://github.com/rokae</url>
 
   <!-- Source-tree package dependencies. The public_sdk assembled artifact still exports a slimmer
-       xMate6 compatibility lane, but the source package honestly declares the Gazebo / ros2_control /
+       xMateER3 compatibility lane, but the source package honestly declares the Gazebo / ros2_control /
        launch integration prerequisites that CMake and the canonical launch flows require. -->
   <depend>launch</depend>
   <depend>launch_ros</depend>

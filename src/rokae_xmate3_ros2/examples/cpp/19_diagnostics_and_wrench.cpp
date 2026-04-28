@@ -29,7 +29,7 @@ int main() {
   printSection("1 默认配置选项与能力边界");
   robot.setAvoidSingularity(true, ec);
   if (ec) {
-    os << "setAvoidSingularity(true): xMate6 当前实现返回 unsupported（符合机型能力边界） -> "
+    os << "setAvoidSingularity(true): xMateER3 当前实现返回 unsupported（符合机型能力边界） -> "
        << ec.message() << std::endl;
     ec.clear();
   }

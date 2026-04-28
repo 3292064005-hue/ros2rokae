@@ -49,7 +49,7 @@
 
 ## 6. 单一事实源
 
-- machine-readable manifest：[`reference/xmate6_official_alignment_manifest.json`](reference/xmate6_official_alignment_manifest.json)
+- machine-readable manifest：[`reference/xmate_er3_alignment_manifest.json`](reference/xmate_er3_alignment_manifest.json)
 - 对齐参考：[`reference/SDK_ALIGNMENT.md`](reference/SDK_ALIGNMENT.md)
 
 ## 7. 已删除的旧页面
@@ -58,7 +58,7 @@
 
 - `COMPAT_ABI.md`
 - `API_ALIGNMENT_MATRIX.md`
-- `XMATE6_OFFICIAL_ALIGNMENT_MATRIX.md`
+- `XMATE_ER3_OFFICIAL_ALIGNMENT_MATRIX.md`
 - `RT_PROFILE_GUIDE.md`
 - `RT_HARDENING_PROFILE.md`
 - `PROFILE_CAPABILITY_MATRIX.md`

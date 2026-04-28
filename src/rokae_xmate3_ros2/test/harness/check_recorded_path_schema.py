@@ -19,9 +19,9 @@ manifest = json.loads((ROOT / 'docs/reference/recorded_path_schema_manifest.json
 for token in [
     'kRecordedPathSchemaVersion = "v2"',
     'kRecordedPathLegacySchemaVersion = "v1"',
-    'kRecordedPathRobotFamily = "xMate6"',
-    'kRecordedPathRobotModel = "xMate3"',
-    'kRecordedPathCanonicalIdentity = "xCoreSDK:xmate6"',
+    'kRecordedPathRobotFamily = "xMateER3"',
+    'kRecordedPathRobotModel = rokae_xmate3_ros2::spec::xmate_er3_truth::kRobotModelName',
+    'kRecordedPathCanonicalIdentity = rokae_xmate3_ros2::spec::xmate_er3_truth::kCanonicalIdentity',
     'kRecordedPathMonotonicStepSec = 0.01',
     'kRecordedPathDefaultTaskPhase = "path_record"',
     'bool has_end_pose = false;',
@@ -96,7 +96,7 @@ for token in [
     if token not in doc:
         FAILURES.append(f'docs/reference/RECORDED_PATH_SCHEMA.md missing token: {token}')
 
-if manifest.get('canonical_identity') != 'xCoreSDK:xmate6':
+if manifest.get('canonical_identity') != 'xCoreSDK:xmate_er3':
     FAILURES.append('recorded_path_schema_manifest.json canonical_identity mismatch')
 if manifest.get('metadata', {}).get('version') != 'v2':
     FAILURES.append('recorded_path_schema_manifest.json version must be v2')

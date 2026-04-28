@@ -10,6 +10,7 @@
 #include <builtin_interfaces/msg/time.hpp>
 
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
+#include "runtime/kinematics_provider.hpp"
 #include "rokae_xmate3_ros2/gazebo/trajectory_planner.hpp"
 #include "runtime/runtime_state.hpp"
 #include "runtime/motion_runtime.hpp"
@@ -28,12 +29,15 @@
 #include "rokae_xmate3_ros2/srv/enable_collision_detection.hpp"
 #include "rokae_xmate3_ros2/srv/enable_drag.hpp"
 #include "rokae_xmate3_ros2/srv/generate_s_trajectory.hpp"
+#include "rokae_xmate3_ros2/srv/get_profile_capabilities.hpp"
 #if ROKAE_ENABLE_INTERNAL_SURFACE
+#include "rokae_xmate3_ros2/srv/planner_preflight_report.hpp"
+#include "rokae_xmate3_ros2/srv/validate_motion.hpp"
+#if ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
 #include "rokae_xmate3_ros2/srv/get_ai.hpp"
 #include "rokae_xmate3_ros2/srv/get_avoid_singularity.hpp"
 #include "rokae_xmate3_ros2/srv/get_di.hpp"
 #include "rokae_xmate3_ros2/srv/get_do.hpp"
-#include "rokae_xmate3_ros2/srv/get_profile_capabilities.hpp"
 #include "rokae_xmate3_ros2/srv/get_rl_project_info.hpp"
 #include "rokae_xmate3_ros2/srv/get_tool_catalog.hpp"
 #include "rokae_xmate3_ros2/srv/get_wobj_catalog.hpp"
@@ -52,9 +56,9 @@
 #include "rokae_xmate3_ros2/srv/set_x_panel_vout.hpp"
 #include "rokae_xmate3_ros2/srv/start_rl_project.hpp"
 #include "rokae_xmate3_ros2/srv/stop_rl_project.hpp"
-#include "rokae_xmate3_ros2/srv/validate_motion.hpp"
 #include "rokae_xmate3_ros2/srv/write_register.hpp"
 #include "rokae_xmate3_ros2/srv/write_register_ex.hpp"
+#endif
 #endif
 #include "rokae_xmate3_ros2/srv/get_base_frame.hpp"
 #include "rokae_xmate3_ros2/srv/get_cart_posture.hpp"
@@ -161,8 +165,7 @@ class ControlFacade {
                                rokae_xmate3_ros2::srv::AdjustSpeedOnline::Response &res) const;
   void handleSetRtControlMode(const rokae_xmate3_ros2::srv::SetRtControlMode::Request &req,
                               rokae_xmate3_ros2::srv::SetRtControlMode::Response &res) const;
-#if ROKAE_ENABLE_INTERNAL_SURFACE
-
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
   void handleSetSimulationMode(const rokae_xmate3_ros2::srv::SetSimulationMode::Request &req,
                                rokae_xmate3_ros2::srv::SetSimulationMode::Response &res) const;
 #endif
@@ -174,8 +177,7 @@ class ControlFacade {
                         rokae_xmate3_ros2::srv::EnableDrag::Response &res) const;
   void handleDisableDrag(const rokae_xmate3_ros2::srv::DisableDrag::Request &req,
                          rokae_xmate3_ros2::srv::DisableDrag::Response &res) const;
-#if ROKAE_ENABLE_INTERNAL_SURFACE
-
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
   void handleSetAvoidSingularity(const rokae_xmate3_ros2::srv::SetAvoidSingularity::Request &req,
                                  rokae_xmate3_ros2::srv::SetAvoidSingularity::Response &res) const;
 #endif
@@ -203,7 +205,7 @@ class QueryFacade {
               RuntimeDiagnosticsState &diagnostics_state,
               MotionRuntime &motion_runtime,
               MotionRequestCoordinator &request_coordinator,
-              gazebo::xMate3Kinematics &kinematics,
+              rokae_xmate3_ros2::kinematics::Provider &kinematics,
               JointStateFetcher joint_state_fetcher,
               TimeProvider time_provider,
               TrajectoryDtProvider trajectory_dt_provider,
@@ -225,11 +227,9 @@ class QueryFacade {
    */
   void handleGetRuntimeStateSnapshot(const rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot::Request &req,
                                      rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot::Response &res) const;
-#if ROKAE_ENABLE_INTERNAL_SURFACE
 
   void handleGetProfileCapabilities(const rokae_xmate3_ros2::srv::GetProfileCapabilities::Request &req,
                                      rokae_xmate3_ros2::srv::GetProfileCapabilities::Response &res) const;
-#endif
   void handleGetInfo(const rokae_xmate3_ros2::srv::GetInfo::Request &req,
                      rokae_xmate3_ros2::srv::GetInfo::Response &res) const;
   void handleGetOperateMode(const rokae_xmate3_ros2::srv::GetOperateMode::Request &req,
@@ -258,23 +258,19 @@ class QueryFacade {
                           rokae_xmate3_ros2::srv::GetSoftLimit::Response &res) const;
   void handleGetRtJointData(const rokae_xmate3_ros2::srv::GetRtJointData::Request &req,
                             rokae_xmate3_ros2::srv::GetRtJointData::Response &res) const;
-#if ROKAE_ENABLE_INTERNAL_SURFACE
-
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
   void handleGetAvoidSingularity(const rokae_xmate3_ros2::srv::GetAvoidSingularity::Request &req,
                                  rokae_xmate3_ros2::srv::GetAvoidSingularity::Response &res) const;
 #endif
-#if ROKAE_ENABLE_INTERNAL_SURFACE
-
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
   void handleGetRlProjectInfo(const rokae_xmate3_ros2::srv::GetRlProjectInfo::Request &req,
                               rokae_xmate3_ros2::srv::GetRlProjectInfo::Response &res) const;
 #endif
-#if ROKAE_ENABLE_INTERNAL_SURFACE
-
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
   void handleGetToolCatalog(const rokae_xmate3_ros2::srv::GetToolCatalog::Request &req,
                             rokae_xmate3_ros2::srv::GetToolCatalog::Response &res) const;
 #endif
-#if ROKAE_ENABLE_INTERNAL_SURFACE
-
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
   void handleGetWobjCatalog(const rokae_xmate3_ros2::srv::GetWobjCatalog::Request &req,
                             rokae_xmate3_ros2::srv::GetWobjCatalog::Response &res) const;
 #endif
@@ -283,7 +279,8 @@ class QueryFacade {
   void handleGenerateSTrajectory(const rokae_xmate3_ros2::srv::GenerateSTrajectory::Request &req,
                                  rokae_xmate3_ros2::srv::GenerateSTrajectory::Response &res) const;
 #if ROKAE_ENABLE_INTERNAL_SURFACE
-
+  void handlePlannerPreflightReport(const rokae_xmate3_ros2::srv::PlannerPreflightReport::Request &req,
+                                    rokae_xmate3_ros2::srv::PlannerPreflightReport::Response &res) const;
   void handleValidateMotion(const rokae_xmate3_ros2::srv::ValidateMotion::Request &req,
                             rokae_xmate3_ros2::srv::ValidateMotion::Response &res) const;
 #endif
@@ -308,7 +305,7 @@ class QueryFacade {
   RuntimeDiagnosticsState &diagnostics_state_;
   MotionRuntime &motion_runtime_;
   MotionRequestCoordinator &request_coordinator_;
-  gazebo::xMate3Kinematics &kinematics_;
+  rokae_xmate3_ros2::kinematics::Provider &kinematics_;
   JointStateFetcher joint_state_fetcher_;
   TimeProvider time_provider_;
   TrajectoryDtProvider trajectory_dt_provider_;
@@ -317,7 +314,7 @@ class QueryFacade {
 
 class IoProgramFacade;
 
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
 class IoProgramFacade {
  public:
   /**
@@ -400,6 +397,7 @@ class PathFacade {
    * @param request_id_generator Generates stable replay request identifiers.
    * @note Boundary behavior: replay and record requests are rejected when the session state does not
    *       satisfy the compatibility-lane preconditions, rather than mutating program state first.
+   *       Successful `replayPath()` dispatch is an immediate-submit side-lane and does not require `moveStart()`.
    */
   PathFacade(SessionState &session_state,
              ProgramState &program_state,

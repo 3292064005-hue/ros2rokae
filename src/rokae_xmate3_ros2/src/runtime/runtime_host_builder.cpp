@@ -61,14 +61,24 @@ void RuntimeHostBuilder::configureContext(RuntimeContext &runtime_context,
   runtime_context.sessionState().setSimulationMode(simulation_mode);
 }
 
-RuntimeHostPublishers RuntimeHostBuilder::createPublishers() const {
+RuntimeHostPublishers RuntimeHostBuilder::createPublishers(CompatibilityAliasPolicy compatibility_alias_policy) const {
   RuntimeHostPublishers publishers;
-  publishers.joint_state_pub =
-      node_->create_publisher<sensor_msgs::msg::JointState>("/xmate3/joint_states", 10);
-  publishers.operation_state_pub =
-      node_->create_publisher<rokae_xmate3_ros2::msg::OperationState>("/xmate3/cobot/operation_state", 10);
-  publishers.runtime_diagnostics_pub =
-      node_->create_publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>("/xmate3/internal/runtime_status", 10);
+  if (publishesCanonicalAliases(compatibility_alias_policy)) {
+    publishers.joint_state_pub =
+        node_->create_publisher<sensor_msgs::msg::JointState>("/xmate_er3/joint_states", 10);
+    publishers.operation_state_pub =
+        node_->create_publisher<rokae_xmate3_ros2::msg::OperationState>("/xmate_er3/cobot/operation_state", 10);
+    publishers.runtime_diagnostics_pub =
+        node_->create_publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>("/xmate_er3/cobot/runtime_status", 10);
+  }
+  if (publishesCompatibilityAliases(compatibility_alias_policy)) {
+    publishers.joint_state_compat_pub =
+        node_->create_publisher<sensor_msgs::msg::JointState>("/xmate3/joint_states", 10);
+    publishers.operation_state_compat_pub =
+        node_->create_publisher<rokae_xmate3_ros2::msg::OperationState>("/xmate3/cobot/operation_state", 10);
+    publishers.runtime_diagnostics_compat_pub =
+        node_->create_publisher<rokae_xmate3_ros2::msg::RuntimeDiagnostics>("/xmate3/internal/runtime_status", 10);
+  }
   return publishers;
 }
 
@@ -86,12 +96,13 @@ std::unique_ptr<RuntimeControlBridge> RuntimeHostBuilder::createControlBridge(
 std::unique_ptr<RosBindings> RuntimeHostBuilder::createRosBindings(
     RuntimeContext &runtime_context,
     RuntimePublishBridge *publish_bridge,
-    gazebo::xMate3Kinematics &kinematics,
+    rokae_xmate3_ros2::kinematics::Provider &kinematics,
     RuntimeHostJointStateFetcher joint_state_fetcher,
     RuntimeHostTimeProvider time_provider,
     RuntimeHostTrajectoryDtProvider trajectory_dt_provider,
     RuntimeHostRequestIdGenerator request_id_generator,
     ServiceExposureProfile service_exposure_profile,
+    CompatibilityAliasPolicy compatibility_alias_policy,
     const RuntimeRtProfileConfig &rt_profile) const {
   return std::make_unique<RosBindings>(
       node_,
@@ -102,7 +113,7 @@ std::unique_ptr<RosBindings> RuntimeHostBuilder::createRosBindings(
       std::move(time_provider),
       std::move(trajectory_dt_provider),
       std::move(request_id_generator),
-      RosBindingsRtIngressOptions{rt_profile.allow_topic_rt_ingress, service_exposure_profile});
+      RosBindingsRtIngressOptions{rt_profile.allow_topic_rt_ingress, service_exposure_profile, compatibility_alias_policy});
 }
 
 rclcpp::TimerBase::SharedPtr RuntimeHostBuilder::createPublishTimer(
@@ -149,16 +160,34 @@ rclcpp::TimerBase::SharedPtr RuntimeHostBuilder::createPublishTimer(
     tick_input.joint_state_publish_period_sec = rt_profile.publish_rates.joint_state_period_sec;
     tick_input.operation_state_publish_period_sec = rt_profile.publish_rates.operation_state_period_sec;
     tick_input.diagnostics_publish_period_sec = rt_profile.publish_rates.diagnostics_period_sec;
+    tick_input.prefer_authority_joint_state = true;
+    tick_input.allow_input_joint_state_fallback = false;
 
     const auto publish_tick = publish_bridge.buildPublisherTick(tick_input);
-    if (publish_tick.publish_joint_state && publishers.joint_state_pub) {
-      publishers.joint_state_pub->publish(publish_tick.joint_state);
+    if (publish_tick.publish_joint_state) {
+      if (publishers.joint_state_pub) {
+        publishers.joint_state_pub->publish(publish_tick.joint_state);
+      }
+      if (publishers.joint_state_compat_pub) {
+        publishers.joint_state_compat_pub->publish(publish_tick.joint_state);
+      }
     }
-    if (publish_tick.publish_operation_state && publishers.operation_state_pub) {
-      publishers.operation_state_pub->publish(publish_tick.operation_state);
+    if (publish_tick.publish_operation_state) {
+      if (publishers.operation_state_pub) {
+        publishers.operation_state_pub->publish(publish_tick.operation_state);
+      }
+      if (publishers.operation_state_compat_pub) {
+        publishers.operation_state_compat_pub->publish(publish_tick.operation_state);
+      }
     }
-    if (publish_tick.publish_runtime_diagnostics && publishers.runtime_diagnostics_pub != nullptr) {
-      publishers.runtime_diagnostics_pub->publish(publish_bridge.buildRuntimeDiagnosticsMessage());
+    if (publish_tick.publish_runtime_diagnostics) {
+      const auto diagnostics_msg = publish_bridge.buildRuntimeDiagnosticsMessage();
+      if (publishers.runtime_diagnostics_pub != nullptr) {
+        publishers.runtime_diagnostics_pub->publish(diagnostics_msg);
+      }
+      if (publishers.runtime_diagnostics_compat_pub != nullptr) {
+        publishers.runtime_diagnostics_compat_pub->publish(diagnostics_msg);
+      }
     }
   });
 }

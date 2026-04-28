@@ -14,10 +14,10 @@ rclcpp::Node::SharedPtr makeManagedNode(const RosClientOptions& options) {
     if (options.context) {
         rclcpp::NodeOptions node_options;
         node_options.context(options.context);
-        return std::make_shared<rclcpp::Node>(options.node_name.empty() ? std::string{"xmate3_robot"} : options.node_name,
+        return std::make_shared<rclcpp::Node>(options.node_name.empty() ? std::string{"xmate_er3_robot"} : options.node_name,
                                               node_options);
     }
-    return rclcpp::Node::make_shared(options.node_name.empty() ? std::string{"xmate3_robot"} : options.node_name);
+    return rclcpp::Node::make_shared(options.node_name.empty() ? std::string{"xmate_er3_robot"} : options.node_name);
 }
 
 void parseRtTransportMode(const char *raw_mode, bool &enable_shm, bool &enable_topic) {
@@ -56,50 +56,48 @@ void parseRtTransportMode(const char *raw_mode, bool &enable_shm, bool &enable_t
 
 
 void xMateRobot::Impl::init_node() {
-    RCLCPP_INFO(node_->get_logger(), "xMate3 ROS2节点初始化完成, 节点名: %s", node_->get_name());
+    RCLCPP_INFO(node_->get_logger(), "xMateER3 ROS2节点初始化完成, 节点名: %s", node_->get_name());
 }
 
 void xMateRobot::Impl::init_clients() {
-    // 基础连接与信息 - 使用与Gazebo插件一致的路径 /xmate3/cobot/
-    xmate3_robot_connect_client_ = node_->create_client<rokae_xmate3_ros2::srv::Connect>("/xmate3/cobot/connect");
-    xmate3_robot_disconnect_client_ = node_->create_client<rokae_xmate3_ros2::srv::Disconnect>("/xmate3/cobot/disconnect");
-    xmate3_robot_get_info_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetInfo>("/xmate3/cobot/get_info");
-#if ROKAE_ENABLE_INTERNAL_SURFACE
-    xmate3_internal_get_profile_capabilities_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetProfileCapabilities>("/xmate3/internal/get_profile_capabilities");
-#endif
-    xmate3_internal_get_runtime_state_snapshot_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot>("/xmate3/internal/get_runtime_state_snapshot");
-    xmate3_robot_get_power_state_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetPowerState>("/xmate3/cobot/get_power_state");
-    xmate3_robot_set_power_state_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetPowerState>("/xmate3/cobot/set_power_state");
-    xmate3_robot_get_operate_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetOperateMode>("/xmate3/cobot/get_operate_mode");
-    xmate3_robot_set_operate_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetOperateMode>("/xmate3/cobot/set_operate_mode");
-    xmate3_robot_query_log_client_ = node_->create_client<rokae_xmate3_ros2::srv::QueryControllerLog>("/xmate3/cobot/query_controller_log");
-    xmate3_robot_clear_servo_alarm_client_ = node_->create_client<rokae_xmate3_ros2::srv::ClearServoAlarm>("/xmate3/cobot/clear_servo_alarm");
+    // 基础连接与信息 - public lane uses /xmate_er3/cobot with legacy /xmate3 compatibility aliases.
+    xmate3_robot_connect_client_ = node_->create_client<rokae_xmate3_ros2::srv::Connect>("/xmate_er3/cobot/connect");
+    xmate3_robot_disconnect_client_ = node_->create_client<rokae_xmate3_ros2::srv::Disconnect>("/xmate_er3/cobot/disconnect");
+    xmate3_robot_get_info_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetInfo>("/xmate_er3/cobot/get_info");
+    xmate3_internal_get_profile_capabilities_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetProfileCapabilities>("/xmate_er3/cobot/get_profile_capabilities");
+    xmate3_internal_get_runtime_state_snapshot_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot>("/xmate_er3/cobot/get_runtime_state_snapshot");
+    xmate3_robot_get_power_state_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetPowerState>("/xmate_er3/cobot/get_power_state");
+    xmate3_robot_set_power_state_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetPowerState>("/xmate_er3/cobot/set_power_state");
+    xmate3_robot_get_operate_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetOperateMode>("/xmate_er3/cobot/get_operate_mode");
+    xmate3_robot_set_operate_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetOperateMode>("/xmate_er3/cobot/set_operate_mode");
+    xmate3_robot_query_log_client_ = node_->create_client<rokae_xmate3_ros2::srv::QueryControllerLog>("/xmate_er3/cobot/query_controller_log");
+    xmate3_robot_clear_servo_alarm_client_ = node_->create_client<rokae_xmate3_ros2::srv::ClearServoAlarm>("/xmate_er3/cobot/clear_servo_alarm");
 
     // 关节与位姿
-    xmate3_robot_get_joint_pos_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetJointPos>("/xmate3/cobot/get_joint_pos");
-    xmate3_robot_get_joint_vel_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetJointVel>("/xmate3/cobot/get_joint_vel");
-    xmate3_robot_get_joint_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetJointTorques>("/xmate3/cobot/get_joint_torque");
-    xmate3_robot_get_posture_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetPosture>("/xmate3/cobot/get_posture");
-    xmate3_robot_get_cart_posture_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetCartPosture>("/xmate3/cobot/get_cart_posture");
-    xmate3_robot_get_base_frame_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetBaseFrame>("/xmate3/cobot/get_base_frame");
-    xmate3_robot_calc_ik_client_ = node_->create_client<rokae_xmate3_ros2::srv::CalcIk>("/xmate3/cobot/calc_ik");
-    xmate3_robot_calc_fk_client_ = node_->create_client<rokae_xmate3_ros2::srv::CalcFk>("/xmate3/cobot/calc_fk");
+    xmate3_robot_get_joint_pos_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetJointPos>("/xmate_er3/cobot/get_joint_pos");
+    xmate3_robot_get_joint_vel_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetJointVel>("/xmate_er3/cobot/get_joint_vel");
+    xmate3_robot_get_joint_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetJointTorques>("/xmate_er3/cobot/get_joint_torque");
+    xmate3_robot_get_posture_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetPosture>("/xmate_er3/cobot/get_posture");
+    xmate3_robot_get_cart_posture_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetCartPosture>("/xmate_er3/cobot/get_cart_posture");
+    xmate3_robot_get_base_frame_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetBaseFrame>("/xmate_er3/cobot/get_base_frame");
+    xmate3_robot_calc_ik_client_ = node_->create_client<rokae_xmate3_ros2::srv::CalcIk>("/xmate_er3/cobot/calc_ik");
+    xmate3_robot_calc_fk_client_ = node_->create_client<rokae_xmate3_ros2::srv::CalcFk>("/xmate_er3/cobot/calc_fk");
 
     // 工具与安全相关客户端按需初始化，避免在轻量查询场景下预热全部扩展面。
 
     // 非实时运动控制（统一到 cobot 命名空间）
-    xmate3_motion_set_control_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetMotionControlMode>("/xmate3/cobot/set_motion_control_mode");
-    xmate3_motion_reset_client_ = node_->create_client<rokae_xmate3_ros2::srv::MoveReset>("/xmate3/cobot/move_reset");
-    xmate3_motion_start_client_ = node_->create_client<rokae_xmate3_ros2::srv::MoveStart>("/xmate3/cobot/move_start");
-    xmate3_motion_stop_client_ = node_->create_client<rokae_xmate3_ros2::srv::Stop>("/xmate3/cobot/stop");
-    xmate3_motion_set_default_speed_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetDefaultSpeed>("/xmate3/cobot/set_default_speed");
-    xmate3_motion_set_default_zone_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetDefaultZone>("/xmate3/cobot/set_default_zone");
-    xmate3_motion_set_default_conf_opt_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetDefaultConfOpt>("/xmate3/cobot/set_default_conf_opt");
-    xmate3_motion_adjust_speed_online_client_ = node_->create_client<rokae_xmate3_ros2::srv::AdjustSpeedOnline>("/xmate3/cobot/adjust_speed_online");
+    xmate3_motion_set_control_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetMotionControlMode>("/xmate_er3/cobot/set_motion_control_mode");
+    xmate3_motion_reset_client_ = node_->create_client<rokae_xmate3_ros2::srv::MoveReset>("/xmate_er3/cobot/move_reset");
+    xmate3_motion_start_client_ = node_->create_client<rokae_xmate3_ros2::srv::MoveStart>("/xmate_er3/cobot/move_start");
+    xmate3_motion_stop_client_ = node_->create_client<rokae_xmate3_ros2::srv::Stop>("/xmate_er3/cobot/stop");
+    xmate3_motion_set_default_speed_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetDefaultSpeed>("/xmate_er3/cobot/set_default_speed");
+    xmate3_motion_set_default_zone_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetDefaultZone>("/xmate_er3/cobot/set_default_zone");
+    xmate3_motion_set_default_conf_opt_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetDefaultConfOpt>("/xmate_er3/cobot/set_default_conf_opt");
+    xmate3_motion_adjust_speed_online_client_ = node_->create_client<rokae_xmate3_ros2::srv::AdjustSpeedOnline>("/xmate_er3/cobot/adjust_speed_online");
 
     // 实时控制/高级数据
-    xmate3_rt_set_control_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetRtControlMode>("/xmate3/cobot/set_rt_control_mode");
-    xmate3_rt_get_joint_data_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetRtJointData>("/xmate3/cobot/get_rt_joint_data");
+    xmate3_rt_set_control_mode_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetRtControlMode>("/xmate_er3/cobot/set_rt_control_mode");
+    xmate3_rt_get_joint_data_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetRtJointData>("/xmate_er3/cobot/get_rt_joint_data");
     parseRtTransportMode(std::getenv("ROKAE_RT_TRANSPORT_MODE"), rt_fast_shm_enabled_, rt_fast_topic_enabled_);
     if (rt_fast_topic_enabled_) {
         auto qos = rclcpp::QoS(rclcpp::KeepLast(1));
@@ -113,7 +111,7 @@ void xMateRobot::Impl::init_clients() {
         rt_fast_shm_writer_ = std::make_unique<rokae_xmate3_ros2::runtime::RtFastShmRingWriter>(
             rokae_xmate3_ros2::runtime::rt_topics::kFastShmName);
     }
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
     xmate3_comm_send_custom_data_client_ = node_->create_client<rokae_xmate3_ros2::srv::SendCustomData>("/xmate3/cobot/send_custom_data");
     xmate3_comm_register_data_callback_client_ = node_->create_client<rokae_xmate3_ros2::srv::RegisterDataCallback>("/xmate3/cobot/register_data_callback");
     xmate3_comm_read_register_client_ = node_->create_client<rokae_xmate3_ros2::srv::ReadRegister>("/xmate3/cobot/read_register");
@@ -137,26 +135,26 @@ void xMateRobot::Impl::init_clients() {
 
     // MoveAppend action 客户端，用于缓存非实时运动指令
     move_append_action_client_ = rclcpp_action::create_client<rokae_xmate3_ros2::action::MoveAppend>(
-        node_, "/xmate3/cobot/move_append");
+        node_, "/xmate_er3/cobot/move_append");
     RCLCPP_INFO(node_->get_logger(), "核心ROS2服务客户端初始化完成（扩展客户端按需初始化）");
 }
 
 void xMateRobot::Impl::ensureToolingClients() {
     std::lock_guard<std::mutex> lock(client_init_mutex_);
     if (!xmate3_robot_get_toolset_client_) {
-        xmate3_robot_get_toolset_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetToolset>("/xmate3/cobot/get_toolset");
+        xmate3_robot_get_toolset_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetToolset>("/xmate_er3/cobot/get_toolset");
     }
     if (!xmate3_robot_set_toolset_client_) {
-        xmate3_robot_set_toolset_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetToolset>("/xmate3/cobot/set_toolset");
+        xmate3_robot_set_toolset_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetToolset>("/xmate_er3/cobot/set_toolset");
     }
     if (!xmate3_robot_set_toolset_by_name_client_) {
-        xmate3_robot_set_toolset_by_name_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetToolsetByName>("/xmate3/cobot/set_toolset_by_name");
+        xmate3_robot_set_toolset_by_name_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetToolsetByName>("/xmate_er3/cobot/set_toolset_by_name");
     }
 }
 
 
 void xMateRobot::Impl::ensureProjectClients() {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
     return;
 #else
     std::lock_guard<std::mutex> lock(client_init_mutex_);
@@ -190,37 +188,37 @@ void xMateRobot::Impl::ensureProjectClients() {
 void xMateRobot::Impl::ensurePathClients() {
     std::lock_guard<std::mutex> lock(client_init_mutex_);
     if (!xmate3_cobot_enable_drag_client_) {
-        xmate3_cobot_enable_drag_client_ = node_->create_client<rokae_xmate3_ros2::srv::EnableDrag>("/xmate3/cobot/enable_drag");
+        xmate3_cobot_enable_drag_client_ = node_->create_client<rokae_xmate3_ros2::srv::EnableDrag>("/xmate_er3/cobot/enable_drag");
     }
     if (!xmate3_cobot_disable_drag_client_) {
-        xmate3_cobot_disable_drag_client_ = node_->create_client<rokae_xmate3_ros2::srv::DisableDrag>("/xmate3/cobot/disable_drag");
+        xmate3_cobot_disable_drag_client_ = node_->create_client<rokae_xmate3_ros2::srv::DisableDrag>("/xmate_er3/cobot/disable_drag");
     }
     if (!xmate3_cobot_start_record_path_client_) {
-        xmate3_cobot_start_record_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::StartRecordPath>("/xmate3/cobot/start_record_path");
+        xmate3_cobot_start_record_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::StartRecordPath>("/xmate_er3/cobot/start_record_path");
     }
     if (!xmate3_cobot_stop_record_path_client_) {
-        xmate3_cobot_stop_record_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::StopRecordPath>("/xmate3/cobot/stop_record_path");
+        xmate3_cobot_stop_record_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::StopRecordPath>("/xmate_er3/cobot/stop_record_path");
     }
     if (!xmate3_cobot_cancel_record_path_client_) {
-        xmate3_cobot_cancel_record_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::CancelRecordPath>("/xmate3/cobot/cancel_record_path");
+        xmate3_cobot_cancel_record_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::CancelRecordPath>("/xmate_er3/cobot/cancel_record_path");
     }
     if (!xmate3_cobot_save_record_path_client_) {
-        xmate3_cobot_save_record_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::SaveRecordPath>("/xmate3/cobot/save_record_path");
+        xmate3_cobot_save_record_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::SaveRecordPath>("/xmate_er3/cobot/save_record_path");
     }
     if (!xmate3_cobot_replay_path_client_) {
-        xmate3_cobot_replay_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::ReplayPath>("/xmate3/cobot/replay_path");
+        xmate3_cobot_replay_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::ReplayPath>("/xmate_er3/cobot/replay_path");
     }
     if (!xmate3_cobot_remove_path_client_) {
-        xmate3_cobot_remove_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::RemovePath>("/xmate3/cobot/remove_path");
+        xmate3_cobot_remove_path_client_ = node_->create_client<rokae_xmate3_ros2::srv::RemovePath>("/xmate_er3/cobot/remove_path");
     }
     if (!xmate3_cobot_query_path_lists_client_) {
-        xmate3_cobot_query_path_lists_client_ = node_->create_client<rokae_xmate3_ros2::srv::QueryPathLists>("/xmate3/cobot/query_path_lists");
+        xmate3_cobot_query_path_lists_client_ = node_->create_client<rokae_xmate3_ros2::srv::QueryPathLists>("/xmate_er3/cobot/query_path_lists");
     }
 }
 
 void xMateRobot::Impl::ensureDynamicsClients() {
     std::lock_guard<std::mutex> lock(client_init_mutex_);
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
     if (!xmate3_cobot_set_avoid_singularity_client_) {
         xmate3_cobot_set_avoid_singularity_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetAvoidSingularity>("/xmate3/cobot/set_avoid_singularity");
     }
@@ -229,41 +227,41 @@ void xMateRobot::Impl::ensureDynamicsClients() {
     }
 #endif
     if (!xmate3_cobot_get_end_torque_client_) {
-        xmate3_cobot_get_end_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetEndEffectorTorque>("/xmate3/cobot/get_end_torque");
+        xmate3_cobot_get_end_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetEndEffectorTorque>("/xmate_er3/cobot/get_end_torque");
     }
     if (!xmate3_cobot_get_end_wrench_client_) {
-        xmate3_cobot_get_end_wrench_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetEndWrench>("/xmate3/cobot/get_end_wrench");
+        xmate3_cobot_get_end_wrench_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetEndWrench>("/xmate_er3/cobot/get_end_wrench");
     }
     if (!xmate3_dyn_calc_joint_torque_client_) {
-        xmate3_dyn_calc_joint_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::CalcJointTorque>("/xmate3/cobot/calc_joint_torque");
+        xmate3_dyn_calc_joint_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::CalcJointTorque>("/xmate_er3/cobot/calc_joint_torque");
     }
     if (!xmate3_dyn_generate_s_trajectory_client_) {
-        xmate3_dyn_generate_s_trajectory_client_ = node_->create_client<rokae_xmate3_ros2::srv::GenerateSTrajectory>("/xmate3/cobot/generate_s_trajectory");
+        xmate3_dyn_generate_s_trajectory_client_ = node_->create_client<rokae_xmate3_ros2::srv::GenerateSTrajectory>("/xmate_er3/cobot/generate_s_trajectory");
     }
     if (!xmate3_dyn_map_cartesian_to_joint_torque_client_) {
-        xmate3_dyn_map_cartesian_to_joint_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::MapCartesianToJointTorque>("/xmate3/cobot/map_cartesian_to_joint_torque");
+        xmate3_dyn_map_cartesian_to_joint_torque_client_ = node_->create_client<rokae_xmate3_ros2::srv::MapCartesianToJointTorque>("/xmate_er3/cobot/map_cartesian_to_joint_torque");
     }
 }
 void xMateRobot::Impl::ensureSafetyClients() {
     std::lock_guard<std::mutex> lock(client_init_mutex_);
     if (!xmate3_robot_enable_collision_detection_client_) {
-        xmate3_robot_enable_collision_detection_client_ = node_->create_client<rokae_xmate3_ros2::srv::EnableCollisionDetection>("/xmate3/cobot/enable_collision_detection");
+        xmate3_robot_enable_collision_detection_client_ = node_->create_client<rokae_xmate3_ros2::srv::EnableCollisionDetection>("/xmate_er3/cobot/enable_collision_detection");
     }
     if (!xmate3_robot_disable_collision_detection_client_) {
-        xmate3_robot_disable_collision_detection_client_ = node_->create_client<rokae_xmate3_ros2::srv::DisableCollisionDetection>("/xmate3/cobot/disable_collision_detection");
+        xmate3_robot_disable_collision_detection_client_ = node_->create_client<rokae_xmate3_ros2::srv::DisableCollisionDetection>("/xmate_er3/cobot/disable_collision_detection");
     }
     if (!xmate3_robot_get_soft_limit_client_) {
-        xmate3_robot_get_soft_limit_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetSoftLimit>("/xmate3/cobot/get_soft_limit");
+        xmate3_robot_get_soft_limit_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetSoftLimit>("/xmate_er3/cobot/get_soft_limit");
     }
     if (!xmate3_robot_set_soft_limit_client_) {
-        xmate3_robot_set_soft_limit_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetSoftLimit>("/xmate3/cobot/set_soft_limit");
+        xmate3_robot_set_soft_limit_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetSoftLimit>("/xmate_er3/cobot/set_soft_limit");
     }
 }
 
 void xMateRobot::Impl::init_subscribers() {
     // 订阅关节状态（加锁保证线程安全）
     joint_state_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
-        "/xmate3/joint_states", 10,
+        "/xmate_er3/joint_states", 10,
         [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
             std::lock_guard<std::mutex> lock(state_mutex_);
             last_joint_state_ = *msg;
@@ -271,7 +269,7 @@ void xMateRobot::Impl::init_subscribers() {
 
     // 订阅机器人运行状态
     operation_state_sub_ = node_->create_subscription<rokae_xmate3_ros2::msg::OperationState>(
-        "/xmate3/cobot/operation_state", 10,
+        "/xmate_er3/cobot/operation_state", 10,
         [this](const rokae_xmate3_ros2::msg::OperationState::SharedPtr msg) {
             std::lock_guard<std::mutex> lock(state_mutex_);
             last_operation_state_ = *msg;
@@ -325,7 +323,7 @@ xMateRobot::Impl::Impl(const std::string& remote_ip, const std::string& local_ip
     remote_ip_ = remote_ip;
     local_ip_ = local_ip;
     ros_context_lease_ = rokae_xmate3_ros2::runtime::RosContextOwner::acquire("sdk_wrapper_ctor");
-    node_ = rclcpp::Node::make_shared("xmate3_robot");
+    node_ = rclcpp::Node::make_shared("xmate_er3_robot");
     catalog_policy_ = strictRuntimeCatalogPolicy();
     applyCatalogPolicyFromEnvironment();
     init_node();
@@ -390,7 +388,7 @@ void xMateRobot::Impl::applyCatalogPolicyOverride(const std::optional<SdkCatalog
 }
 
 void xMateRobot::Impl::publishCatalogProvenance(const std::string& provenance) const {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
     (void)provenance;
     return;
 #else

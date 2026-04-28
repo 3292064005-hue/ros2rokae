@@ -1,16 +1,16 @@
 {
   "schema": "recorded_path_v2",
-  "public_lane": "xMate6",
-  "robot_model": "xMate3",
-  "canonical_identity": "xCoreSDK:xmate6",
+  "public_lane": "xMateER3",
+  "robot_model": "xMateER3",
+  "canonical_identity": "xCoreSDK:xmate_er3",
   "legacy_versions": [
     "v1"
   ],
   "metadata": {
     "version": "v2",
-    "robot": "xMate6",
-    "robot_model": "xMate3",
-    "canonical_identity": "xCoreSDK:xmate6",
+    "robot": "xMateER3",
+    "robot_model": "xMateER3",
+    "canonical_identity": "xCoreSDK:xmate_er3",
     "source": "producer label",
     "created_at_sec": "first accepted sample timestamp",
     "monotonic_step_sec": 0.01

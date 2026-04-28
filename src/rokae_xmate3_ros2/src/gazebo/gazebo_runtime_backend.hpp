@@ -23,7 +23,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 
-#include "rokae_xmate3_ros2/spec/xmate3_spec.hpp"
+#include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 #include "runtime/backend_contract_catalog.hpp"
 #include "runtime/runtime_types.hpp"
 

@@ -1,5 +1,5 @@
 {
-  "target_family": "xmate6",
+  "target_family": "xmate_er3",
   "alignment_scope": "call_build_only",
   "contract_source": "single_source_manifest",
   "baseline": {
@@ -130,7 +130,7 @@
   "identity": {
     "canonical_package": "xCoreSDK",
     "legacy_source_package": "rokae_xmate3_ros2",
-    "canonical_identity": "xCoreSDK:xmate6"
+    "canonical_identity": "xCoreSDK:xmate_er3"
   },
   "public_examples": [
     "01_basic_connect",
@@ -290,17 +290,17 @@
       "test_move_queue_semantics": [
         "quick_gate",
         "semantic_gate",
-        "xmate6_alignment"
+        "xmate_er3_alignment"
       ],
       "test_service_facade": [
         "quick_gate",
         "semantic_gate",
-        "xmate6_alignment"
+        "xmate_er3_alignment"
       ],
       "test_runtime_state_machine": [
         "quick_gate",
         "semantic_gate",
-        "xmate6_alignment"
+        "xmate_er3_alignment"
       ]
     },
     "source_anchors": [
@@ -317,7 +317,7 @@
         "contains": "function_not_supported"
       }
     ],
-    "static_gate": "test/harness/check_xmate6_alignment_behaviors.py",
-    "execution_gate": "tools/run_xmate6_alignment_behavior_gate.sh"
+    "static_gate": "test/harness/check_xmate_er3_alignment_behaviors.py",
+    "execution_gate": "tools/run_xmate_er3_alignment_behavior_gate.sh"
   }
 }

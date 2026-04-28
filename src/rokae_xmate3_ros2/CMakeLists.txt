@@ -3,25 +3,43 @@ project(rokae_xmate3_ros2)
 cmake_policy(SET CMP0076 NEW)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/runtime_host_policy.cmake)
+set(ROKAE_RUNTIME_HOST_POLICY_FILE "${CMAKE_CURRENT_SOURCE_DIR}/config/default_runtime_host_policy.env")
+rokae_load_runtime_host_policy("${ROKAE_RUNTIME_HOST_POLICY_FILE}")
+option(ROKAE_PUBLIC_SDK_REPLAY_ONLY "Configure only the smoke-level public_sdk packaging/install surface with lightweight dummy targets" OFF)
+if(ROKAE_PUBLIC_SDK_REPLAY_ONLY)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/public_sdk_replay_mode.cmake)
+  return()
+endif()
+
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN YES)
-option(ROKAE_BUILD_COMPAT_SDK "Build official-compatible xCore SDK facade" ON)
+option(ROKAE_BUILD_COMPAT_SDK "Build compatibility-shaped xCore SDK facade" ON)
 option(ROKAE_STRICT_PUBLIC_INSTALL "Restrict the install-facing SDK surface to the public rokae/* ABI only" ON)
 option(ROKAE_EXPORT_PRIVATE_SDK_TARGETS "Export native/private SDK targets in the install tree when their ROS2/Gazebo dependencies are available" OFF)
 option(ROKAE_INSTALL_BACKEND_DEV_HEADERS "Install backend/developer headers" OFF)
 option(ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES "Install internal/backend example binaries into the package runtime path" OFF)
-option(ROKAE_PUBLIC_XMATE6_ONLY "Freeze the install-facing compatibility lane to xMate 6-axis only" ON)
+option(ROKAE_PUBLIC_XMATE_ER3_ONLY "Freeze the install-facing compatibility lane to xMate ER3 6-axis only" ON)
 option(ROKAE_ENABLE_INTERNAL_SURFACE "Build internal/backend-only ROS interfaces, service facades, and examples" OFF)
-option(ROKAE_DAEMONIZED_RUNTIME_DEFAULT "Publish xCoreSDK metadata with daemonized runtime as the default hosting mode" ON)
-set(ROKAE_PUBLIC_UNSUPPORTED_MODULES "io;rl;calibration" CACHE STRING "Semicolon-separated public-lane modules intentionally excluded from the xMate6 compatibility contract")
+option(ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES "Build RL/IO/register/avoid-singularity internal modules that are intentionally outside the xMateER3 public lane" OFF)
+set(ROKAE_DAEMONIZED_RUNTIME_DEFAULT OFF)
+if(DEFINED ROKAE_DEFAULT_RUNTIME_HOST AND ROKAE_DEFAULT_RUNTIME_HOST STREQUAL "daemonized_runtime")
+  set(ROKAE_DAEMONIZED_RUNTIME_DEFAULT ON)
+endif()
+set(ROKAE_PUBLIC_UNSUPPORTED_MODULES "io;rl;calibration" CACHE STRING "Semicolon-separated public-lane modules intentionally excluded from the xMateER3 compatibility contract")
 if(ROKAE_BUILD_INTERNAL_BACKEND_EXAMPLES OR ROKAE_INSTALL_INTERNAL_BACKEND_EXAMPLES OR ROKAE_EXPORT_PRIVATE_SDK_TARGETS)
   set(ROKAE_ENABLE_INTERNAL_SURFACE ON CACHE BOOL "Build internal/backend-only ROS interfaces, service facades, and examples" FORCE)
 endif()
-if(ROKAE_DAEMONIZED_RUNTIME_DEFAULT)
-  set(ROKAE_PUBLIC_BACKEND_MODE "daemonized_runtime_default")
-else()
-  set(ROKAE_PUBLIC_BACKEND_MODE "ros_gazebo_backed")
-endif()
+set(ROKAE_PUBLIC_DEFAULT_LAUNCH_PROFILE "${ROKAE_DEFAULT_PUBLIC_LAUNCH_PROFILE}")
+set(ROKAE_PUBLIC_DEFAULT_RUNTIME_HOST "${ROKAE_DEFAULT_RUNTIME_HOST}")
+set(ROKAE_PUBLIC_DEFAULT_RUNTIME_PROFILE "${ROKAE_DEFAULT_RUNTIME_PROFILE}")
+set(ROKAE_PUBLIC_DEFAULT_BACKEND_MODE "${ROKAE_DEFAULT_BACKEND_MODE}")
+set(ROKAE_PUBLIC_DEFAULT_SERVICE_EXPOSURE_PROFILE "${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE}")
+set(ROKAE_PUBLIC_DEFAULT_ENABLE_ROS2_CONTROL "${ROKAE_DEFAULT_ENABLE_ROS2_CONTROL}")
+set(ROKAE_PUBLIC_DEFAULT_ENABLE_XCORE_PLUGIN "${ROKAE_DEFAULT_ENABLE_XCORE_PLUGIN}")
+set(ROKAE_PUBLIC_DEFAULT_COMPATIBILITY_ALIAS_POLICY "${ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY}")
+set(ROKAE_PUBLIC_PRIMARY_INSTALL_CONSUMER "cxx_sdk_core_consumer")
+set(ROKAE_PUBLIC_BACKEND_MODE "${ROKAE_PUBLIC_DEFAULT_BACKEND_MODE}")
 # 抑制Gazebo CMake配置的dev警告
 set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS ON)
 
@@ -73,43 +91,87 @@ if(DEFINED ENV{CONDA_PREFIX} AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
 endif()
 
 set(ROKAE_GENERATED_URDF_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/urdf")
+set(ROKAE_GENERATED_XMATE_ER3_URDF "${ROKAE_GENERATED_URDF_DIR}/xMateER3.urdf")
+set(ROKAE_GENERATED_XMATE_ER3_URDF_METADATA "${ROKAE_GENERATED_URDF_DIR}/xMateER3.description.json")
 set(ROKAE_GENERATED_XMATE3_URDF "${ROKAE_GENERATED_URDF_DIR}/xMate3.urdf")
 set(ROKAE_GENERATED_XMATE3_URDF_METADATA "${ROKAE_GENERATED_URDF_DIR}/xMate3.description.json")
 add_custom_command(
-  OUTPUT "${ROKAE_GENERATED_XMATE3_URDF}" "${ROKAE_GENERATED_XMATE3_URDF_METADATA}"
+  OUTPUT "${ROKAE_GENERATED_XMATE_ER3_URDF}" "${ROKAE_GENERATED_XMATE_ER3_URDF_METADATA}" "${ROKAE_GENERATED_XMATE3_URDF}" "${ROKAE_GENERATED_XMATE3_URDF_METADATA}"
   COMMAND ${CMAKE_COMMAND} -E make_directory "${ROKAE_GENERATED_URDF_DIR}"
+  COMMAND ${XACRO_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMateER3.xacro"
+          -o "${ROKAE_GENERATED_XMATE_ER3_URDF}"
+          mesh_root:=model://rokae_xmate3_ros2/meshes/
+          enable_ros2_control:=${ROKAE_PUBLIC_DEFAULT_ENABLE_ROS2_CONTROL}
+          enable_xcore_plugin:=${ROKAE_PUBLIC_DEFAULT_ENABLE_XCORE_PLUGIN}
+          backend_mode:=${ROKAE_PUBLIC_DEFAULT_BACKEND_MODE}
+          service_exposure_profile:=${ROKAE_PUBLIC_DEFAULT_SERVICE_EXPOSURE_PROFILE}
+  COMMAND "${ROKAE_SYSTEM_PYTHON}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_description_metadata.py"
+          --urdf "${ROKAE_GENERATED_XMATE_ER3_URDF}"
+          --output "${ROKAE_GENERATED_XMATE_ER3_URDF_METADATA}"
+          --source-xacro "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMateER3.xacro"
+          --enable-ros2-control ${ROKAE_PUBLIC_DEFAULT_ENABLE_ROS2_CONTROL}
+          --enable-xcore-plugin ${ROKAE_PUBLIC_DEFAULT_ENABLE_XCORE_PLUGIN}
+          --backend-mode ${ROKAE_PUBLIC_DEFAULT_BACKEND_MODE}
+          --service-exposure-profile ${ROKAE_PUBLIC_DEFAULT_SERVICE_EXPOSURE_PROFILE}
+          --source-xacro-package-relative urdf/xMateER3.xacro
+          --robot-family xMateER3
+          --robot-model xMateER3
+          --identity-scope canonical
+          --canonical-identity xCoreSDK:xmate_er3
+          --canonical-source-xacro urdf/xMateER3.xacro
+          --default-runtime-host ${ROKAE_PUBLIC_DEFAULT_RUNTIME_HOST}
+          --default-runtime-profile ${ROKAE_PUBLIC_DEFAULT_RUNTIME_PROFILE}
+          --default-launch-profile ${ROKAE_PUBLIC_DEFAULT_LAUNCH_PROFILE}
+          --compatibility-alias-policy ${ROKAE_PUBLIC_DEFAULT_COMPATIBILITY_ALIAS_POLICY}
   COMMAND ${XACRO_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
           -o "${ROKAE_GENERATED_XMATE3_URDF}"
           mesh_root:=model://rokae_xmate3_ros2/meshes/
-          enable_ros2_control:=true
-          enable_xcore_plugin:=true
-          backend_mode:=jtc
-          service_exposure_profile:=public_xmate6_only
+          enable_ros2_control:=${ROKAE_PUBLIC_DEFAULT_ENABLE_ROS2_CONTROL}
+          enable_xcore_plugin:=${ROKAE_PUBLIC_DEFAULT_ENABLE_XCORE_PLUGIN}
+          backend_mode:=${ROKAE_PUBLIC_DEFAULT_BACKEND_MODE}
+          service_exposure_profile:=${ROKAE_PUBLIC_DEFAULT_SERVICE_EXPOSURE_PROFILE}
   COMMAND "${ROKAE_SYSTEM_PYTHON}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_description_metadata.py"
           --urdf "${ROKAE_GENERATED_XMATE3_URDF}"
           --output "${ROKAE_GENERATED_XMATE3_URDF_METADATA}"
           --source-xacro "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
-          --enable-ros2-control true
-          --enable-xcore-plugin true
-          --backend-mode jtc
-          --service-exposure-profile public_xmate6_only
+          --enable-ros2-control ${ROKAE_PUBLIC_DEFAULT_ENABLE_ROS2_CONTROL}
+          --enable-xcore-plugin ${ROKAE_PUBLIC_DEFAULT_ENABLE_XCORE_PLUGIN}
+          --backend-mode ${ROKAE_PUBLIC_DEFAULT_BACKEND_MODE}
+          --service-exposure-profile ${ROKAE_PUBLIC_DEFAULT_SERVICE_EXPOSURE_PROFILE}
           --source-xacro-package-relative urdf/xMate3.xacro
+          --robot-family xMate3
+          --robot-model xMate3
+          --identity-scope compatibility_alias
+          --canonical-identity xCoreSDK:xmate_er3
+          --canonical-source-xacro urdf/xMateER3.xacro
+          --default-runtime-host ${ROKAE_PUBLIC_DEFAULT_RUNTIME_HOST}
+          --default-runtime-profile ${ROKAE_PUBLIC_DEFAULT_RUNTIME_PROFILE}
+          --default-launch-profile ${ROKAE_PUBLIC_DEFAULT_LAUNCH_PROFILE}
+          --compatibility-alias-policy ${ROKAE_PUBLIC_DEFAULT_COMPATIBILITY_ALIAS_POLICY}
   DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMateER3.xacro"
+    "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMateER3.ros2_control.xacro"
     "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
     "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.ros2_control.xacro"
   VERBATIM
 )
 add_custom_target(${PROJECT_NAME}_generated_urdf ALL
-  DEPENDS "${ROKAE_GENERATED_XMATE3_URDF}" "${ROKAE_GENERATED_XMATE3_URDF_METADATA}"
+  DEPENDS "${ROKAE_GENERATED_XMATE_ER3_URDF}" "${ROKAE_GENERATED_XMATE_ER3_URDF_METADATA}" "${ROKAE_GENERATED_XMATE3_URDF}" "${ROKAE_GENERATED_XMATE3_URDF_METADATA}"
 )
 
 set(ROKAE_SOURCE_ARCHIVE "" CACHE FILEPATH
   "Optional source archive (.zip) to verify against the current working tree"
 )
 get_filename_component(ROKAE_SOURCE_PACKAGE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
-get_filename_component(ROKAE_SOURCE_WORKSPACE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.gitignore" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/colcon_defaults.yaml")
+  set(ROKAE_SOURCE_WORKSPACE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
+else()
+  get_filename_component(ROKAE_SOURCE_WORKSPACE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+endif()
 set(ROKAE_SOURCE_ARCHIVE_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rokae_source_candidate.zip" CACHE FILEPATH
   "Output path for the verified source archive release candidate"
 )
@@ -145,12 +207,18 @@ add_custom_target(release_candidate
 set(ROKAE_RELEASE_SCOREBOARD_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/release_scoreboard.json" CACHE FILEPATH
   "Output path for the machine-readable release scoreboard"
 )
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/cmake/xCoreSDKInstallMetadata.json.in
+  ${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKInstallMetadata.json
+  @ONLY
+)
 add_custom_target(release_scoreboard
   COMMAND "${ROKAE_SYSTEM_PYTHON}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/write_release_scoreboard.py"
           --root "${CMAKE_CURRENT_SOURCE_DIR}"
+          --install-metadata "${CMAKE_CURRENT_BINARY_DIR}/xCoreSDKInstallMetadata.json"
           --output "${ROKAE_RELEASE_SCOREBOARD_OUTPUT}"
-  COMMENT "Writing machine-readable release scoreboard"
+  COMMENT "Writing machine-readable release scoreboard from install-facing metadata"
   VERBATIM
 )
 if(BUILD_TESTING)
@@ -196,6 +264,11 @@ if(ROKAE_ENABLE_INTERNAL_SURFACE)
 else()
   add_compile_definitions(ROKAE_ENABLE_INTERNAL_SURFACE=0)
 endif()
+if(ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES)
+  add_compile_definitions(ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES=1)
+else()
+  add_compile_definitions(ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES=0)
+endif()
 
 set(ROKAE_PUBLIC_INTERFACE_FILES
   # Msg
@@ -222,6 +295,7 @@ set(ROKAE_PUBLIC_INTERFACE_FILES
   srv/GetInfo.srv
   srv/GetRuntimeDiagnostics.srv
   srv/GetRuntimeStateSnapshot.srv
+  internal_interfaces/srv/GetProfileCapabilities.srv
   srv/GetPowerState.srv
   srv/SetPowerState.srv
   srv/GetOperateMode.srv
@@ -285,33 +359,37 @@ set(ROKAE_PUBLIC_INTERFACE_FILES
 )
 
 set(ROKAE_INTERNAL_INTERFACE_FILES
-  internal_interfaces/srv/GetDI.srv
-  internal_interfaces/srv/GetDO.srv
-  internal_interfaces/srv/SetDI.srv
-  internal_interfaces/srv/SetDO.srv
-  internal_interfaces/srv/GetAI.srv
-  internal_interfaces/srv/SetAO.srv
-  internal_interfaces/srv/SetSimulationMode.srv
-  internal_interfaces/srv/LoadRLProject.srv
-  internal_interfaces/srv/StartRLProject.srv
-  internal_interfaces/srv/StopRLProject.srv
-  internal_interfaces/srv/GetRlProjectInfo.srv
-  internal_interfaces/srv/PauseRLProject.srv
-  internal_interfaces/srv/SetProjectRunningOpt.srv
-  internal_interfaces/srv/ReadRegister.srv
-  internal_interfaces/srv/WriteRegister.srv
-  internal_interfaces/srv/ReadRegisterEx.srv
-  internal_interfaces/srv/WriteRegisterEx.srv
-  internal_interfaces/srv/SetXPanelVout.srv
-  internal_interfaces/srv/SetAvoidSingularity.srv
-  internal_interfaces/srv/GetAvoidSingularity.srv
-  internal_interfaces/srv/GetToolCatalog.srv
-  internal_interfaces/srv/GetWobjCatalog.srv
-  internal_interfaces/srv/SendCustomData.srv
-  internal_interfaces/srv/RegisterDataCallback.srv
   internal_interfaces/srv/ValidateMotion.srv
-  internal_interfaces/srv/GetProfileCapabilities.srv
+  internal_interfaces/srv/PlannerPreflightReport.srv
 )
+if(ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES)
+  list(APPEND ROKAE_INTERNAL_INTERFACE_FILES
+    internal_interfaces/srv/GetDI.srv
+    internal_interfaces/srv/GetDO.srv
+    internal_interfaces/srv/SetDI.srv
+    internal_interfaces/srv/SetDO.srv
+    internal_interfaces/srv/GetAI.srv
+    internal_interfaces/srv/SetAO.srv
+    internal_interfaces/srv/SetSimulationMode.srv
+    internal_interfaces/srv/LoadRLProject.srv
+    internal_interfaces/srv/StartRLProject.srv
+    internal_interfaces/srv/StopRLProject.srv
+    internal_interfaces/srv/GetRlProjectInfo.srv
+    internal_interfaces/srv/PauseRLProject.srv
+    internal_interfaces/srv/SetProjectRunningOpt.srv
+    internal_interfaces/srv/ReadRegister.srv
+    internal_interfaces/srv/WriteRegister.srv
+    internal_interfaces/srv/ReadRegisterEx.srv
+    internal_interfaces/srv/WriteRegisterEx.srv
+    internal_interfaces/srv/SetXPanelVout.srv
+    internal_interfaces/srv/SetAvoidSingularity.srv
+    internal_interfaces/srv/GetAvoidSingularity.srv
+    internal_interfaces/srv/GetToolCatalog.srv
+    internal_interfaces/srv/GetWobjCatalog.srv
+    internal_interfaces/srv/SendCustomData.srv
+    internal_interfaces/srv/RegisterDataCallback.srv
+  )
+endif()
 
 set(ROKAE_ROSIDL_INTERFACE_FILES
 ${ROKAE_PUBLIC_INTERFACE_FILES}

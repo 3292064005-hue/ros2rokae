@@ -1,0 +1,25 @@
+cmake_minimum_required(VERSION 3.16)
+project(xcore_sdk_install_tree_runtime_components_consumer LANGUAGES CXX)
+
+find_package(Eigen3 REQUIRED NO_MODULE)
+find_package(xCoreSDK COMPONENTS shared static ros_bridge CONFIG REQUIRED)
+
+if(NOT TARGET xCoreSDK::xCoreSDK_shared)
+  message(FATAL_ERROR "runtime component consumer requires xCoreSDK::xCoreSDK_shared")
+endif()
+if(NOT TARGET xCoreSDK::xCoreSDK_static)
+  message(FATAL_ERROR "runtime component consumer requires xCoreSDK::xCoreSDK_static")
+endif()
+if(NOT TARGET xCoreSDK::xCoreSDK_ros_bridge)
+  message(FATAL_ERROR "runtime component consumer requires xCoreSDK::xCoreSDK_ros_bridge")
+endif()
+if(TARGET xCoreSDK::rokae_xmate3_ros2_sdk_backend)
+  message(FATAL_ERROR "private backend target must not leak into runtime component install consumption")
+endif()
+
+add_executable(minimal_runtime_components_consumer minimal_runtime_components_consumer.cpp)
+target_link_libraries(minimal_runtime_components_consumer PRIVATE xCoreSDK::xCoreSDK_shared)
+target_compile_features(minimal_runtime_components_consumer PRIVATE cxx_std_17)
+
+add_library(minimal_ros_bridge_link INTERFACE)
+target_link_libraries(minimal_ros_bridge_link INTERFACE xCoreSDK::xCoreSDK_ros_bridge)

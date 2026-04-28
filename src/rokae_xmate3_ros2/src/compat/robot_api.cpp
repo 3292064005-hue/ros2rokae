@@ -257,7 +257,7 @@ void BaseRobot::executeCommand(const std::vector<MoveCCommand> &cmds, error_code
 
 /**
  * @brief Public-lane IO/query entry points remain for source compatibility only.
- * @details The install-facing xMate6 compatibility lane intentionally excludes IO, registers, RL, calibration,
+ * @details The install-facing xMateER3 compatibility lane intentionally excludes IO, registers, RL, calibration,
  *          and singularity-avoid workflows. These wrappers therefore return deterministic `not_implemented`
  *          errors instead of silently dispatching to backend-only services.
  */

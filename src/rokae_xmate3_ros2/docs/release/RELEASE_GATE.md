@@ -18,12 +18,13 @@
 ## 2. release gate 组成
 
 - environment preflight：`tools/check_target_environment.sh`
-- static sanity：`tools/run_static_sanity.sh`
+- non-replay full source build：`tools/run_full_source_tree_build_gate.sh`
+- static sanity：`tools/run_static_sanity.sh`（由 full source build gate 调用）
 - install-tree consumers
 - launch smoke
 - locked target-environment acceptance
 - layered acceptance ownership matrix (`docs/release/ACCEPTANCE_LAYERS.md`)
-- xMate6 alignment behavior gate (`tools/run_xmate6_alignment_behavior_gate.sh`, default in quick/release gate and L1 acceptance)
+- xMateER3 alignment behavior gate (`tools/run_xmate_er3_alignment_behavior_gate.sh`, default in quick/release gate and L1 acceptance)
 
 release gate wrappers are mirrored into the install-tree artifact for discoverability, but they remain workspace-source wrappers because static sanity / ctest operate on the source tree.
 
@@ -59,5 +60,16 @@ tools/run_target_env_acceptance.sh --release-gate --launch-smoke
 ## 6. Acceptance layers
 
 L0-L5 的唯一矩阵见 [`ACCEPTANCE_LAYERS.md`](ACCEPTANCE_LAYERS.md)。
-release gate 只能覆盖到 L0-L2；其中 L1 默认包含 `xmate6_alignment` 行为验收 bundle。L3-L5 需要真实 runtime namespace / 传感器 / 明确动作审批。
+release gate 只能覆盖到 L0-L2；其中 L1 默认包含 `xmate_er3_alignment` 行为验收 bundle。L3-L5 需要真实 runtime namespace / 传感器 / 明确动作审批。
 
+
+release/quick gate wrappers must call `tools/run_full_source_tree_build_gate.sh`; raw `colcon build` wrappers are not an acceptable replacement for the source-tree build gate.
+
+
+## Full source gate execution boundary
+
+The non-replay full source-tree gate is mandatory for target-environment release acceptance and must be run in the locked Ubuntu 22.04 / ROS 2 Humble / Gazebo environment. Passing replay-only smoke or static contract checks is not a substitute for this target-environment gate, and real hardware validation remains a separate layer.
+
+## Target report verifier
+
+Successful target-environment acceptance must be backed by a JSON report accepted by `tools/verify_target_env_acceptance_report.py`. A report without `status.full_source_gate: passed`, without a report-local full-source evidence log, without the `full-source-build-gate: passed` log marker, or without Humble/Gazebo tool evidence is a release blocker, even if local static checks or replay-only packaging smoke passed.

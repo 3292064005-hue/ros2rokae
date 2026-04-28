@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-usage: run_real_dryrun_acceptance.sh <workspace-root> [--namespace /xmate3]
+usage: run_real_dryrun_acceptance.sh <workspace-root> [--namespace /xmate_er3]
 
 Run the L3 dry-run acceptance bundle against an already running real-runtime namespace.
 No motion is commanded. Required environment variables:
@@ -20,7 +20,7 @@ fi
 
 WORKSPACE_ROOT="$1"
 shift
-NAMESPACE="${ROKAE_ACCEPTANCE_NAMESPACE:-/xmate3}"
+NAMESPACE="${ROKAE_ACCEPTANCE_NAMESPACE:-/xmate_er3}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --namespace)
@@ -56,7 +56,7 @@ CONNECT_SERVICE="${NAMESPACE}/cobot/connect"
 DISCONNECT_SERVICE="${NAMESPACE}/cobot/disconnect"
 MODE_SERVICE="${NAMESPACE}/cobot/set_motion_control_mode"
 GET_JOINT_SERVICE="${NAMESPACE}/cobot/get_joint_pos"
-DIAG_SERVICE="${NAMESPACE}/internal/get_runtime_diagnostics"
+DIAG_SERVICE="${NAMESPACE}/cobot/get_runtime_diagnostics"
 
 rokae_acceptance_wait_for_service "${CONNECT_SERVICE}" 60
 rokae_acceptance_wait_for_service "${DISCONNECT_SERVICE}" 60

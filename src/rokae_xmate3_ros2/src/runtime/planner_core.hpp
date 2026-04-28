@@ -14,10 +14,10 @@ class MotionPlanner {
 
   [[nodiscard]] MotionPlan plan(const MotionRequest &request) const;
   void resetDebugCounters() const;
-  [[nodiscard]] ::gazebo::xMate3Kinematics::DebugCounters debugCounters() const;
+  [[nodiscard]] ::gazebo::xMateER3Kinematics::DebugCounters debugCounters() const;
 
  private:
-  std::unique_ptr<::gazebo::xMate3Kinematics> kinematics_;
+  std::unique_ptr<::gazebo::xMateER3Kinematics> kinematics_;
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

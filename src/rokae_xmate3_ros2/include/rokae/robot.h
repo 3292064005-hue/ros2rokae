@@ -34,7 +34,7 @@ class BaseCobot;
 class xMateRobot;
 
 /**
- * @brief Official-SDK-like robot facade base for the xMate6 compatibility lane.
+ * @brief Official-SDK-like robot facade base for the xMateER3 compatibility lane.
  * @details This class owns an opaque backend handle and exposes the installed ABI surface.
  *          The concrete implementation is compiled into the compatibility library so that the
  *          public headers stay free of ROS2/Gazebo transport types.
@@ -75,7 +75,7 @@ class XCORE_API BaseRobot : public Base<BaseRobot> {
    * @param remoteIP Remote robot/controller address.
    * @param localIP Local interface address used by realtime transports. Empty keeps backend default selection.
    * @throws ExecutionException when endpoint binding or connection fails.
-   * @note This overload follows official SDK style and throws on failure. For no-throw control flow, use
+   * @note This overload follows SDK compatibility style and throws on failure. For no-throw control flow, use
    *       the `error_code&` overload.
    */
   void connectToRobot(const std::string &remoteIP, const std::string &localIP = "");
@@ -132,7 +132,7 @@ class XCORE_API BaseRobot : public Base<BaseRobot> {
    * @param cmds One or more MoveC commands. The vector must be non-empty and homogeneously typed.
    * @param ec Output error code. Set when the backend rejects the request or motion cannot start.
    * @throws No exception.
-   * @note This preserves the official SDK surface for direct `MoveC` execution on the xMate6 compatibility lane.
+   * @note This preserves the SDK compatibility surface for direct `MoveC` execution on the xMateER3 compatibility lane.
    */
   void executeCommand(const std::vector<MoveCCommand> &cmds, error_code &ec) noexcept;
 
@@ -148,7 +148,7 @@ class XCORE_API BaseRobot : public Base<BaseRobot> {
 
 /**
    * @brief Read a digital input on the historical SDK surface.
-   * @details The install-facing xMate6 compatibility lane intentionally excludes IO, typed registers, RL,
+   * @details The install-facing xMateER3 compatibility lane intentionally excludes IO, typed registers, RL,
    *          and calibration workflows. The symbol is preserved for source compatibility, but the public lane
    *          returns deterministic `not_implemented` instead of advertising IO as a supported contract.
    * @param board IO board index.
@@ -211,7 +211,7 @@ class XCORE_API BaseRobot : public Base<BaseRobot> {
   }
 
   /**
-   * @brief Read the current soft-limit configuration using the official SDK array type.
+   * @brief Read the current soft-limit configuration using the SDK compatibility array type.
    * @param limits Output joint limit pairs `[lower, upper]` in radians.
    * @param ec Output error code.
    * @return `true` when soft limits are enabled; `false` when disabled or on error.
@@ -227,7 +227,7 @@ class XCORE_API BaseRobot : public Base<BaseRobot> {
   void setSoftLimit(bool enable,
                     error_code &ec,
                     const std::array<std::array<double, 2>, 6> &limits) noexcept;
-  // NOTE: frame calibration is not part of the install-facing xMate6 public lane and returns
+  // NOTE: frame calibration is not part of the install-facing xMateER3 public lane and returns
   // deterministic not_implemented errors when invoked through the public SDK facade.
   FrameCalibrationResult calibrateFrame(FrameType type,
                                         const std::vector<std::array<double, 6>> &points,
@@ -279,13 +279,13 @@ class XCORE_API BaseCobot : public BaseRobot {
                   bool removeAll = false) noexcept;
   std::vector<std::string> queryPathLists(error_code &ec) noexcept;
 
-/** @brief Return the xMate6 model facade bound to the current tool/load context. */
+/** @brief Return the xMateER3 model facade bound to the current tool/load context. */
   xMateModel<6> model() const;
   /**
-   * @brief Get the shared RT controller facade for the xMate6 compatibility lane.
+   * @brief Get the shared RT controller facade for the xMateER3 compatibility lane.
    * @return Weak reference to the cached RT controller object.
    * @throws No exception.
-   * @note The weak handle follows the official SDK ownership shape: the facade is cached on the robot object
+   * @note The weak handle follows the SDK compatibility ownership shape: the facade is cached on the robot object
    *       and may outlive individual mode switches, but later RT calls can still fail if the robot lifecycle no
    *       longer permits RT control.
    */

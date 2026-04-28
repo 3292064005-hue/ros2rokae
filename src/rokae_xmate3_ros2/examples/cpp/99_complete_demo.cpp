@@ -213,7 +213,7 @@ int main() {
   robot.setSimulationMode(true, ec);
   if (ec) {
     if (isSimulationOnlyCapabilityError(ec)) {
-      printCapabilityStatus("public-lane", "IO/register workflow is internal/backend only on the install-facing xMate6 SDK lane");
+      printCapabilityStatus("public-lane", "IO/register workflow is internal/backend only on the install-facing xMateER3 SDK lane");
       ec.clear();
     } else if (reportError("setSimulationMode(true)", ec)) {
       cleanupRobot(robot);
