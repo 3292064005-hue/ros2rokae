@@ -14,6 +14,10 @@ bool xMateRobot::getProfileCapabilities(std::string& active_profile,
         ec = std::make_error_code(std::errc::not_connected);
         return false;
     }
+#if !ROKAE_ENABLE_INTERNAL_SURFACE
+    ec = std::make_error_code(std::errc::function_not_supported);
+    return false;
+#else
     if (!impl_->xmate3_internal_get_profile_capabilities_client_ ||
         !impl_->wait_for_service(impl_->xmate3_internal_get_profile_capabilities_client_, ec)) {
         if (!ec) {
@@ -69,6 +73,7 @@ bool xMateRobot::getProfileCapabilities(std::string& active_profile,
     }
     ec.clear();
     return true;
+#endif
 }
 
 } // namespace rokae::ros2

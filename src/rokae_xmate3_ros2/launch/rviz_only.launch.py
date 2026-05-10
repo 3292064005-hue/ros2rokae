@@ -86,7 +86,7 @@ def generate_launch_description():
         LaunchConfiguration("model"),
         " --package-share ",
         pkg_share,
-        " --mesh-root model://rokae_xmate3_ros2/meshes/",
+        " --mesh-root package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/",
         " --enable-ros2-control ",
         resolved_enable_ros2_control_expression(),
         " --enable-xcore-plugin ",

@@ -64,7 +64,9 @@ void xMateRobot::Impl::init_clients() {
     xmate3_robot_connect_client_ = node_->create_client<rokae_xmate3_ros2::srv::Connect>("/xmate_er3/cobot/connect");
     xmate3_robot_disconnect_client_ = node_->create_client<rokae_xmate3_ros2::srv::Disconnect>("/xmate_er3/cobot/disconnect");
     xmate3_robot_get_info_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetInfo>("/xmate_er3/cobot/get_info");
+#if ROKAE_ENABLE_INTERNAL_SURFACE
     xmate3_internal_get_profile_capabilities_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetProfileCapabilities>("/xmate_er3/cobot/get_profile_capabilities");
+#endif
     xmate3_internal_get_runtime_state_snapshot_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetRuntimeStateSnapshot>("/xmate_er3/cobot/get_runtime_state_snapshot");
     xmate3_robot_get_power_state_client_ = node_->create_client<rokae_xmate3_ros2::srv::GetPowerState>("/xmate_er3/cobot/get_power_state");
     xmate3_robot_set_power_state_client_ = node_->create_client<rokae_xmate3_ros2::srv::SetPowerState>("/xmate_er3/cobot/set_power_state");

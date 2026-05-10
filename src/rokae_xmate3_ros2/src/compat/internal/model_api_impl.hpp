@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 
+#include "rokae/error_category.hpp"
 #include "rokae/model.h"
 #include "rokae/utility.h"
 #include "rokae_xmate3_ros2/gazebo/model_facade.hpp"
@@ -20,7 +21,6 @@ inline std::array<double, 16> identity_matrix16() {
 }
 }  // namespace compat_internal
 
-template <>
 struct xMateModel<6>::Impl {
   gazebo::xMateER3Kinematics kinematics;
   Load load{};

@@ -86,7 +86,14 @@ def validate_launch_profile_action():
     return OpaqueFunction(function=_validate)
 
 
-def build_runtime_host_group(pkg_share, robot_state_publisher_node, env_actions, gazebo_launch, spawn_entity_node, on_spawn_exit, rviz_node):
+def build_runtime_host_group(pkg_share,
+                             robot_state_publisher_node,
+                             env_actions,
+                             gazebo_launch,
+                             gazebo_description_publisher,
+                             spawn_entity_node,
+                             on_spawn_exit,
+                             rviz_node):
     daemon_runtime_node = Node(
         package="rokae_xmate3_ros2",
         executable="rokae_sim_runtime",
@@ -100,7 +107,7 @@ def build_runtime_host_group(pkg_share, robot_state_publisher_node, env_actions,
             launch.substitutions.PythonExpression(["'", resolved_runtime_host_expression(), "' == 'daemonized_runtime'"]))
     )
     gazebo_group = launch.actions.GroupAction(
-        actions=[gazebo_launch, spawn_entity_node, on_spawn_exit],
+        actions=[gazebo_launch, gazebo_description_publisher, spawn_entity_node, on_spawn_exit],
         condition=launch.conditions.IfCondition(
             launch.substitutions.PythonExpression(["'", resolved_runtime_host_expression(), "' == 'gazebo_plugin'"]))
     )
@@ -161,7 +168,7 @@ def ros2_control_enabled_expression():
     ])
 
 
-def build_robot_description(pkg_share):
+def build_robot_description(pkg_share, mesh_root="package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/"):
     renderer = os.path.join(pkg_share, "tools", "render_robot_description.py")
     content = launch.substitutions.Command([
         sys.executable,
@@ -171,7 +178,8 @@ def build_robot_description(pkg_share):
         LaunchConfiguration("model"),
         " --package-share ",
         pkg_share,
-        " --mesh-root model://rokae_xmate3_ros2/meshes/",
+        " --mesh-root ",
+        mesh_root,
         " --enable-ros2-control ",
         resolved_enable_ros2_control_expression(),
         " --enable-xcore-plugin ",
@@ -202,6 +210,35 @@ def build_robot_state_publisher(robot_description):
             {"use_sim_time": LaunchConfiguration("use_sim_time")},
         ],
         remappings=[("/joint_states", "/xmate_er3/joint_states")],
+    )
+
+
+def build_gazebo_description_publisher_action(pkg_share, topic_name="/robot_description_gazebo"):
+    publisher_script = os.path.join(pkg_share, "tools", "publish_description_topic.py")
+    python_bin = os.environ.get("ROKAE_PYTHON_EXECUTABLE", sys.executable)
+    if not python_bin or not os.path.exists(python_bin):
+        raise RuntimeError("A valid Python interpreter is required for publish_description_topic.py")
+    return launch.actions.ExecuteProcess(
+        cmd=[
+            python_bin,
+            publisher_script,
+            "--topic", topic_name,
+            "--model", LaunchConfiguration("model"),
+            "--package-share", pkg_share,
+            "--mesh-root", "model://rokae_xmate3_ros2/meshes/",
+            "--enable-ros2-control", resolved_enable_ros2_control_expression(),
+            "--enable-xcore-plugin", resolved_enable_xcore_plugin_expression(),
+            "--backend-mode", resolved_backend_mode_expression(),
+            "--service-exposure-profile", resolved_service_profile_expression(),
+            "--compatibility-alias-policy", resolved_compatibility_alias_policy_expression(),
+            "--canonical-model", resolve_canonical_model(pkg_share),
+            "--canonical-metadata", resolve_canonical_metadata(pkg_share),
+            "--allow-noncanonical-model", LaunchConfiguration("allow_noncanonical_model"),
+            "--use-sim-time", LaunchConfiguration("use_sim_time"),
+            "--lifetime-sec", "30",
+        ],
+        output="screen",
+        additional_env={"PATH": os.environ.get("PATH", ""), "PYTHONHOME": ""},
     )
 
 
@@ -240,6 +277,14 @@ def build_environment_actions(pkg_share, pkg_lib_dir):
     gazebo_plugin_path_entries = []
     if existing_gazebo_plugin_path:
         gazebo_plugin_path_entries.append(existing_gazebo_plugin_path)
+    try:
+        gazebo_ros_share = get_package_share_directory("gazebo_ros")
+        gazebo_ros_prefix = os.path.dirname(os.path.dirname(gazebo_ros_share))
+        gazebo_ros_lib_dir = os.path.join(gazebo_ros_prefix, "lib")
+        if os.path.isdir(gazebo_ros_lib_dir):
+            gazebo_plugin_path_entries.append(gazebo_ros_lib_dir)
+    except PackageNotFoundError:
+        pass
     if os.path.isdir(pkg_lib_dir):
         gazebo_plugin_path_entries.append(pkg_lib_dir)
 
@@ -247,6 +292,7 @@ def build_environment_actions(pkg_share, pkg_lib_dir):
         launch.actions.SetEnvironmentVariable("GAZEBO_MODEL_PATH", os.pathsep.join(gazebo_model_path_entries)),
         launch.actions.SetEnvironmentVariable("GAZEBO_RESOURCE_PATH", os.pathsep.join(gazebo_resource_path_entries)),
         launch.actions.SetEnvironmentVariable("GAZEBO_PLUGIN_PATH", os.pathsep.join(gazebo_plugin_path_entries)),
+        launch.actions.SetEnvironmentVariable("GAZEBO_MODEL_DATABASE_URI", ""),
         launch.actions.SetEnvironmentVariable("ROKAE_SERVICE_EXPOSURE_PROFILE", resolved_service_profile_expression()),
         launch.actions.SetEnvironmentVariable("ROKAE_COMPATIBILITY_ALIAS_POLICY", resolved_compatibility_alias_policy_expression()),
     ]
@@ -275,7 +321,7 @@ def build_gazebo_launch(world):
     )
 
 
-def build_spawn_entity_action():
+def build_spawn_entity_action(topic_name="/robot_description"):
     try:
         gazebo_ros_share = get_package_share_directory("gazebo_ros")
     except PackageNotFoundError as exc:
@@ -291,7 +337,7 @@ def build_spawn_entity_action():
         cmd=[
             python_bin,
             spawn_entity_script,
-            "-topic", "/robot_description",
+            "-topic", topic_name,
             "-entity", "xmate",
         ],
         output="screen",

@@ -68,6 +68,10 @@ int main() {
     cleanupRobot(robot);
     return 1;
   }
+  if (!waitForCommandResult(robot, "executeCommand(MoveAbsJ ready)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
   printJointPosition(robot, ec);
 
   printSection("2 多段关节路径");
@@ -79,12 +83,20 @@ int main() {
     cleanupRobot(robot);
     return 1;
   }
+  if (!waitForCommandResult(robot, "executeCommand(multi MoveAbsJ)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
   printJointPosition(robot, ec);
 
   printSection("3 精确停靠");
   const auto park_cmd = makeMoveAbsJ(park_pose, 14, 0);
   robot.executeCommand(std::vector<MoveAbsJCommand>{park_cmd}, ec);
   if (reportError("executeCommand(MoveAbsJ park)", ec)) {
+    cleanupRobot(robot);
+    return 1;
+  }
+  if (!waitForCommandResult(robot, "executeCommand(MoveAbsJ park)", ec)) {
     cleanupRobot(robot);
     return 1;
   }

@@ -101,7 +101,7 @@ add_custom_command(
   COMMAND ${XACRO_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMateER3.xacro"
           -o "${ROKAE_GENERATED_XMATE_ER3_URDF}"
-          mesh_root:=model://rokae_xmate3_ros2/meshes/
+          mesh_root:=package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/
           enable_ros2_control:=${ROKAE_PUBLIC_DEFAULT_ENABLE_ROS2_CONTROL}
           enable_xcore_plugin:=${ROKAE_PUBLIC_DEFAULT_ENABLE_XCORE_PLUGIN}
           backend_mode:=${ROKAE_PUBLIC_DEFAULT_BACKEND_MODE}
@@ -128,7 +128,7 @@ add_custom_command(
   COMMAND ${XACRO_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/urdf/xMate3.xacro"
           -o "${ROKAE_GENERATED_XMATE3_URDF}"
-          mesh_root:=model://rokae_xmate3_ros2/meshes/
+          mesh_root:=package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/
           enable_ros2_control:=${ROKAE_PUBLIC_DEFAULT_ENABLE_ROS2_CONTROL}
           enable_xcore_plugin:=${ROKAE_PUBLIC_DEFAULT_ENABLE_XCORE_PLUGIN}
           backend_mode:=${ROKAE_PUBLIC_DEFAULT_BACKEND_MODE}

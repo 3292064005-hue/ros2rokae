@@ -115,6 +115,7 @@ install(PROGRAMS
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_target_environment.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_runtime_diag_gate.py
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/derive_runtime_diag_gate.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/publish_description_topic.py
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/render_robot_description.py
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_acceptance_layers.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_full_task_acceptance.sh
