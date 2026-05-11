@@ -68,9 +68,22 @@ double maxAbsVector(const std::vector<double> &values) {
 
 class GazeboRuntimeBackend final : public runtime::BackendInterface {
  public:
+  /**
+   * @brief Gazebo-backed runtime backend.
+   * @param joints Gazebo joint handles owned by the plugin.
+   * @param original_joint_limits Joint limits captured before runtime control.
+   * @param effort_execution_enabled Enables direct effort execution when no JTC trajectory owner is configured.
+   * @return Constructed backend object.
+   * @throws Does not throw; invalid pointers are handled by read/apply methods as unavailable backend state.
+   * @details Boundary behavior: JTC profiles pass false so an unavailable trajectory controller fails fast;
+   * effort/hybrid profiles pass true only when direct SetForce ownership is part of the selected backend contract.
+   */
   GazeboRuntimeBackend(std::vector<physics::JointPtr> *joints,
-                       const std::array<std::pair<double, double>, 6> *original_joint_limits)
-      : joints_(joints), original_joint_limits_(original_joint_limits) {}
+                       const std::array<std::pair<double, double>, 6> *original_joint_limits,
+                       bool effort_execution_enabled)
+      : joints_(joints),
+        original_joint_limits_(original_joint_limits),
+        effort_execution_enabled_(effort_execution_enabled) {}
 
   void beginShutdown(const std::string &reason) override {
     (void)reason;
@@ -157,6 +170,10 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
   }
 
   [[nodiscard]] bool brakesLocked() const override { return brakes_locked_; }
+
+  [[nodiscard]] bool supportsEffortExecution() const override {
+    return effort_execution_enabled_ && !shutting_down_.load() && joints_ != nullptr;
+  }
 
   [[nodiscard]] bool supportsTrajectoryExecution() const override {
     return !shutting_down_.load() && trajectory_client_ != nullptr && trajectory_client_->action_server_is_ready();
@@ -390,6 +407,7 @@ class GazeboRuntimeBackend final : public runtime::BackendInterface {
   std::vector<physics::JointPtr> *joints_;
   const std::array<std::pair<double, double>, 6> *original_joint_limits_;
   bool brakes_locked_ = false;
+  bool effort_execution_enabled_ = false;
   rclcpp::Node::SharedPtr node_;
   rclcpp_action::Client<FollowJointTrajectory>::SharedPtr trajectory_client_;
   std::vector<std::string> trajectory_joint_names_;

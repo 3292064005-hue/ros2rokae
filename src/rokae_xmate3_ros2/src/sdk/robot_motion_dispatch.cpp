@@ -52,6 +52,13 @@ bool xMateRobot::Impl::flushCachedCommands(std::error_code &ec) {
             ec = rokae::make_error_code(rokae::SdkError::trajectory_empty);
             return false;
         }
+        if (!cached_goal_.sp_cmds.empty() && !allow_experimental_motion_extensions_) {
+            ec = std::make_error_code(std::errc::function_not_supported);
+            RCLCPP_ERROR(node_->get_logger(),
+                         "MoveSP cached commands require the experimental motion extension policy; "
+                         "default public xMateER3 clients reject them before dispatch");
+            return false;
+        }
         // 在 action goal 被接受前保留本地缓存，以便发送失败时仍可重试。
         goal_to_send = cached_goal_;
     }
@@ -277,6 +284,13 @@ void xMateRobot::moveCF(const rokae::MoveCFCommand& cmd, std::error_code& ec) {
 }
 void xMateRobot::moveSP(const rokae::MoveSPCommand& cmd, std::error_code& ec) {
     auto _last_error_scope = track_last_error(impl_, ec);
+    if (!impl_->allowExperimentalMotionExtensions()) {
+        ec = std::make_error_code(std::errc::function_not_supported);
+        RCLCPP_WARN(impl_->node_->get_logger(),
+                    "MoveSP is experimental and disabled for the default public xMateER3 SDK client; "
+                    "enable the experimental motion extension policy before caching MoveSP");
+        return;
+    }
     rokae_xmate3_ros2::action::MoveAppend::Goal goal;
     goal.sp_cmds.push_back(toMsg(cmd));
     impl_->cacheCommand(goal);

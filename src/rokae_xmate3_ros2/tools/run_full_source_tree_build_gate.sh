@@ -91,10 +91,9 @@ if [ "${ROKAE_PUBLIC_SDK_REPLAY_ONLY:-OFF}" = "ON" ] || [ "${ROKAE_PUBLIC_SDK_RE
   exit 65
 fi
 
-if [ -f "/opt/ros/humble/setup.bash" ]; then
-  # shellcheck disable=SC1091
-  . /opt/ros/humble/setup.bash
-fi
+# shellcheck disable=SC1090
+. "${PACKAGE_ROOT}/tools/acceptance_cli_common.sh"
+rokae_acceptance_source_ros_env
 
 "${PACKAGE_ROOT}/tools/check_target_environment.sh" --quiet
 "${PACKAGE_ROOT}/tools/run_static_sanity.sh"

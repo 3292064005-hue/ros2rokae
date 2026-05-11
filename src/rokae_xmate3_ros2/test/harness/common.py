@@ -82,16 +82,16 @@ def build_runtime_env(
 class RuntimeCleanupMixin:
     def _init_runtime_cleanup_clients(self) -> None:
         assert isinstance(self, Node)
-        self._stop_client = self.create_client(Stop, "/xmate3/cobot/stop")
-        self._move_reset_client = self.create_client(MoveReset, "/xmate3/cobot/move_reset")
+        self._stop_client = self.create_client(Stop, "/xmate_er3/cobot/stop")
+        self._move_reset_client = self.create_client(MoveReset, "/xmate_er3/cobot/move_reset")
         self._set_motion_control_mode_client = self.create_client(
-            SetMotionControlMode, "/xmate3/cobot/set_motion_control_mode"
+            SetMotionControlMode, "/xmate_er3/cobot/set_motion_control_mode"
         )
         self._set_operate_mode_client = self.create_client(
-            SetOperateMode, "/xmate3/cobot/set_operate_mode"
+            SetOperateMode, "/xmate_er3/cobot/set_operate_mode"
         )
-        self._power_client = self.create_client(SetPowerState, "/xmate3/cobot/set_power_state")
-        self._disconnect_client = self.create_client(Disconnect, "/xmate3/cobot/disconnect")
+        self._power_client = self.create_client(SetPowerState, "/xmate_er3/cobot/set_power_state")
+        self._disconnect_client = self.create_client(Disconnect, "/xmate_er3/cobot/disconnect")
         self._prepare_shutdown_client = self.create_client(
             PrepareShutdown, "/xmate3/internal/prepare_shutdown"
         )
@@ -217,7 +217,7 @@ class RuntimeCleanupMixin:
             self._call_service(
                 self._set_motion_control_mode_client,
                 mode_request,
-                "/xmate3/cobot/set_motion_control_mode",
+                "/xmate_er3/cobot/set_motion_control_mode",
                 3.0,
             )
             time.sleep(0.2)
@@ -227,23 +227,23 @@ class RuntimeCleanupMixin:
             self._call_service(
                 self._set_operate_mode_client,
                 operate_request,
-                "/xmate3/cobot/set_operate_mode",
+                "/xmate_er3/cobot/set_operate_mode",
                 3.0,
             )
             time.sleep(0.2)
 
-            self._call_service(self._stop_client, Stop.Request(), "/xmate3/cobot/stop", 3.0)
+            self._call_service(self._stop_client, Stop.Request(), "/xmate_er3/cobot/stop", 3.0)
             time.sleep(0.4)
 
-            self._call_service(self._move_reset_client, MoveReset.Request(), "/xmate3/cobot/move_reset", 3.0)
+            self._call_service(self._move_reset_client, MoveReset.Request(), "/xmate_er3/cobot/move_reset", 3.0)
             time.sleep(0.4)
 
             power_request = SetPowerState.Request()
             power_request.on = False
-            self._call_service(self._power_client, power_request, "/xmate3/cobot/set_power_state", 3.0)
+            self._call_service(self._power_client, power_request, "/xmate_er3/cobot/set_power_state", 3.0)
             time.sleep(0.4)
 
-            self._call_service(self._disconnect_client, Disconnect.Request(), "/xmate3/cobot/disconnect", 3.0)
+            self._call_service(self._disconnect_client, Disconnect.Request(), "/xmate_er3/cobot/disconnect", 3.0)
             time.sleep(0.5)
             if delete_entity:
                 if self._prepare_shutdown_until_safe(10.0):
@@ -304,10 +304,10 @@ class RuntimeTelemetryMixin:
         self._telemetry_latest_abs_velocity = float("inf")
         self._telemetry_latest_operation_state = OperationState.UNKNOWN
         self._telemetry_runtime_logs: list[RuntimeLogObservation] = []
-        self.create_subscription(JointState, "/xmate3/joint_states", self._telemetry_joint_state_callback, 50)
+        self.create_subscription(JointState, "/xmate_er3/joint_states", self._telemetry_joint_state_callback, 50)
         self.create_subscription(
             OperationState,
-            "/xmate3/cobot/operation_state",
+            "/xmate_er3/cobot/operation_state",
             self._telemetry_operation_state_callback,
             50,
         )
@@ -413,9 +413,9 @@ class RuntimeTelemetryMixin:
         velocity_epsilon: float,
     ) -> tuple[bool, str]:
         if self._telemetry_joint_heartbeat_count == 0:
-            return False, "no /xmate3/joint_states heartbeat observed"
+            return False, "no /xmate_er3/joint_states heartbeat observed"
         if self._telemetry_operation_state_count == 0:
-            return False, "no /xmate3/cobot/operation_state heartbeat observed"
+            return False, "no /xmate_er3/cobot/operation_state heartbeat observed"
         if now - self._telemetry_latest_joint_state_time > 1.0:
             return False, "joint state heartbeat is stale"
         if now - self._telemetry_latest_operation_state_time > 1.0:

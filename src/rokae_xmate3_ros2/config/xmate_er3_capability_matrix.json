@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "target": "xMateER3 six-axis simulation lane",
+  "canonical_model": "xMateER3",
+  "default_launch_profile": "public_xmate_er3_jtc",
+  "default_service_exposure_profile": "public_xmate_er3_only",
+  "default_compatibility_alias_policy": "canonical_only",
+  "backend_modes": {
+    "jtc": {
+      "runtime_host": "gazebo_plugin",
+      "required_capabilities": [
+        "state_read",
+        "trajectory_execution",
+        "gazebo_physics"
+      ],
+      "execution_backend": "joint_trajectory_controller",
+      "public_default": true
+    },
+    "hybrid": {
+      "runtime_host": "gazebo_plugin",
+      "required_capabilities": [
+        "state_read",
+        "trajectory_execution",
+        "effort_execution",
+        "gazebo_physics"
+      ],
+      "execution_backend": "joint_trajectory_controller_or_effort_executor",
+      "public_default": false
+    },
+    "effort": {
+      "runtime_host": "gazebo_plugin",
+      "required_capabilities": [
+        "state_read",
+        "effort_execution",
+        "gazebo_physics"
+      ],
+      "execution_backend": "effort_executor",
+      "public_default": false
+    },
+    "headless_sim": {
+      "runtime_host": "daemonized_runtime",
+      "required_capabilities": [
+        "state_read",
+        "effort_execution"
+      ],
+      "execution_backend": "effort_executor",
+      "public_default": false
+    }
+  },
+  "service_exposure_profiles": {
+    "public_xmate_er3_only": {
+      "level": "public",
+      "enabled_modules": [
+        "connectivity",
+        "state_query",
+        "toolset",
+        "kinematics",
+        "nrt_motion",
+        "simulation_diagnostics"
+      ],
+      "disabled_modules": [
+        "calibration",
+        "drag_services",
+        "io",
+        "move_sp_motion_extension",
+        "path_record_replay_services",
+        "register",
+        "rl",
+        "rt_services",
+        "xpanel",
+        "experimental_motion_extensions"
+      ]
+    },
+    "public_xmate_er3_experimental": {
+      "level": "experimental",
+      "enabled_modules": [
+        "connectivity",
+        "drag_services",
+        "kinematics",
+        "move_sp_motion_extension",
+        "nrt_motion",
+        "path_record_replay_services",
+        "rt_services",
+        "simulation_diagnostics",
+        "state_query",
+        "toolset",
+        "experimental_motion_extensions"
+      ],
+      "disabled_modules": [
+        "calibration",
+        "rl",
+        "io",
+        "register",
+        "xpanel"
+      ]
+    },
+    "internal_full": {
+      "level": "internal",
+      "enabled_modules": [
+        "all_runtime_registered_modules"
+      ],
+      "disabled_modules": []
+    }
+  },
+  "field_validity": {
+    "GetEndWrench": {
+      "valid_fields": [
+        "joint_torque_measured"
+      ],
+      "approximate_fields": [
+        "cart_force",
+        "cart_torque"
+      ],
+      "unsupported_fields": [
+        "external_joint_torque"
+      ]
+    },
+    "GetEndEffectorTorque": {
+      "valid_fields": [],
+      "approximate_fields": [
+        "end_torque"
+      ],
+      "unsupported_fields": []
+    }
+  },
+  "runtime_capabilities": {
+    "state_read": "authoritative or simulated joint state snapshot is available",
+    "trajectory_execution": "FollowJointTrajectory action server is required and probed by the runtime backend before goal dispatch",
+    "effort_execution": "runtime owns direct effort control or headless servo execution",
+    "gazebo_physics": "Gazebo plugin host and xCore plugin are active",
+    "rt_direct_command": "experimental direct-command RT lane is enabled"
+  },
+  "launch_profiles": {
+    "public_xmate_er3_jtc": {
+      "backend_mode": "jtc",
+      "service_exposure_profile": "public_xmate_er3_only",
+      "runtime_profile": "nrt_strict_parity",
+      "enable_ros2_control": "true",
+      "enable_xcore_plugin": "true",
+      "runtime_host": "gazebo_plugin",
+      "compatibility_alias_policy": "canonical_only",
+      "required_capabilities": [
+        "state_read",
+        "trajectory_execution",
+        "gazebo_physics"
+      ]
+    },
+    "public_xmate_er3_headless_sdk_smoke": {
+      "backend_mode": "headless_sim",
+      "service_exposure_profile": "public_xmate_er3_only",
+      "runtime_profile": "nrt_strict_parity",
+      "enable_ros2_control": "false",
+      "enable_xcore_plugin": "false",
+      "runtime_host": "daemonized_runtime",
+      "compatibility_alias_policy": "canonical_only",
+      "required_capabilities": [
+        "state_read",
+        "effort_execution"
+      ]
+    },
+    "public_xmate_er3_experimental_rt": {
+      "backend_mode": "hybrid",
+      "service_exposure_profile": "public_xmate_er3_experimental",
+      "runtime_profile": "rt_sim_experimental_best_effort",
+      "enable_ros2_control": "true",
+      "enable_xcore_plugin": "true",
+      "runtime_host": "gazebo_plugin",
+      "compatibility_alias_policy": "canonical_only",
+      "required_capabilities": [
+        "state_read",
+        "trajectory_execution",
+        "effort_execution",
+        "gazebo_physics",
+        "rt_direct_command"
+      ]
+    },
+    "public_xmate_er3_sdk": {
+      "backend_mode": "headless_sim",
+      "service_exposure_profile": "public_xmate_er3_only",
+      "runtime_profile": "nrt_strict_parity",
+      "enable_ros2_control": "false",
+      "enable_xcore_plugin": "false",
+      "runtime_host": "daemonized_runtime",
+      "compatibility_alias_policy": "canonical_only",
+      "required_capabilities": [
+        "state_read",
+        "effort_execution"
+      ],
+      "migration_alias_for": "public_xmate_er3_headless_sdk_smoke"
+    },
+    "internal_full_hybrid": {
+      "backend_mode": "hybrid",
+      "service_exposure_profile": "internal_full",
+      "runtime_profile": "hybrid_bridge",
+      "enable_ros2_control": "true",
+      "enable_xcore_plugin": "true",
+      "runtime_host": "gazebo_plugin",
+      "compatibility_alias_policy": "canonical_plus_compat",
+      "required_capabilities": [
+        "state_read",
+        "trajectory_execution",
+        "effort_execution",
+        "gazebo_physics",
+        "rt_direct_command"
+      ]
+    },
+    "daemon_hard_rt": {
+      "backend_mode": "headless_sim",
+      "service_exposure_profile": "internal_full",
+      "runtime_profile": "hard_1khz",
+      "enable_ros2_control": "false",
+      "enable_xcore_plugin": "false",
+      "runtime_host": "daemonized_runtime",
+      "compatibility_alias_policy": "canonical_plus_compat",
+      "required_capabilities": [
+        "state_read",
+        "effort_execution",
+        "rt_direct_command"
+      ]
+    }
+  },
+  "source_of_truth": {
+    "launch_profiles": "launch/_launch_profile.py reads launch_profiles and backend_modes from this matrix",
+    "launch_preflight": "launch/_simulation_support.py rejects backend/service combinations missing required_capabilities",
+    "request_payload_gates": "src/runtime/request_adapter.cpp rejects experimental motion families when the active exposure profile is public_xmate_er3_only",
+    "service_surface": "src/runtime/service_contract_manifest.cpp follows service_exposure_profiles from this matrix contract"
+  },
+  "motion_command_families": {
+    "MoveAbsJ": {
+      "default_public_enabled": true,
+      "required_profile": "public_xmate_er3_only"
+    },
+    "MoveJ": {
+      "default_public_enabled": true,
+      "required_profile": "public_xmate_er3_only"
+    },
+    "MoveL": {
+      "default_public_enabled": true,
+      "required_profile": "public_xmate_er3_only"
+    },
+    "MoveC": {
+      "default_public_enabled": true,
+      "required_profile": "public_xmate_er3_only"
+    },
+    "MoveCF": {
+      "default_public_enabled": true,
+      "required_profile": "public_xmate_er3_only"
+    },
+    "MoveSP": {
+      "default_public_enabled": false,
+      "required_profile": "public_xmate_er3_experimental",
+      "request_gate": "MoveAppend.sp_cmds rejected by request_adapter unless experimental/internal exposure is active",
+      "sdk_gate": "RosClientOptions::allow_experimental_motion_extensions or ROKAE_ENABLE_EXPERIMENTAL_MOTION_EXTENSIONS=1 required before caching MoveSP"
+    }
+  }
+}

@@ -32,7 +32,7 @@
   },
   "profiles": {
     "nrt": "nrt_strict_parity",
-    "rt": "rt_hardened",
+    "rt": "rt_experimental_opt_in",
     "rt_policy": "best_effort_non_controller_grade"
   },
   "checks": {
@@ -105,11 +105,11 @@
       },
       {
         "file": "docs/public/RUNTIME_PROFILES.md",
-        "contains": "strict 1kHz fail-fast RT profile 只允许存在于 internal/runtime lane"
+        "contains": "public_xmate_er3_experimental_rt"
       },
       {
         "file": "docs/reference/SDK_ALIGNMENT.md",
-        "contains": "rt_hardened"
+        "contains": "rt_experimental_opt_in"
       },
       {
         "file": "docs/reference/SDK_ALIGNMENT.md",
@@ -138,7 +138,6 @@
     "03_kinematics",
     "04_motion_basic",
     "07_safety_collision",
-    "08_path_record_replay",
     "09_advanced_sdk_compat",
     "10_sdk_workflow_xmate3",
     "11_move_advanced_xmate3",
@@ -152,6 +151,7 @@
   ],
   "internal_examples": [
     "05_motion_cartesian",
+    "08_path_record_replay",
     "06_io_control",
     "13_rl_project_workflow",
     "16_registers_and_runtime_options",
@@ -164,16 +164,7 @@
     "26_rt_torque_control",
     "27_rt_1khz_stress"
   ],
-  "public_motion_extensions": [
-    "MoveSP",
-    "StartRecordPath",
-    "StopRecordPath",
-    "CancelRecordPath",
-    "SaveRecordPath",
-    "ReplayPath",
-    "RemovePath",
-    "QueryPathLists"
-  ],
+  "public_motion_extensions": [],
   "source_layout": {
     "public_rosidl_root": "srv/",
     "internal_rosidl_root": "internal_interfaces/srv/",
@@ -231,7 +222,7 @@
       },
       {
         "file": "src/runtime/sim_runtime_main.cpp",
-        "contains": "factory_key == \"headless_mock\""
+        "contains": "factory_key == \"headless_sim\""
       }
     ],
     "docs_patterns": [
@@ -319,5 +310,15 @@
     ],
     "static_gate": "test/harness/check_xmate_er3_alignment_behaviors.py",
     "execution_gate": "tools/run_xmate_er3_alignment_behavior_gate.sh"
-  }
+  },
+  "experimental_motion_extensions": [
+    "MoveSP",
+    "StartRecordPath",
+    "StopRecordPath",
+    "CancelRecordPath",
+    "SaveRecordPath",
+    "ReplayPath",
+    "RemovePath",
+    "QueryPathLists"
+  ]
 }

@@ -132,8 +132,10 @@ run_local_bundle() {
   trap cleanup_local_bundle EXIT
 
   if [ -f "/opt/ros/humble/setup.bash" ]; then
+    set +u
     # shellcheck disable=SC1091
     . /opt/ros/humble/setup.bash
+    set -u
   fi
 
   if run_logged_step "${REPORT_DIR}/environment_check_local.log" \
@@ -243,7 +245,9 @@ fi
 
 CONTAINER_SCRIPT=$(cat <<'EOSCRIPT'
 set -uo pipefail
+set +u
 . /opt/ros/humble/setup.bash
+set -u
 mkdir -p /artifacts
 ENVIRONMENT_CHECK_STATUS="not_run"
 ROSDEP_INSTALL_STATUS="not_run"

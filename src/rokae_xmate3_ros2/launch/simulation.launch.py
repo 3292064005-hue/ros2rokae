@@ -16,6 +16,7 @@ from _simulation_support import (
     build_rviz_node,
     build_spawn_entity_action,
     build_spawn_exit_handler,
+    build_jtc_readiness_probe,
     build_runtime_host_group,
     declare_arguments,
     resolve_package_lib_dir,
@@ -26,12 +27,13 @@ from _simulation_support import (
 
 def generate_launch_description():
     """
-    xMateER3 纯 Gazebo 仿真启动文件。
+    xMateER3 Gazebo/JTC public 仿真启动文件。
 
     功能:
-    - 启动 Gazebo 仿真环境
-    - 加载 xMateER3 机器人模型 (使用 xcore_controller_gazebo_plugin)
-    - 启动 RViz 可视化
+    - 默认使用 public_xmate_er3_jtc profile 启动 Gazebo 仿真环境
+    - 加载 xMateER3 机器人模型和 xcore_controller_gazebo_plugin
+    - 启动 ros2_control / joint_trajectory_controller 闭环
+    - 按 service_exposure_profile 裁剪 RT、拖动和路径类实验服务
     """
     pkg_share = resolve_package_share()
     pkg_lib_dir = resolve_package_lib_dir(pkg_share)
@@ -50,11 +52,13 @@ def generate_launch_description():
     joint_state_broadcaster_spawner, joint_trajectory_controller_spawner = build_controller_spawners(
         ros2_control_enabled
     )
+    jtc_readiness_probe = build_jtc_readiness_probe(pkg_share, ros2_control_enabled)
     on_spawn_exit = build_spawn_exit_handler(
         spawn_entity_node,
         ros2_control_enabled,
         joint_state_broadcaster_spawner,
         joint_trajectory_controller_spawner,
+        jtc_readiness_probe,
     )
     rviz_node = build_rviz_node(pkg_share)
 

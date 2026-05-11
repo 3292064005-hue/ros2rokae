@@ -54,7 +54,7 @@ host 负责：
 - `test/harness/check_provider_boundary.py`
 - `tools/run_static_sanity.sh`
 
-这两个门禁用于阻止旧的 `hostFlavor/createSimulationBackend/createHeadlessMockBackend` 风格重新回到公共抽象。
+这两个门禁用于阻止旧的 `hostFlavor/createSimulationBackend/createHeadlessTestBackend` 风格重新回到公共抽象。
 
 ## 6. 相关文档
 

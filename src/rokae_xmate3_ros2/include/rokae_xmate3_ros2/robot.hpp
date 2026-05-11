@@ -40,6 +40,9 @@ struct RosClientOptions {
     std::shared_ptr<rclcpp::Executor> executor;
     bool attach_to_executor = true;
     std::optional<SdkCatalogConsistencyPolicy> catalog_policy;
+    // Default public clients reject experimental motion command families such as MoveSP.
+    // Set this only when the target runtime uses public_xmate_er3_experimental or internal_full.
+    bool allow_experimental_motion_extensions = false;
 };
 
 /**

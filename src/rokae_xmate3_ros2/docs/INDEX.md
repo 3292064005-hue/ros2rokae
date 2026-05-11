@@ -28,7 +28,9 @@
 1. [`public/COMPATIBILITY.md`](public/COMPATIBILITY.md)
 2. [`public/PUBLIC_SDK_ARTIFACT.md`](public/PUBLIC_SDK_ARTIFACT.md)
 3. [`reference/SDK_ALIGNMENT.md`](reference/SDK_ALIGNMENT.md)
-4. [`reference/RECORDED_PATH_SCHEMA.md`](reference/RECORDED_PATH_SCHEMA.md)
+4. [`reference/CAPABILITY_MATRIX.md`](reference/CAPABILITY_MATRIX.md)
+5. [`reference/official_cpp_sdk_oracle.json`](reference/official_cpp_sdk_oracle.json)
+6. [`reference/RECORDED_PATH_SCHEMA.md`](reference/RECORDED_PATH_SCHEMA.md)
 
 ## 4. 我是 runtime / 仿真维护者
 
@@ -50,6 +52,8 @@
 ## 6. 单一事实源
 
 - machine-readable manifest：[`reference/xmate_er3_alignment_manifest.json`](reference/xmate_er3_alignment_manifest.json)
+- capability matrix：[`reference/CAPABILITY_MATRIX.md`](reference/CAPABILITY_MATRIX.md) / [`../config/xmate_er3_capability_matrix.json`](../config/xmate_er3_capability_matrix.json)
+- official SDK oracle：[`reference/official_cpp_sdk_oracle.json`](reference/official_cpp_sdk_oracle.json)
 - 对齐参考：[`reference/SDK_ALIGNMENT.md`](reference/SDK_ALIGNMENT.md)
 
 ## 7. 已删除的旧页面

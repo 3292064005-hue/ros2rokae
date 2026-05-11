@@ -32,8 +32,28 @@ set(xCoreSDK_INTERNAL_ROSIDL_ROOT "internal_interfaces/srv/")
 set(xCoreSDK_PUBLIC_EXAMPLES_ROOT "examples/cpp/")
 set(xCoreSDK_INTERNAL_EXAMPLES_ROOT "examples/internal/cpp/")
 
+function(_xcoresdk_set_import_location_if_missing target relative_path language)
+  if(NOT TARGET ${target})
+    return()
+  endif()
+  get_target_property(_xcoresdk_existing_location ${target} IMPORTED_LOCATION_NOCONFIG)
+  if(NOT _xcoresdk_existing_location)
+    set_target_properties(${target} PROPERTIES
+      IMPORTED_CONFIGURATIONS NOCONFIG
+      IMPORTED_LOCATION_NOCONFIG "${_xcoresdk_pkg_prefix}/${relative_path}"
+    )
+    if(NOT "${language}" STREQUAL "")
+      set_target_properties(${target} PROPERTIES
+        IMPORTED_LINK_INTERFACE_LANGUAGES_NOCONFIG "${language}"
+      )
+    endif()
+  endif()
+  unset(_xcoresdk_existing_location)
+endfunction()
+
 find_dependency(Eigen3 REQUIRED NO_MODULE)
 include("${CMAKE_CURRENT_LIST_DIR}/xCoreSDKCoreTargets.cmake")
+_xcoresdk_set_import_location_if_missing(xCoreSDK::xCoreSDK_core "lib/libxCoreSDK_core.a" "CXX")
 set(xCoreSDK_core_FOUND TRUE)
 
 set(xCoreSDK_shared_FOUND FALSE)
@@ -91,6 +111,8 @@ if(_xcoresdk_load_runtime)
   endif()
 
   include("${CMAKE_CURRENT_LIST_DIR}/xCoreSDKTargets.cmake")
+  _xcoresdk_set_import_location_if_missing(xCoreSDK::xCoreSDK_shared "lib/libxCoreSDK_shared.so" "")
+  _xcoresdk_set_import_location_if_missing(xCoreSDK::xCoreSDK_static "lib/libxCoreSDK_static.a" "CXX")
 
   if(TARGET xCoreSDK::xCoreSDK_shared)
     set(xCoreSDK_shared_FOUND TRUE)
@@ -116,5 +138,6 @@ unset(_xcoresdk_runtime_components)
 unset(_xcoresdk_load_runtime)
 unset(_xcoresdk_core_only)
 unset(_xcoresdk_pkg_prefix)
+unset(_xcoresdk_set_import_location_if_missing)
 
 check_required_components(xCoreSDK)

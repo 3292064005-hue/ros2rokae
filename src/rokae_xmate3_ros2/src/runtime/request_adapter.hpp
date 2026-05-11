@@ -26,8 +26,9 @@ struct MotionRequestContext {
   double speed_scale = 1.0;
   std::array<std::array<double, 2>, 6> soft_limits = rokae_xmate3_ros2::spec::xmate_er3_truth::kDefaultSoftLimits;
   double trajectory_dt = 0.01;
+  bool experimental_motion_extensions_enabled = false;
+  std::string service_exposure_profile = "public_xmate_er3_only";
 };
-
 [[nodiscard]] bool build_motion_request(
     const rokae_xmate3_ros2::action::MoveAppend::Goal &goal,
     const MotionRequestContext &context,

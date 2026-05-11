@@ -142,6 +142,45 @@ class FakeBackend final : public rt::BackendInterface {
   rt::ControlOwner control_owner_ = rt::ControlOwner::none;
 };
 
+
+class EffortOnlyBackend final : public rt::BackendInterface {
+ public:
+  explicit EffortOnlyBackend(const std::array<double, 6> &target) : target_(target) { snapshot_.power_on = true; }
+
+  rt::RobotSnapshot readSnapshot() const override { return snapshot_; }
+
+  void applyControl(const rt::ControlCommand &command) override {
+    ++apply_count_;
+    for (std::size_t i = 0; i < snapshot_.joint_position.size(); ++i) {
+      const double error = target_[i] - snapshot_.joint_position[i];
+      const double step = std::clamp(error * 0.35, -0.008, 0.008);
+      snapshot_.joint_position[i] += step;
+      snapshot_.joint_velocity[i] = step / 0.01;
+      snapshot_.joint_torque[i] = command.has_effort ? command.effort[i] : 0.0;
+      if (std::fabs(error) < 2e-4) {
+        snapshot_.joint_position[i] = target_[i];
+        snapshot_.joint_velocity[i] = 0.0;
+      }
+    }
+  }
+
+  void clearControl() override {
+    snapshot_.joint_velocity.fill(0.0);
+    snapshot_.joint_torque.fill(0.0);
+  }
+
+  void setControlOwner(rt::ControlOwner owner) override { control_owner_ = owner; }
+  [[nodiscard]] rt::ControlOwner controlOwner() const override { return control_owner_; }
+  [[nodiscard]] bool supportsEffortExecution() const override { return true; }
+  [[nodiscard]] int applyCount() const noexcept { return apply_count_; }
+
+ private:
+  rt::RobotSnapshot snapshot_{};
+  std::array<double, 6> target_{};
+  rt::ControlOwner control_owner_ = rt::ControlOwner::none;
+  int apply_count_ = 0;
+};
+
 TEST(MotionRuntimeStateTest, TransitionsPlanningToCompletedForPreplannedMotion) {
   rt::MotionRuntime runtime;
   initializeNrtQueue(runtime);
@@ -219,6 +258,51 @@ TEST(MotionRuntimeStateTest, TransitionsPlanningToCompletedForPreplannedMotion) 
   EXPECT_TRUE(completed_view.can_accept_request);
   EXPECT_TRUE(completed_view.terminal);
   EXPECT_EQ(completed_view.status.state, rt::ExecutionState::completed);
+}
+
+
+TEST(MotionRuntimeStateTest, FallsBackToEffortExecutorWhenTrajectoryBackendIsUnavailable) {
+  rt::MotionRuntime runtime;
+  initializeNrtQueue(runtime);
+  const std::array<double, 6> target = {0.018, -0.014, 0.012, 0.0, 0.0, 0.0};
+  EffortOnlyBackend backend(target);
+
+  rt::MotionRequest request;
+  request.request_id = "effort_fallback_runtime";
+  request.start_joints.assign(6, 0.0);
+  request.default_speed = 25;
+  request.trajectory_dt = 0.01;
+
+  rt::MotionCommandSpec command;
+  command.kind = rt::MotionKind::move_absj;
+  command.use_preplanned_trajectory = true;
+  command.preplanned_dt = 0.01;
+  command.preplanned_trajectory = {
+      {0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {target[0], target[1], target[2], target[3], target[4], target[5]},
+  };
+  command.target_joints.assign(target.begin(), target.end());
+  request.commands.push_back(command);
+
+  std::string message;
+  ASSERT_TRUE(runtime.submit(request, message)) << message;
+
+  bool saw_completed = false;
+  for (int i = 0; i < 2000; ++i) {
+    const auto status = runtime.tick(backend, 0.01);
+    if (status.state == rt::ExecutionState::completed) {
+      saw_completed = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  EXPECT_TRUE(saw_completed);
+  EXPECT_GT(backend.applyCount(), 0);
+  const auto cached_status = runtime.status(request.request_id);
+  EXPECT_EQ(cached_status.state, rt::ExecutionState::completed);
+  EXPECT_EQ(cached_status.execution_backend, rt::ExecutionBackend::effort);
+  EXPECT_TRUE(cached_status.terminal_success);
 }
 
 
@@ -790,7 +874,7 @@ TEST(MotionRuntimeStateTest, NrtRequestFailsWhenTrajectoryBackendIsUnavailable) 
     if (status.terminal()) {
       EXPECT_EQ(status.state, rt::ExecutionState::failed);
       EXPECT_FALSE(status.terminal_success);
-      EXPECT_EQ(status.execution_backend, rt::ExecutionBackend::jtc);
+      EXPECT_EQ(status.execution_backend, rt::ExecutionBackend::none);
       EXPECT_NE(status.message.find("joint_trajectory_controller"), std::string::npos);
       return;
     }
@@ -936,7 +1020,7 @@ TEST(MotionRuntimeStateTest, RejectedTrajectoryBackendFailsWithoutEffortFallback
     const auto status = runtime.tick(backend, 0.01);
     if (status.terminal()) {
       EXPECT_EQ(status.state, rt::ExecutionState::failed);
-      EXPECT_EQ(status.execution_backend, rt::ExecutionBackend::jtc);
+      EXPECT_EQ(status.execution_backend, rt::ExecutionBackend::none);
       EXPECT_EQ(status.control_owner, rt::ControlOwner::none);
       EXPECT_NE(status.message.find("trajectory backend rejected goal"), std::string::npos);
       reached_terminal = true;

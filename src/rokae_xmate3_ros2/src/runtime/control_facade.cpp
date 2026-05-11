@@ -159,7 +159,7 @@ void ControlFacade::handleClearServoAlarm(const rokae_xmate3_ros2::srv::ClearSer
     return;
   }
   res.success = true;
-  res.message = "servo alarm cleared";
+  res.message = "no active servo alarm in simulation runtime";
 }
 
 void ControlFacade::handleEnableCollisionDetection(

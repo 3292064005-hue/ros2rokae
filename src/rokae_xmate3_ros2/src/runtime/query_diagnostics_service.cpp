@@ -4,6 +4,7 @@
 #include <cmath>
 #include <numeric>
 #include <optional>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -116,6 +117,12 @@ void QueryFacade::handleGetEndEffectorTorque(const rokae_xmate3_ros2::srv::GetEn
   }
   res.success = true;
   res.message.clear();
+  res.fidelity_level = "SimApprox";
+  res.valid_fields = {};
+  res.approximate_fields = {"end_torque"};
+  res.unsupported_fields = {};
+  res.field_validity_summary =
+      "end_torque=sim_approx_from_joint_torque_minus_model_expected_torque; force_sensor=false";
 }
 
 void QueryFacade::handleGetEndWrench(const rokae_xmate3_ros2::srv::GetEndWrench::Request &req,
@@ -128,13 +135,20 @@ void QueryFacade::handleGetEndWrench(const rokae_xmate3_ros2::srv::GetEndWrench:
   rokae_xmate3_ros2::srv::GetEndEffectorTorque::Response legacy_res;
   handleGetEndEffectorTorque(legacy_req, legacy_res);
   res.ref_type = req.ref_type;
+  const double unsupported_value = std::numeric_limits<double>::quiet_NaN();
   for (int i = 0; i < 6; ++i) {
     res.joint_torque_measured[i] = measured[i];
-    res.external_joint_torque[i] = 0.0;
+    res.external_joint_torque[i] = unsupported_value;
   }
   res.cart_force = {legacy_res.end_torque[0], legacy_res.end_torque[1], legacy_res.end_torque[2]};
   res.cart_torque = {legacy_res.end_torque[3], legacy_res.end_torque[4], legacy_res.end_torque[5]};
   res.fidelity_level = "SimApprox";
+  res.valid_fields = {"joint_torque_measured"};
+  res.approximate_fields = {"cart_force", "cart_torque"};
+  res.unsupported_fields = {"external_joint_torque"};
+  res.field_validity_summary =
+      "joint_torque_measured=runtime_authority; cart_force/cart_torque=sim_approx_from_jacobian; "
+      "external_joint_torque=unsupported_without_force_sensor_or_contact_backend";
   res.success = legacy_res.success;
   res.error_code = legacy_res.success ? 0 : 1;
   res.error_msg = legacy_res.message;

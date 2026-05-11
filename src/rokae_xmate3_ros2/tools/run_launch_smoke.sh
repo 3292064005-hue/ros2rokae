@@ -18,25 +18,16 @@ fi
 WS_ROOT="$1"
 PKG_NAME="rokae_xmate3_ros2"
 INSTALL_SETUP="${WS_ROOT}/install/setup.bash"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ ! -f "${INSTALL_SETUP}" ]; then
   echo "launch_smoke: workspace install setup not found: ${INSTALL_SETUP}" >&2
   exit 66
 fi
 
-if [ -n "${ROS_DISTRO:-}" ] && [ -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]; then
-  # shellcheck disable=SC1090
-  . "/opt/ros/${ROS_DISTRO}/setup.bash"
-elif [ -f "/opt/ros/humble/setup.bash" ]; then
-  # shellcheck disable=SC1091
-  . /opt/ros/humble/setup.bash
-else
-  echo "launch_smoke: ROS environment is not available" >&2
-  exit 78
-fi
-
 # shellcheck disable=SC1090
-. "${INSTALL_SETUP}"
+. "${SCRIPT_DIR}/acceptance_cli_common.sh"
+rokae_acceptance_source_env "${WS_ROOT}"
 
 PYTHON_BIN="${ROKAE_PYTHON_EXECUTABLE:-$(command -v python3 || true)}"
 if [ -z "${PYTHON_BIN}" ]; then
@@ -57,15 +48,14 @@ export LIBGL_ALWAYS_SOFTWARE=1
 
 POLICY_FILE="${INSTALL_SHARE}/config/default_runtime_host_policy.env"
 if [ -f "${POLICY_FILE}" ]; then
-  # shellcheck disable=SC1090
-  . "${POLICY_FILE}"
+  rokae_acceptance_source_file "${POLICY_FILE}"
 fi
 
-PUBLIC_BACKEND_MODE="${ROKAE_DEFAULT_BACKEND_MODE:-effort}"
+PUBLIC_BACKEND_MODE="${ROKAE_DEFAULT_BACKEND_MODE:-jtc}"
 PUBLIC_SERVICE_EXPOSURE_PROFILE="${ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE:-public_xmate_er3_only}"
-PUBLIC_ENABLE_ROS2_CONTROL="${ROKAE_DEFAULT_ENABLE_ROS2_CONTROL:-false}"
-PUBLIC_ENABLE_XCORE_PLUGIN="${ROKAE_DEFAULT_ENABLE_XCORE_PLUGIN:-false}"
-PUBLIC_COMPATIBILITY_ALIAS_POLICY="${ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY:-canonical_plus_compat}"
+PUBLIC_ENABLE_ROS2_CONTROL="${ROKAE_DEFAULT_ENABLE_ROS2_CONTROL:-true}"
+PUBLIC_ENABLE_XCORE_PLUGIN="${ROKAE_DEFAULT_ENABLE_XCORE_PLUGIN:-true}"
+PUBLIC_COMPATIBILITY_ALIAS_POLICY="${ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY:-canonical_only}"
 
 
 "${PYTHON_BIN}" -m py_compile   "${INSTALL_SHARE}/launch/_simulation_support.py"   "${INSTALL_SHARE}/launch/_launch_profile.py"   "${INSTALL_SHARE}/launch/rviz_only.launch.py"   "${INSTALL_SHARE}/launch/simulation.launch.py"   "${INSTALL_SHARE}/launch/xmate_er3_public.launch.py"
@@ -116,6 +106,10 @@ if ! grep -q "<service_exposure_profile>${PUBLIC_SERVICE_EXPOSURE_PROFILE}</serv
 fi
 if ! grep -q "<compatibility_alias_policy>${PUBLIC_COMPATIBILITY_ALIAS_POLICY}</compatibility_alias_policy>" "${CANONICAL_PUBLIC_OUTPUT}"; then
   echo "launch_smoke: canonical public render missing expected compatibility alias policy tag: ${PUBLIC_COMPATIBILITY_ALIAS_POLICY}" >&2
+  exit 70
+fi
+if ! grep -q 'model://rokae_xmate3_ros2/meshes/collision/xMateER3_base.stl' "${CANONICAL_PUBLIC_OUTPUT}"; then
+  echo "launch_smoke: Gazebo public render did not rewrite collision meshes to model:// URIs" >&2
   exit 70
 fi
 

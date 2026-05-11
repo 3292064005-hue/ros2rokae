@@ -3,7 +3,6 @@
 #include "runtime/backend_provider.hpp"
 
 #include <algorithm>
-#include <functional>
 
 #include <gazebo/common/Events.hh>
 #include <gazebo/common/Console.hh>
@@ -36,7 +35,7 @@ void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
     if (sdf_ && sdf_->HasElement("service_exposure_profile")) {
       service_exposure_profile_value = sdf_->Get<std::string>("service_exposure_profile");
     }
-    std::string compatibility_alias_policy_value = "canonical_plus_compat";
+    std::string compatibility_alias_policy_value = "canonical_only";
     if (sdf_ && sdf_->HasElement("compatibility_alias_policy")) {
       compatibility_alias_policy_value = sdf_->Get<std::string>("compatibility_alias_policy");
     }
@@ -92,7 +91,7 @@ void XCoreControllerPlugin::Load(physics::ModelPtr model, sdf::ElementPtr sdf) {
     }
 
     update_conn_ = event::Events::ConnectWorldUpdateBegin(
-        std::bind(&XCoreControllerPlugin::OnUpdate, this, std::placeholders::_1));
+        [this](const common::UpdateInfo &info) { this->OnUpdate(info); });
     gzmsg << "[xCore Controller] Plugin loaded successfully, joints: " << joint_num_ << std::endl;
   } catch (const std::exception &ex) {
     gzerr << "[xCore Controller] Load failed with std::exception: " << ex.what() << std::endl;

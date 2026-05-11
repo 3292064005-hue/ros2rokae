@@ -57,9 +57,10 @@ if [ -z "${REPORT_DIR}" ]; then
 fi
 mkdir -p "${REPORT_DIR}"
 
+# shellcheck disable=SC1090
+. "${PKG_ROOT}/tools/acceptance_cli_common.sh"
 if [ -f "/opt/ros/humble/setup.bash" ]; then
-  # shellcheck disable=SC1091
-  . /opt/ros/humble/setup.bash
+  rokae_acceptance_source_file /opt/ros/humble/setup.bash
 fi
 
 if "${PKG_ROOT}/tools/check_target_environment.sh" --quiet >/dev/null 2>&1 && \

@@ -15,6 +15,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument('--urdf', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--source-xacro', required=True)
+    parser.add_argument('--mesh-root', default='')
     parser.add_argument('--enable-ros2-control', required=True)
     parser.add_argument('--enable-xcore-plugin', required=True)
     parser.add_argument('--backend-mode', required=True)
@@ -25,7 +26,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument('--identity-scope', default='canonical')
     parser.add_argument('--canonical-identity', default='xCoreSDK:xmate_er3')
     parser.add_argument('--canonical-source-xacro', default='urdf/xMateER3.xacro')
-    parser.add_argument('--compatibility-alias-policy', default='canonical_plus_compat')
+    parser.add_argument('--compatibility-alias-policy', default='canonical_only')
     parser.add_argument('--default-launch-profile', default='')
     parser.add_argument('--default-runtime-profile', default='')
     parser.add_argument('--default-runtime-host', default='')
@@ -54,6 +55,7 @@ def main() -> int:
             'compatibility_alias_policy': args.compatibility_alias_policy,
         },
         'xacro_args': {
+            'mesh_root': args.mesh_root,
             'enable_ros2_control': args.enable_ros2_control,
             'enable_xcore_plugin': args.enable_xcore_plugin,
             'backend_mode': args.backend_mode,

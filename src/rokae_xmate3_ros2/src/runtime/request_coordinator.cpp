@@ -51,6 +51,14 @@ bool MotionRequestCoordinator::canAcceptRequest() const {
   return currentView().can_accept_request;
 }
 
+void MotionRequestCoordinator::setServiceExposureProfile(ServiceExposureProfile profile) noexcept {
+  service_exposure_profile_ = profile;
+}
+
+ServiceExposureProfile MotionRequestCoordinator::serviceExposureProfile() const noexcept {
+  return service_exposure_profile_;
+}
+
 MotionRequestContext MotionRequestCoordinator::buildContext(const std::string &request_id,
                                                             const std::array<double, 6> &joint_position,
                                                             double trajectory_dt) const {
@@ -62,6 +70,8 @@ MotionRequestContext MotionRequestCoordinator::buildContext(const std::string &r
   const auto toolset = tooling_state_.toolset();
   context.tool_pose = toolset.tool_pose;
   context.wobj_pose = toolset.wobj_pose;
+  context.service_exposure_profile = to_string(service_exposure_profile_);
+  context.experimental_motion_extensions_enabled = includesExperimentalServices(service_exposure_profile_);
   return context;
 }
 

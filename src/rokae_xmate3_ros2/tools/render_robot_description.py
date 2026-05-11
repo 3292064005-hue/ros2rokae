@@ -30,7 +30,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument('--enable-xcore-plugin', required=True)
     parser.add_argument('--backend-mode', required=True)
     parser.add_argument('--service-exposure-profile', default='public_xmate_er3_only')
-    parser.add_argument('--compatibility-alias-policy', default='canonical_plus_compat')
+    parser.add_argument('--compatibility-alias-policy', default='canonical_only')
     parser.add_argument('--canonical-model', default='')
     parser.add_argument('--canonical-metadata', default='')
     parser.add_argument('--allow-noncanonical-model', default='false')
@@ -49,6 +49,7 @@ def _load_metadata(path: pathlib.Path | None) -> Dict[str, object]:
 
 def _requested_args(args: argparse.Namespace) -> Dict[str, str]:
     return {
+        'mesh_root': args.mesh_root,
         'enable_ros2_control': args.enable_ros2_control,
         'enable_xcore_plugin': args.enable_xcore_plugin,
         'backend_mode': args.backend_mode,
@@ -69,8 +70,19 @@ def _canonical_args(metadata: Dict[str, object]) -> Dict[str, str]:
         if isinstance(runtime_host_policy, dict) and runtime_host_policy.get('compatibility_alias_policy'):
             result['compatibility_alias_policy'] = str(runtime_host_policy['compatibility_alias_policy'])
         else:
-            result['compatibility_alias_policy'] = 'canonical_plus_compat'
+            result['compatibility_alias_policy'] = 'canonical_only'
     return result
+
+
+def _metadata_matches_request(metadata_args: Dict[str, str], requested: Dict[str, str]) -> bool:
+    for key, value in requested.items():
+        if key not in metadata_args:
+            if key == 'mesh_root':
+                continue
+            return False
+        if metadata_args[key] != value:
+            return False
+    return True
 
 
 def _resolve_xacro_from_metadata(package_share: pathlib.Path, metadata: Dict[str, object]) -> pathlib.Path:
@@ -129,28 +141,28 @@ def main() -> int:
     canonical_path = pathlib.Path(args.canonical_model) if args.canonical_model else None
     canonical_metadata_path = pathlib.Path(args.canonical_metadata) if args.canonical_metadata else None
     allow_noncanonical = _as_bool(args.allow_noncanonical_model)
-
-    if model_path.suffix.lower() == '.xacro':
-        sys.stdout.write(_render_xacro(model_path, args))
-        return 0
-
     metadata = _load_metadata(canonical_metadata_path)
-    if metadata:
-        requested = _requested_args(args)
-        metadata_args = _canonical_args(metadata)
-        metadata_matches = all(metadata_args.get(key) == value for key, value in requested.items())
-        if metadata_matches:
-            sys.stdout.write(model_path.read_text(encoding='utf-8'))
-            return 0
-        xacro_path = _resolve_xacro_from_metadata(pathlib.Path(args.package_share), metadata)
-        sys.stdout.write(_render_xacro(xacro_path, args))
-        return 0
 
     if canonical_path and canonical_path.exists() and model_path.resolve() != canonical_path.resolve() and not allow_noncanonical:
         raise RuntimeError(
             f'non-canonical model override is disabled by default: {model_path}. '
             f'Use allow_noncanonical_model:=true only for developer-mode validation.'
         )
+
+    if model_path.suffix.lower() == '.xacro':
+        sys.stdout.write(_render_xacro(model_path, args))
+        return 0
+
+    if metadata:
+        requested = _requested_args(args)
+        metadata_args = _canonical_args(metadata)
+        metadata_matches = _metadata_matches_request(metadata_args, requested)
+        if metadata_matches:
+            sys.stdout.write(model_path.read_text(encoding='utf-8'))
+            return 0
+        xacro_path = _resolve_xacro_from_metadata(pathlib.Path(args.package_share), metadata)
+        sys.stdout.write(_render_xacro(xacro_path, args))
+        return 0
 
     sys.stdout.write(model_path.read_text(encoding='utf-8'))
     return 0

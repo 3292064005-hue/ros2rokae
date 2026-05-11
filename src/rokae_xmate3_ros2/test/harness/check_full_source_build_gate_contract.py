@@ -100,4 +100,4 @@ if FAILURES:
         print(f'- {failure}')
     sys.exit(1)
 
-print('full source build gate contract check passed')
+print('full source build gate script contract check passed')

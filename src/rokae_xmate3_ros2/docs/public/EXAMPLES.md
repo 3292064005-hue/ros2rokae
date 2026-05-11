@@ -19,7 +19,6 @@
 - `example_03_kinematics`
 - `example_04_motion_basic`
 - `example_07_safety_collision`
-- `example_08_path_record_replay`
 - `example_09_advanced_sdk_compat`
 - `example_10_sdk_workflow_xmate3`
 - `example_11_move_advanced_xmate3`
@@ -34,6 +33,7 @@
 ## 3. Internal/backend examples
 
 - `example_05_motion_cartesian`
+- `example_08_path_record_replay`
 - `example_06_io_control`
 - `example_13_rl_project_workflow`
 - `example_16_registers_and_runtime_options`
@@ -72,7 +72,7 @@ internal/backend lane 仍要求 maintainer workspace，并通过内部服务暴�
 - `moveStart()` is the only execution authority
 - `stop()` is pause-only
 - `moveReset()` drops queued NRT work
-- path record/replay asset schema follows [`../reference/RECORDED_PATH_SCHEMA.md`](../reference/RECORDED_PATH_SCHEMA.md)
+- path record/replay examples are experimental/internal and are not part of the default public xMateER3 lane
 - acceptance layers and install-facing entrypoints follow [`../release/ACCEPTANCE_LAYERS.md`](../release/ACCEPTANCE_LAYERS.md)
 
 > Source layout: public examples are stored in `examples/cpp/`; internal/backend-only examples are stored in `examples/internal/cpp/` and are only built when `ROKAE_BUILD_INTERNAL_BACKEND_EXAMPLES=ON`.

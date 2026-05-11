@@ -10,18 +10,21 @@
 
 | profile | 用途 | 对外级别 |
 |---|---|---|
-| `public_xmate_er3_sdk` | 默认 public SDK-shaped 主线（由统一策略文件驱动） | public |
-| `public_xmate_er3_jtc` | JTC/Gazebo plugin 兼容 profile | public |
+| `public_xmate_er3_jtc` | 默认 public Gazebo/JTC 可执行仿真主线 | public |
+| `public_xmate_er3_headless_sdk_smoke` | 无 Gazebo 的 SDK smoke/CI 快速验证 profile | public smoke |
+| `public_xmate_er3_experimental_rt` | 显式 opt-in 的 RT/drag/path experimental profile | experimental |
 | `internal_full_hybrid` | 内部全暴露混合验证 | internal |
 | `daemon_hard_rt` | daemon-owned runtime 验证 | internal |
 
 `launch_profile` 现在 **fail-fast**：未知 profile 直接报错，不再静默回退默认值。默认 profile、runtime host、service exposure 与 backend mode 统一由 `config/default_runtime_host_policy.env` 提供；其中 install-facing `xCoreSDK_BACKEND_MODE` 与 launch 默认 `backend_mode` 保持同值，runtime host ownership 继续单独由 `ROKAE_DEFAULT_RUNTIME_HOST` 表达。
 
+`public_xmate_er3_jtc` 还绑定运行期 readiness gate：`require_runtime_readiness:=true` 时，launch 会在 spawn 后等待 controller manager、active JTC controller 和 FollowJointTrajectory action server。该检查是默认 public profile 的强约束；关闭它只适用于 show-args、图形或依赖排查。
+
 ## 2. RT / NRT split
 
 - NRT：默认 public 主链。
-- RT：只保留 install-facing 兼容接口与 internal/runtime 验证入口；Gazebo 语义仍是 simulation-grade。
-- public lane 不再公开 experimental RT 示例，也不再公开 public experimental RT profile。
+- RT：默认 public profile 不注册 RT ROS 服务；install-facing 保留兼容接口，Gazebo 语义仍是 simulation-grade。
+- `public_xmate_er3_experimental_rt` 是显式 opt-in profile，不作为 public release proof。
 - strict 1kHz fail-fast RT profile 只允许存在于 internal/runtime lane。
 
 ## 3. Query authority
@@ -38,7 +41,7 @@ runtime / coordinator 是唯一权威状态面。
 ## 4. Capability and hardening summary
 
 - runtime main chain: `MoveReset -> MoveAppend -> MoveStart -> Stop(pause)`
-- `replayPath()` 是立即提交型 replay side-lane；不占用 public staged MoveAppend queue contract
+- path replay 是 experimental side-lane；不占用默认 public staged MoveAppend queue contract
 - profile capability / diagnostics banner 必须说明当前 backend、authority 与 exposure policy
 - public lane 不承诺 IO / RL / calibration
 - Observability remains runtime-owned
@@ -59,4 +62,4 @@ provider 具体边界规则不再散落在 `RT_PROFILE_GUIDE.md`、`RT_HARDENING
 - [`../release/RELEASE_GATE.md`](../release/RELEASE_GATE.md)
 
 
-- `compatibility_alias_policy`：`canonical_plus_compat` / `canonical_only` / `legacy_only`，默认导出为 `canonical_plus_compat`。
+- `compatibility_alias_policy`：`canonical_plus_compat` / `canonical_only` / `legacy_only`，默认导出为 `canonical_only`。

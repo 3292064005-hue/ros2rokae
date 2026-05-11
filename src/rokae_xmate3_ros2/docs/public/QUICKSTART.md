@@ -68,8 +68,9 @@ ros2 launch rokae_xmate3_ros2 xmate_er3_public.launch.py
 说明：
 - `simulation.launch.py` 是规范入口
 - `xmate3_simulation.launch.py` / `xmate3_gazebo.launch.py` 是兼容别名
-- `launch_profile` 默认值现在由 `config/default_runtime_host_policy.env` 提供，默认 profile 为 `public_xmate_er3_sdk`
+- `launch_profile` 默认值现在由 `config/default_runtime_host_policy.env` 提供，默认 profile 为 `public_xmate_er3_jtc`
 - `launch_profile` 现在 fail-fast，未知值会直接报错
+- `public_xmate_er3_jtc` 默认 `require_runtime_readiness:=true`，会等待 controller manager、active JTC controller 和 FollowJointTrajectory action server；只做 launch 排查时才关闭该检查
 
 ## 5. 运行 public 示例
 
@@ -114,7 +115,7 @@ find_package(xCoreSDK COMPONENTS core CONFIG REQUIRED)
 ```
 这条路径只解析 `xCoreSDK::xCoreSDK_core`，并只暴露模型/规划 core 能力；`Robot` 会话、RT 控制需要显式请求 `shared` 组件并链接 `xCoreSDK::xCoreSDK_shared`，ROS2 action/service 桥接则走 `xCoreSDK::xCoreSDK_ros_bridge`。兼容导出仍保留 `xCoreSDK::xCoreSDK_static`，但不再作为主消费者验证链。
 
-## 7. 先记住这 4 条语义
+## 7. 先记住这 5 条语义
 
 1. `MoveAppend` 只负责排队，**queue accepted** 就返回成功。
 2. `moveStart()` 才真正提交执行。
@@ -128,7 +129,7 @@ find_package(xCoreSDK COMPONENTS core CONFIG REQUIRED)
 - profile / query authority：[`RUNTIME_PROFILES.md`](RUNTIME_PROFILES.md)
 - public contract：[`COMPATIBILITY.md`](COMPATIBILITY.md)
 - runtime 状态机：[`../reference/RUNTIME_STATE_MACHINE.md`](../reference/RUNTIME_STATE_MACHINE.md)
-- 路径录制 schema：[`../reference/RECORDED_PATH_SCHEMA.md`](../reference/RECORDED_PATH_SCHEMA.md)
+- 路径录制/回放仅用于 experimental/internal exposure，不属于默认 public 主链
 - 示例分层：[`EXAMPLES.md`](EXAMPLES.md)
 - 诊断门限派生工具：`share/rokae_xmate3_ros2/tools/derive_runtime_diag_gate.py`
 - 分层验收矩阵：[`../release/ACCEPTANCE_LAYERS.md`](../release/ACCEPTANCE_LAYERS.md)

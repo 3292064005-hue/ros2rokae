@@ -1,6 +1,7 @@
-#include "runtime/runtime_state.hpp"
+#include "runtime/motion_options_state.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace rokae_xmate3_ros2::runtime {
 
@@ -81,6 +82,25 @@ SoftLimitSnapshot MotionOptionsState::softLimit() const {
   return SoftLimitSnapshot{soft_limit_enabled_, soft_limits_};
 }
 
+void MotionOptionsState::setExperimentalMotionExtensionsEnabled(bool enabled,
+                                                               std::string service_exposure_profile) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  experimental_motion_extensions_enabled_ = enabled;
+  service_exposure_profile_ = service_exposure_profile.empty()
+                                  ? std::string{"public_xmate_er3_only"}
+                                  : std::move(service_exposure_profile);
+}
+
+bool MotionOptionsState::experimentalMotionExtensionsEnabled() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return experimental_motion_extensions_enabled_;
+}
+
+std::string MotionOptionsState::serviceExposureProfile() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return service_exposure_profile_;
+}
+
 MotionRequestContext MotionOptionsState::makeMotionRequestContext(const std::string &request_id,
                                                                   const std::vector<double> &start_joints,
                                                                   double trajectory_dt) const {
@@ -96,8 +116,9 @@ MotionRequestContext MotionOptionsState::makeMotionRequestContext(const std::str
   context.soft_limits = soft_limits_;
   context.speed_scale = speed_scale_;
   context.trajectory_dt = trajectory_dt;
+  context.experimental_motion_extensions_enabled = experimental_motion_extensions_enabled_;
+  context.service_exposure_profile = service_exposure_profile_;
   return context;
 }
-
 
 }  // namespace rokae_xmate3_ros2::runtime

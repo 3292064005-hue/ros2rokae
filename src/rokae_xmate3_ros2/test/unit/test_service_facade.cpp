@@ -6,6 +6,7 @@
 #include <limits>
 
 #include "runtime/joint_retimer.hpp"
+#include "runtime/kinematics_provider.hpp"
 #include "runtime/runtime_state.hpp"
 #include "runtime/motion_runtime.hpp"
 #include "runtime/pose_utils.hpp"
@@ -297,6 +298,8 @@ TEST(ServiceFacadeTest, PathFacadeSubmitsReplayRequestsThroughCoordinator) {
   session_state.setPowerOn(true);
   rt::MotionRuntime motion_runtime;
   rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, session_state, motion_runtime);
+  coordinator.setServiceExposureProfile(
+      rokae_xmate3_ros2::runtime::ServiceExposureProfile::public_xmate_er3_experimental);
 
   auto joint_state_fetcher = [](std::array<double, 6> &position,
                                 std::array<double, 6> &velocity,
@@ -317,7 +320,7 @@ TEST(ServiceFacadeTest, PathFacadeSubmitsReplayRequestsThroughCoordinator) {
   program_state.recordPathSample(0.00, {0.0, 0.1, 0.2, 0.3, 0.4, 0.5}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
   program_state.recordPathSample(0.20, {0.2, 0.3, 0.4, 0.5, 0.6, 0.7}, {1.0, 1.0, 1.0, 1.0, 1.0, 1.0});
   program_state.stopRecordingPath();
-  program_state.saveRecordedPath("demo_path");
+  ASSERT_TRUE(program_state.saveRecordedPath("demo_path"));
 
   rokae_xmate3_ros2::srv::ReplayPath::Request req;
   rokae_xmate3_ros2::srv::ReplayPath::Response res;
@@ -375,6 +378,7 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
   rt::ProgramState program_state;
   rt::RuntimeDiagnosticsState diagnostics_state;
   gazebo::xMateER3Kinematics kinematics;
+  rokae_xmate3_ros2::kinematics::GazeboProvider kinematics_provider(kinematics);
 
   const std::array<double, 6> joints = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
   auto joint_state_fetcher = [&](std::array<double, 6> &position,
@@ -400,7 +404,7 @@ TEST(ServiceFacadeTest, QueryFacadeAppliesToolingCoordinateSemanticsAndApproxima
                          diagnostics_state,
                          motion_runtime,
                          coordinator,
-                         kinematics,
+                         kinematics_provider,
                          joint_state_fetcher,
                          []() { return rclcpp::Time(0); },
                          []() { return 0.01; },
@@ -713,6 +717,7 @@ TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMateER3Lane) {
   rt::ProgramState program_state;
   rt::RuntimeDiagnosticsState diagnostics_state;
   gazebo::xMateER3Kinematics kinematics;
+  rokae_xmate3_ros2::kinematics::GazeboProvider kinematics_provider(kinematics);
   rt::QueryFacade query_facade(session_state,
                                motion_options_state,
                                tooling_state,
@@ -721,7 +726,7 @@ TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMateER3Lane) {
                                diagnostics_state,
                                motion_runtime,
                                coordinator,
-                               kinematics,
+                               kinematics_provider,
                                [](std::array<double, 6> &position,
                                   std::array<double, 6> &velocity,
                                   std::array<double, 6> &torque) {

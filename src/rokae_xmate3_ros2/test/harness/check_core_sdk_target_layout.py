@@ -22,7 +22,7 @@ for token in required_target_tokens:
         FAILURES.append(f'targets_sdk_compat.cmake missing token: {token}')
 
 if 'add_library(xCoreSDK_core INTERFACE' in TARGETS:
-    FAILURES.append('xCoreSDK_core must not remain an INTERFACE-only placeholder target')
+    FAILURES.append('xCoreSDK_core must not remain an INTERFACE-only empty target')
 
 for token in [
     'include("${CMAKE_CURRENT_LIST_DIR}/xCoreSDKCoreTargets.cmake")',

@@ -319,7 +319,7 @@ TEST(RuntimeRequestAdapterTest, ReplayAssetPreservesMetadataAndToolingContext) {
   program_state.recordPathSample(10.0, {0.0, 0.1, 0.2, 0.3, 0.4, 0.5}, {0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
   program_state.recordPathSample(10.2, {0.1, 0.2, 0.3, 0.4, 0.5, 0.6}, {0.2, 0.2, 0.2, 0.2, 0.2, 0.2});
   program_state.stopRecordingPath();
-  program_state.saveRecordedPath("asset_demo");
+  ASSERT_TRUE(program_state.saveRecordedPath("asset_demo"));
 
   rt::ReplayPathAsset asset;
   ASSERT_TRUE(program_state.getReplayAsset("asset_demo", asset));

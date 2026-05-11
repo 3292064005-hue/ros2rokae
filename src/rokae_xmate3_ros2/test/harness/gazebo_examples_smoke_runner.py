@@ -24,17 +24,17 @@ class JointStateProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin):
         super().__init__("rokae_gazebo_examples_smoke_probe")
         self._heartbeat_count = 0
         self._last_msg_time = None
-        self._connect_client = self.create_client(Connect, "/xmate3/cobot/connect")
+        self._connect_client = self.create_client(Connect, "/xmate_er3/cobot/connect")
         self._set_motion_control_mode_client = self.create_client(
-            SetMotionControlMode, "/xmate3/cobot/set_motion_control_mode"
+            SetMotionControlMode, "/xmate_er3/cobot/set_motion_control_mode"
         )
         self._set_operate_mode_client = self.create_client(
-            SetOperateMode, "/xmate3/cobot/set_operate_mode"
+            SetOperateMode, "/xmate_er3/cobot/set_operate_mode"
         )
         self._init_runtime_cleanup_clients()
         self._init_runtime_readiness_clients()
-        self._move_append_client = ActionClient(self, MoveAppend, "/xmate3/cobot/move_append")
-        self.create_subscription(JointState, "/xmate3/joint_states", self._callback, 20)
+        self._move_append_client = ActionClient(self, MoveAppend, "/xmate_er3/cobot/move_append")
+        self.create_subscription(JointState, "/xmate_er3/joint_states", self._callback, 20)
 
     def _callback(self, _msg):
         self._heartbeat_count += 1
@@ -59,10 +59,10 @@ class JointStateProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin):
 
     def wait_for_runtime_ready(self, timeout_sec):
         service_specs = [
-            (self._connect_client, "/xmate3/cobot/connect"),
-            (self._set_motion_control_mode_client, "/xmate3/cobot/set_motion_control_mode"),
-            (self._set_operate_mode_client, "/xmate3/cobot/set_operate_mode"),
-            (self._power_client, "/xmate3/cobot/set_power_state"),
+            (self._connect_client, "/xmate_er3/cobot/connect"),
+            (self._set_motion_control_mode_client, "/xmate_er3/cobot/set_motion_control_mode"),
+            (self._set_operate_mode_client, "/xmate_er3/cobot/set_operate_mode"),
+            (self._power_client, "/xmate_er3/cobot/set_power_state"),
         ]
         deadline = time.monotonic() + timeout_sec
         for client, service_name in service_specs:
@@ -76,7 +76,7 @@ class JointStateProbe(Node, RuntimeCleanupMixin, RuntimeReadinessMixin):
             if self._move_append_client.wait_for_server(timeout_sec=0.25):
                 break
         else:
-            sys.stderr.write("Timed out waiting for /xmate3/cobot/move_append action server\n")
+            sys.stderr.write("Timed out waiting for /xmate_er3/cobot/move_append action server\n")
             return False
         if not self.wait_for_jtc_action(max(0.0, deadline - time.monotonic())):
             sys.stderr.write(
@@ -125,7 +125,7 @@ def main(argv):
     probe = JointStateProbe()
     try:
         if not probe.wait_for_heartbeat(45.0):
-            sys.stderr.write("Timed out waiting for /xmate3/joint_states before running examples\n")
+            sys.stderr.write("Timed out waiting for /xmate_er3/joint_states before running examples\n")
             return 1
         if not probe.wait_for_runtime_ready(45.0):
             return 1
@@ -152,7 +152,7 @@ def main(argv):
                 if not success:
                     return 1
             if not probe.wait_for_fresh_heartbeat(10.0):
-                sys.stderr.write(f"/xmate3/joint_states stopped updating after {binary_path}\n")
+                sys.stderr.write(f"/xmate_er3/joint_states stopped updating after {binary_path}\n")
                 return 1
             time.sleep(0.5)
         return 0

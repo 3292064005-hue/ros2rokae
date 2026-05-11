@@ -10,3 +10,7 @@ float64[6] external_joint_torque
 float64[3] cart_torque
 float64[3] cart_force
 string fidelity_level
+string[] valid_fields
+string[] approximate_fields
+string[] unsupported_fields
+string field_validity_summary

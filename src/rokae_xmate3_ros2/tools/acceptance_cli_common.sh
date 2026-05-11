@@ -1,21 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+rokae_acceptance_source_file() {
+  local setup_file="$1"
+  local had_nounset=0
+  case "$-" in
+    *u*) had_nounset=1 ;;
+  esac
+  set +u
+  # shellcheck disable=SC1090
+  . "${setup_file}"
+  if [ "${had_nounset}" -eq 1 ]; then
+    set -u
+  fi
+}
+
 rokae_acceptance_source_env() {
   local workspace_root="$1"
+  rokae_acceptance_source_ros_env
+  if [ -f "${workspace_root}/install/setup.bash" ]; then
+    rokae_acceptance_source_file "${workspace_root}/install/setup.bash"
+  fi
+}
+
+rokae_acceptance_source_ros_env() {
   if [ -n "${ROS_DISTRO:-}" ] && [ -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]; then
-    # shellcheck disable=SC1090
-    . "/opt/ros/${ROS_DISTRO}/setup.bash"
+    rokae_acceptance_source_file "/opt/ros/${ROS_DISTRO}/setup.bash"
   elif [ -f "/opt/ros/humble/setup.bash" ]; then
-    # shellcheck disable=SC1091
-    . /opt/ros/humble/setup.bash
+    rokae_acceptance_source_file /opt/ros/humble/setup.bash
   else
     echo "acceptance: ROS environment is not available" >&2
     return 78
-  fi
-  if [ -f "${workspace_root}/install/setup.bash" ]; then
-    # shellcheck disable=SC1090
-    . "${workspace_root}/install/setup.bash"
   fi
 }
 

@@ -10,7 +10,7 @@
     },
     {
       "id": "L1",
-      "goal": "mock_semantics",
+      "goal": "sim_semantics",
       "entrypoint": "ctest -L semantic_gate",
       "requires_real_hardware": false
     },

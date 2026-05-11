@@ -45,7 +45,7 @@ def main() -> int:
         'source_layout': manifest.get('source_layout', {}),
         'release_gates': manifest.get('release_gates', []),
         'default_runtime_host_policy': {
-            'launch_profile': install_metadata.get('default_launch_profile', policy.get('ROKAE_DEFAULT_PUBLIC_LAUNCH_PROFILE', 'public_xmate_er3_sdk')),
+            'launch_profile': install_metadata.get('default_launch_profile', policy.get('ROKAE_DEFAULT_PUBLIC_LAUNCH_PROFILE', 'public_xmate_er3_jtc')),
             'runtime_host': install_metadata.get('default_runtime_host', policy.get('ROKAE_DEFAULT_RUNTIME_HOST', 'daemonized_runtime')),
             'runtime_profile': install_metadata.get('default_runtime_profile', policy.get('ROKAE_DEFAULT_RUNTIME_PROFILE', 'nrt_strict_parity')),
             'backend_mode': install_metadata.get('backend_mode', policy.get('ROKAE_DEFAULT_BACKEND_MODE', 'effort')),

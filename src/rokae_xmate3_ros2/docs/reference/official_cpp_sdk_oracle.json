@@ -1,0 +1,118 @@
+{
+  "schema_version": 2,
+  "scope": "xMateER3 six-axis simulation compatibility subset",
+  "official_reference": "xCore SDK C++ V2.1 public headers",
+  "validation_level": {
+    "default_static_gate": [
+      "local_header_presence",
+      "local_source_compatibility_signatures",
+      "explicit_out_of_scope_classification"
+    ],
+    "with_ROKAE_OFFICIAL_SDK_INCLUDE": [
+      "official_header_presence",
+      "official_signature_pattern_presence"
+    ],
+    "not_claimed": [
+      "binary_abi_parity",
+      "behavior_parity",
+      "hardware_runtime_parity"
+    ]
+  },
+  "required_headers": [
+    "include/rokae/robot.h",
+    "include/rokae/model.h",
+    "include/rokae/motion_control_rt.h",
+    "include/rokae/planner.h",
+    "include/rokae/data_types.h",
+    "include/rokae/utility.h"
+  ],
+  "local_source_compatibility_signatures": {
+    "include/rokae/robot.h": [
+      "void connectToRobot(error_code &ec) noexcept;",
+      "void connectToRobot(const std::string &remoteIP, const std::string &localIP = \"\");",
+      "std::array<double, 6> jointPos(error_code &ec) const noexcept;",
+      "std::array<double, 6> posture(CoordinateType ct, error_code &ec) const noexcept;",
+      "Toolset setToolset(const std::string &toolName, const std::string &wobjName, error_code &ec) noexcept;",
+      "void setMotionControlMode(MotionControlMode mode, error_code &ec) noexcept;",
+      "void moveStart(error_code &ec) noexcept;",
+      "void moveAppend(const std::vector<MoveAbsJCommand> &cmds, std::string &cmdID, error_code &ec) noexcept;",
+      "void moveAppend(const std::vector<MoveJCommand> &cmds, std::string &cmdID, error_code &ec) noexcept;",
+      "void moveAppend(const std::vector<MoveLCommand> &cmds, std::string &cmdID, error_code &ec) noexcept;",
+      "void moveAppend(const std::vector<MoveCCommand> &cmds, std::string &cmdID, error_code &ec) noexcept;",
+      "void moveAppend(const std::vector<MoveCFCommand> &cmds, std::string &cmdID, error_code &ec) noexcept;",
+      "void moveAppend(const std::vector<MoveSPCommand> &cmds, std::string &cmdID, error_code &ec) noexcept;"
+    ],
+    "include/rokae/model.h": [
+      "CartesianPosition calcFk(const std::array<double, 6> &joints, error_code &ec) const;",
+      "std::array<double, 6> calcIk(const CartesianPosition &posture, error_code &ec) const;"
+    ],
+    "include/rokae/motion_control_rt.h": [
+      "void startLoop(bool blocking = true);",
+      "void stopLoop();",
+      "void startMove(RtControllerMode rtMode);",
+      "void stopMove();"
+    ],
+    "include/rokae/planner.h": [
+      "class XCORE_API JointMotionGenerator",
+      "class XCORE_API CartMotionGenerator",
+      "class XCORE_API FollowPosition<6>"
+    ]
+  },
+  "official_signature_patterns": {
+    "robot.h": [
+      "void connectToRobot(error_code &ec) noexcept;",
+      "void connectToRobot(const std::string &remoteIP, const std::string &localIP = \"\");",
+      "std::array<double, DoF> jointPos(error_code &ec) noexcept;",
+      "std::array<double, 6> posture(CoordinateType ct, error_code &ec) noexcept;",
+      "void moveAppend(const std::vector<Command> &cmds, std::string &cmdID, error_code &ec) noexcept;",
+      "void moveAppend(std::initializer_list<Command> cmds, std::string &cmdID, error_code &ec) noexcept;"
+    ],
+    "model.h": [
+      "std::array<double, DoF> calcIk(CartesianPosition posture, error_code &ec) noexcept;",
+      "CartesianPosition calcFk(const std::array<double, DoF> &joints, error_code &ec) noexcept;"
+    ],
+    "motion_control_rt.h": [
+      "void startLoop(bool blocking = true);",
+      "void stopLoop();",
+      "void startMove(RtControllerMode rtMode);",
+      "void stopMove();"
+    ],
+    "planner.h": [
+      "class XCORE_API JointMotionGenerator",
+      "class XCORE_API CartMotionGenerator",
+      "class XCORE_API FollowPosition"
+    ]
+  },
+  "source_compatibility_notes": {
+    "fixed_dof_adaptation": "Official Robot_T signatures are template DoF based; this simulation lane exposes xMateRobot as a fixed six-axis source-compatible shim.",
+    "MoveSP": "The type and SDK overload are present for source compatibility, but default runtime execution is rejected unless the exposure profile is experimental or internal."
+  },
+  "out_of_scope_modules": [
+    "calibration",
+    "rl",
+    "io",
+    "register",
+    "xpanel"
+  ],
+  "experimental_modules": [
+    "rt_services",
+    "drag_services",
+    "path_record_replay_services",
+    "MoveSP"
+  ],
+  "verification_tiers": {
+    "token_presence": "enforced_by_check_official_cpp_sdk_oracle_py",
+    "local_header_signature_tokens": "enforced_for_xmate_er3_public_subset",
+    "official_header_presence": "enforced_only_when_ROKAE_OFFICIAL_SDK_INCLUDE_is_set",
+    "full_signature_parity": "not_claimed",
+    "abi_parity": "not_claimed",
+    "hardware_behavior_parity": "not_claimed"
+  },
+  "allowed_claim": "token/source-scope oracle for the xMateER3 simulation compatibility subset; not full official SDK ABI/API/behavior parity",
+  "forbidden_claims": [
+    "full official SDK parity",
+    "ABI parity",
+    "hardware behavior parity",
+    "complete source compatibility outside the listed public subset"
+  ]
+}

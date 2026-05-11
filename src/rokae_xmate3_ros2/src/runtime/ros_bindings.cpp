@@ -60,6 +60,10 @@ RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
                                                 joint_state_fetcher_,
                                                 trajectory_dt_provider_,
                                                 request_id_generator_)) {
+  runtime_context_.motionOptionsState().setExperimentalMotionExtensionsEnabled(
+      includesExperimentalServices(service_exposure_profile_),
+      to_string(service_exposure_profile_));
+  runtime_context_.requestCoordinator().setServiceExposureProfile(service_exposure_profile_);
   initServices();
   registerCompatibilityAliases();
   initActionServers();

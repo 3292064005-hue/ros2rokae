@@ -4,6 +4,7 @@ rokae_xmate3_ros2/MoveJCommand[] j_cmds
 rokae_xmate3_ros2/MoveLCommand[] l_cmds
 rokae_xmate3_ros2/MoveCCommand[] c_cmds
 rokae_xmate3_ros2/MoveCFCommand[] cf_cmds
+# Experimental payload lane: rejected by default public_xmate_er3_only exposure; opt in with public_xmate_er3_experimental/internal_full.
 rokae_xmate3_ros2/MoveSPCommand[] sp_cmds
 ---
 # Result

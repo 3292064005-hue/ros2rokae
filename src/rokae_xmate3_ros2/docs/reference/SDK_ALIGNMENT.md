@@ -12,7 +12,7 @@
 
 - machine-readable manifest：`docs/reference/xmate_er3_alignment_manifest.json`
 - 兼容安装面与导出规则：`cmake/xCoreSDKConfig.cmake.in`、`cmake/targets_packaging.cmake`
-- 契约门禁：`test/harness/check_public_contract_manifest.py`、`test/harness/check_compat_public_abi.py`
+- 契约门禁：`test/harness/check_public_contract_manifest.py`、`test/harness/check_compat_public_abi.py`、`test/harness/check_official_cpp_sdk_oracle.py`
 
 历史上的 `COMPAT_ABI.md`、`API_ALIGNMENT_MATRIX.md`、`XMATE_ER3_OFFICIAL_ALIGNMENT_MATRIX.md` 已并入本页和 `docs/public/COMPATIBILITY.md`，不再保留独立正文。
 
@@ -43,18 +43,23 @@
 
 - `MoveAppend` success = **queue accepted**
 - `moveStart()` 才是 staged NRT 主链的执行提交点
-- `replayPath()` = immediate-submit side-lane
+- `replayPath()` = experimental immediate-submit side-lane
 - `stop()` = pause-only
 - `moveReset()` = 清空队列和执行缓存
 - `calibrateFrame()` 仅保留兼容签名，返回 `function_not_supported`
 - `GetEndWrench` 是 public lane 首选扩展查询面
-- `MoveSP`、路径录制/回放已纳入 xMateER3 public lane 的 NRT 扩展面
+- `MoveSP`、路径录制/回放仅在 experimental/internal exposure 中启用；默认 public request adapter 在队列前拒绝这些 extension payload
 - preferred register path: `ReadRegisterEx` / `WriteRegisterEx`
 - legacy register path: `ReadRegister` / `WriteRegister` (**Legacy facade**)
 - preferred wrench path: `GetEndWrench`
 - legacy wrench path: `GetEndEffectorTorque`
-- RT profile label: `rt_hardened`
+- RT public opt-in label: `rt_experimental_opt_in`
 - RT policy label: `best_effort_non_controller_grade`
+
+
+## 3.1 官方 SDK oracle 等级
+
+`docs/reference/official_cpp_sdk_oracle.json` 现在分为三层：本地 source-compatibility signature、可选官方 include root 的官方头文件签名 pattern 校验、以及不声明的 ABI/行为/实机 parity。它是 token/source-scope oracle，只能证明当前 xMateER3 仿真兼容子集的源码兼容签名和 out-of-scope 分类；not full official SDK ABI/API/behavior parity。设置 `ROKAE_OFFICIAL_SDK_INCLUDE=/path/to/librokae/include` 后，门禁会额外核验官方头文件中的签名 pattern。
 
 ## 4. 对齐矩阵
 
@@ -62,7 +67,7 @@
 |---|---|---|
 | 基础状态与工具工件 | 对齐 | public 主链已收口 |
 | NRT 运动 | 对齐 | queue/start/pause 语义固定 |
-| RT 兼容接口 | 部分对齐 | install-facing 保留，语义是 simulation-grade |
+| RT 兼容接口 | experimental opt-in | install-facing 保留，默认 public ROS 服务不注册，语义是 simulation-grade |
 | 运动学 / 模型 | 仿真近似 | 见 `docs/public/KINEMATICS_AND_MODEL.md` |
 | RL / IO / xPanel | 不纳入 public | 仅 internal/backend 语义 |
 
@@ -89,4 +94,4 @@
 - compatibility gates include `check_public_contract_manifest.py` and `check_compat_public_abi.py`
 
 
-- `compatibility_alias_policy`：`canonical_plus_compat` / `canonical_only` / `legacy_only`，默认导出为 `canonical_plus_compat`。
+- `compatibility_alias_policy`：`canonical_plus_compat` / `canonical_only` / `legacy_only`，默认导出为 `canonical_only`。

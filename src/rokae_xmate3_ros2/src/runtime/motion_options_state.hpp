@@ -34,6 +34,19 @@ class MotionOptionsState {
   void setSoftLimit(bool enabled, const std::array<std::array<double, 2>, 6> &limits);
   [[nodiscard]] SoftLimitSnapshot softLimit() const;
 
+  /**
+   * @brief Configure whether experimental motion command families may enter MoveAppend/replay.
+   * @param enabled True only for experimental/internal exposure profiles.
+   * @param service_exposure_profile Stable profile token recorded in request diagnostics.
+   * @throws None. Empty profile names are normalized to public_xmate_er3_only.
+   * @details Boundary behavior: default public xMateER3 requests reject experimental families such as
+   * MoveSP and recorded-path replay before planning. The ROS action/service types remain source-compatible,
+   * but their experimental payload lanes are not executable unless this policy is explicitly enabled.
+   */
+  void setExperimentalMotionExtensionsEnabled(bool enabled, std::string service_exposure_profile);
+  [[nodiscard]] bool experimentalMotionExtensionsEnabled() const;
+  [[nodiscard]] std::string serviceExposureProfile() const;
+
   [[nodiscard]] MotionRequestContext makeMotionRequestContext(const std::string &request_id,
                                                               const std::vector<double> &start_joints,
                                                               double trajectory_dt) const;
@@ -48,6 +61,8 @@ class MotionOptionsState {
   bool default_conf_opt_forced_ = false;
   bool avoid_singularity_enabled_ = false;
   bool soft_limit_enabled_ = false;
+  bool experimental_motion_extensions_enabled_ = false;
+  std::string service_exposure_profile_ = "public_xmate_er3_only";
   std::array<std::array<double, 2>, 6> soft_limits_ = rokae_xmate3_ros2::spec::xmate_er3_truth::kDefaultSoftLimits;
 };
 

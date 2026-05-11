@@ -8,7 +8,9 @@
 namespace rokae_xmate3_ros2::runtime {
 
 [[nodiscard]] std::vector<ServiceRegistrationDescriptor> buildPublicPrimaryServiceContractManifest();
+[[nodiscard]] std::vector<ServiceRegistrationDescriptor> buildPublicExperimentalPrimaryServiceContractManifest();
 [[nodiscard]] std::vector<ServiceRegistrationDescriptor> buildPublicCompatibilityAliasContractManifest();
+[[nodiscard]] std::vector<ServiceRegistrationDescriptor> buildPublicExperimentalCompatibilityAliasContractManifest();
 #if ROKAE_ENABLE_INTERNAL_SURFACE
 [[nodiscard]] std::vector<ServiceRegistrationDescriptor> buildInternalPrimaryServiceContractManifest();
 [[nodiscard]] std::vector<ServiceRegistrationDescriptor> buildInternalCompatibilityAliasContractManifest();

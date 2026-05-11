@@ -315,6 +315,7 @@ xMateRobot::Impl::Impl(const std::string& node_name) {
     node_ = rclcpp::Node::make_shared(node_name);
     catalog_policy_ = strictRuntimeCatalogPolicy();
     applyCatalogPolicyFromEnvironment();
+    applyMotionExtensionPolicyFromEnvironment();
     init_node();
     init_clients();
     init_subscribers();
@@ -328,6 +329,7 @@ xMateRobot::Impl::Impl(const std::string& remote_ip, const std::string& local_ip
     node_ = rclcpp::Node::make_shared("xmate_er3_robot");
     catalog_policy_ = strictRuntimeCatalogPolicy();
     applyCatalogPolicyFromEnvironment();
+    applyMotionExtensionPolicyFromEnvironment();
     init_node();
     init_clients();
     init_subscribers();
@@ -360,8 +362,10 @@ xMateRobot::Impl::Impl(const RosClientOptions& options) {
         }
     }
     catalog_policy_ = strictRuntimeCatalogPolicy();
+    allow_experimental_motion_extensions_ = options.allow_experimental_motion_extensions;
     applyCatalogPolicyFromEnvironment();
     applyCatalogPolicyOverride(options.catalog_policy);
+    applyMotionExtensionPolicyFromEnvironment();
     init_node();
     init_clients();
     init_subscribers();
@@ -380,6 +384,23 @@ void xMateRobot::Impl::applyCatalogPolicyFromEnvironment() {
     if (legacy_env != nullptr) {
         const std::string value(legacy_env);
         catalog_policy_.allow_legacy_catalog_fallback = value == "1" || value == "true" || value == "on";
+    }
+}
+
+void xMateRobot::Impl::applyMotionExtensionPolicyFromEnvironment() {
+    const char *extension_env = std::getenv("ROKAE_ENABLE_EXPERIMENTAL_MOTION_EXTENSIONS");
+    if (extension_env != nullptr) {
+        const std::string value(extension_env);
+        allow_experimental_motion_extensions_ =
+            value == "1" || value == "true" || value == "TRUE" || value == "on" || value == "ON" || value == "yes";
+    }
+    const char *profile_env = std::getenv("ROKAE_SERVICE_EXPOSURE_PROFILE");
+    if (profile_env != nullptr) {
+        const std::string profile(profile_env);
+        if (profile == "public_xmate_er3_experimental" || profile == "experimental" ||
+            profile == "internal_full" || profile == "internal") {
+            allow_experimental_motion_extensions_ = true;
+        }
     }
 }
 

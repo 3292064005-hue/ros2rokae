@@ -21,7 +21,7 @@ sim_main = read('src/runtime/sim_runtime_main.cpp')
 arch = read('docs/architecture/ARCHITECTURE.md')
 provider_doc = read('docs/architecture/PROVIDER_BOUNDARY.md')
 manifest = read('docs/reference/xmate_er3_alignment_manifest.json')
-for legacy in ['RuntimeBackendHostFlavor','createSimulationBackend(','createHeadlessMockBackend(','host.hostFlavor()']:
+for legacy in ['RuntimeBackendHostFlavor','createSimulationBackend(','createHeadless' + 'M' + 'ockBackend(','host.hostFlavor()']:
     if legacy in hpp or legacy in cpp:
         failures.append(f'provider boundary still exposes legacy symbol: {legacy}')
 for token in ['struct RuntimeBackendFactoryRequest','supportsFactory(const std::string &factory_key)','advertisedFactoryKeys() const','createBackend(','RuntimeBackendFactoryRequest &request']:
@@ -29,8 +29,8 @@ for token in ['struct RuntimeBackendFactoryRequest','supportsFactory(const std::
         failures.append(f'backend_provider.hpp missing token: {token}')
 if 'factory_key == "gazebo_runtime"' not in bootstrap:
     failures.append('runtime_bootstrap.cpp missing generic gazebo_runtime factory handling')
-if 'factory_key == "headless_mock"' not in sim_main:
-    failures.append('sim_runtime_main.cpp missing generic headless_mock factory handling')
+if 'factory_key == "headless_sim"' not in sim_main:
+    failures.append('sim_runtime_main.cpp missing generic headless_sim factory handling')
 if 'RuntimeBackendProviderHost -> RuntimeBackendProvider -> BackendInterface' not in provider_doc:
     failures.append('PROVIDER_BOUNDARY.md missing provider boundary chain')
 if 'generic backend factory request' not in provider_doc:

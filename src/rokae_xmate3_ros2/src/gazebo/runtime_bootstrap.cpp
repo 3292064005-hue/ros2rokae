@@ -83,7 +83,7 @@ class GazeboRuntimeBackendHost final : public runtime::RuntimeBackendProviderHos
     if (joints_ == nullptr || original_joint_limits_ == nullptr) {
       throw std::runtime_error("simulation backend host requires Gazebo joints and original joint limits");
     }
-    auto backend = std::make_unique<::gazebo::GazeboRuntimeBackend>(joints_, original_joint_limits_);
+    auto backend = std::make_unique<::gazebo::GazeboRuntimeBackend>(joints_, original_joint_limits_, request.enable_effort_execution);
     if (request.attach_trajectory_client && node_ != nullptr && joint_names_ != nullptr) {
       backend->configureTrajectoryClient(node_, *joint_names_);
     }

@@ -50,7 +50,7 @@ TEST(ControllerStateTest, StoresPathsRegistersAndLogsThreadSafelyAtApiBoundary) 
   state.startRecordingPath();
   state.recordPathSample({0.0, 0.1, 0.2, 0.3, 0.4, 0.5});
   state.recordPathSample({1.0, 1.1, 1.2, 1.3, 1.4, 1.5});
-  state.saveRecordedPath("demo");
+  ASSERT_TRUE(state.saveRecordedPath("demo"));
 
   std::vector<std::vector<double>> path;
   ASSERT_TRUE(state.getSavedPath("demo", path));

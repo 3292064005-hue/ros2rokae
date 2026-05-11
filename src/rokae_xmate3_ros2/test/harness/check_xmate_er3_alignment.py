@@ -48,8 +48,8 @@ else:
 
     if profiles.get("nrt") != "nrt_strict_parity":
         failures.append("manifest profiles.nrt must be nrt_strict_parity")
-    if profiles.get("rt") != "rt_hardened":
-        failures.append("manifest profiles.rt must be rt_hardened")
+    if profiles.get("rt") != "rt_experimental_opt_in":
+        failures.append("manifest profiles.rt must be rt_experimental_opt_in")
     if profiles.get("rt_policy") != "best_effort_non_controller_grade":
         failures.append("manifest profiles.rt_policy must be best_effort_non_controller_grade")
 

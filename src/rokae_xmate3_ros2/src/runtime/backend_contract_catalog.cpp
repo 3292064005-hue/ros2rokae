@@ -40,11 +40,11 @@ void appendUnique(std::vector<std::string> &dst, const std::vector<std::string> 
 }  // namespace
 
 std::string normalizeBackendModeKey(const std::string &backend_mode) {
-  if (backend_mode == "daemonized_headless_mock") {
-    return "headless_mock";
+  if (backend_mode == "daemonized_headless_sim") {
+    return "headless_sim";
   }
   if (backend_mode == "sim_runtime_headless" || backend_mode == "headless") {
-    return "headless_mock";
+    return "headless_sim";
   }
   return backend_mode;
 }
@@ -95,16 +95,16 @@ BackendContractDescriptor describeBackendMode(const std::string &backend_mode) {
                            "profile.hard_1khz", "diagnostics.runtime_status",
                            "diagnostics.get_runtime_diagnostics", "planning.validate_motion"});
   }
-  if (normalized_backend_mode == "headless_mock") {
-    return makeDescriptor("headless_mock",
-                          "headless_mock_provider",
+  if (normalized_backend_mode == "headless_sim") {
+    return makeDescriptor("headless_sim",
+                          "headless_sim_provider",
                           "runtime",
-                          "headless_mock_servo",
+                          "headless_sim_servo",
                           "rt_hardened",
                           false,
                           true,
                           true,
-                          {"backend.headless_mock", "runtime.daemonized", "rt.experimental",
+                          {"backend.headless_sim", "runtime.daemonized", "rt.experimental",
                            "rt.best_effort_non_controller_grade", "rt.transport.shm_ring",
                            "rt.transport.ros_topic", "profile.nrt_strict_parity",
                            "profile.rt_sim_experimental_best_effort", "profile.rt_hardened",

@@ -114,6 +114,7 @@ install(PROGRAMS
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/acceptance_cli_common.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_target_environment.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_runtime_diag_gate.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_gazebo_jtc_readiness.py
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/derive_runtime_diag_gate.py
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/publish_description_topic.py
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/render_robot_description.py

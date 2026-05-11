@@ -104,6 +104,9 @@ std::unique_ptr<RosBindings> RuntimeHostBuilder::createRosBindings(
     ServiceExposureProfile service_exposure_profile,
     CompatibilityAliasPolicy compatibility_alias_policy,
     const RuntimeRtProfileConfig &rt_profile) const {
+  runtime_context.motionOptionsState().setExperimentalMotionExtensionsEnabled(
+      includesExperimentalServices(service_exposure_profile),
+      to_string(service_exposure_profile));
   return std::make_unique<RosBindings>(
       node_,
       runtime_context,

@@ -1,9 +1,12 @@
 import os
+import sys
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _launch_profile import default_launch_profile_name
 

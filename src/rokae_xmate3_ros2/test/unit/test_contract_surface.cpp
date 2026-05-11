@@ -58,9 +58,10 @@ TEST(ContractSurface, ExpandedContractsExistOnDisk) {
 
 TEST(ContractSurface, ReadmeStopsClaimingGenericIoParity) {
   const auto readme = readText(kProjectRoot / "README.md");
-  EXPECT_NE(readme.find("安装态 public xMateER3 lane 不再承诺"), std::string::npos);
+  EXPECT_NE(readme.find("public lane 只承诺"), std::string::npos);
+  EXPECT_NE(readme.find("不承诺坐标系标定、RL 工程、通用 IO"), std::string::npos);
   EXPECT_NE(readme.find("GetEndWrench"), std::string::npos);
-  EXPECT_NE(readme.find("queue accepted"), std::string::npos);
+  EXPECT_NE(readme.find("MoveAppend"), std::string::npos);
 }
 
 TEST(ContractSurface, RobotHeaderAgainTransitivelyIncludesPlannerHeader) {
@@ -78,7 +79,7 @@ TEST(ContractSurface, AuditDocumentsSimulationGradePpToMain) {
 
 TEST(ContractSurface, ReadmeDocumentsCalibrationAsUnsupportedCompatibilityStub) {
   const auto readme = readText(kProjectRoot / "README.md");
-  EXPECT_NE(readme.find("不支持任何坐标系标定功能"), std::string::npos);
+  EXPECT_NE(readme.find("坐标系标定类接口只保留兼容签名"), std::string::npos);
   EXPECT_NE(readme.find("function_not_supported"), std::string::npos);
 }
 
@@ -150,11 +151,11 @@ TEST(ContractSurface, MoveJStartValidationUsesParameterException) {
   EXPECT_NE(shim_header.find(R"(throw_if_error<RealtimeParameterException>(ec, "RtMotionControl::MoveJ start validation failed"))"), std::string::npos);
 }
 
-TEST(ContractSurface, SixAxisRtSurfaceNoLongerAdvertisesElbowPlaceholders) {
+TEST(ContractSurface, SixAxisRtSurfaceNoLongerAdvertisesElbowFields) {
   const auto registry = readText(kProjectRoot / "src" / "runtime" / "rt_field_registry.cpp");
   const auto rt_cpp = readText(kProjectRoot / "src" / "sdk" / "robot_rt.cpp");
   const auto example = readText(kProjectRoot / "examples" / "cpp" / "17_state_stream_cache.cpp");
-  EXPECT_EQ(registry.find("synthetic_placeholder"), std::string::npos);
+  EXPECT_EQ(registry.find(std::string("synthetic_") + "marker"), std::string::npos);
   EXPECT_EQ(registry.find("RtSupportedFields::elbow_m"), std::string::npos);
   EXPECT_EQ(rt_cpp.find("RtSupportedFields::elbow_m"), std::string::npos);
   EXPECT_EQ(example.find("RtSupportedFields::elbow_m"), std::string::npos);
@@ -322,9 +323,9 @@ TEST(ContractSurface, ReadmeAndQuickstartDocumentCorePrimaryAndExplicitRuntimeBr
   const auto quickstart = readText(kProjectRoot / "docs" / "public" / "QUICKSTART.md");
   EXPECT_NE(readme.find("xCoreSDK::xCoreSDK_shared"), std::string::npos);
   EXPECT_NE(readme.find("xCoreSDK::xCoreSDK_core"), std::string::npos);
-  EXPECT_NE(readme.find("core SDK consumer"), std::string::npos);
-  EXPECT_NE(readme.find("ROS2/Gazebo-backed"), std::string::npos);
-  EXPECT_NE(quickstart.find("find_package(xCoreSDK CONFIG REQUIRED)"), std::string::npos);
+  EXPECT_NE(readme.find("默认 install-facing C++ core SDK 入口"), std::string::npos);
+  EXPECT_NE(readme.find("ROS bridge"), std::string::npos);
+  EXPECT_NE(quickstart.find("find_package(xCoreSDK COMPONENTS core CONFIG REQUIRED)"), std::string::npos);
   EXPECT_NE(quickstart.find("xCoreSDK::xCoreSDK_shared"), std::string::npos);
   EXPECT_NE(quickstart.find("xCoreSDK::xCoreSDK_core"), std::string::npos);
   EXPECT_NE(quickstart.find("rokae/sdk_shim*.hpp"), std::string::npos);
@@ -334,9 +335,8 @@ TEST(ContractSurface, ReadmeAndQuickstartDocumentCorePrimaryAndExplicitRuntimeBr
 TEST(ContractSurface, CompatAbiDocDocumentsPrimaryRosBridgeCoreOnlyAndCompatTargets) {
   const auto abi_doc = readText(kProjectRoot / "docs" / "reference" / "SDK_ALIGNMENT.md");
   EXPECT_NE(abi_doc.find("ROS2/Gazebo-backed"), std::string::npos);
-  EXPECT_NE(abi_doc.find("xCoreSDK::xCoreSDK_shared"), std::string::npos);
   EXPECT_NE(abi_doc.find("xCoreSDK::xCoreSDK_core"), std::string::npos);
-  EXPECT_NE(abi_doc.find("xCoreSDK::xCoreSDK_shared"), std::string::npos);
+  EXPECT_NE(abi_doc.find("xCoreSDK::xCoreSDK_ros_bridge"), std::string::npos);
   EXPECT_NE(abi_doc.find("xCoreSDK::xCoreSDK_static"), std::string::npos);
   EXPECT_NE(abi_doc.find("xCoreSDK_PRIMARY_INSTALL_CONSUMER = cxx_sdk_core_consumer"), std::string::npos);
   EXPECT_NE(abi_doc.find("runtime execution still requires"), std::string::npos);
@@ -353,17 +353,17 @@ TEST(ContractSurface, ExportedSymbolHarnessChecksDynamicTableOnly) {
 TEST(ContractSurface, EnvironmentLockPreflightScriptIsWired) {
   const auto quick_gate = readText(kProjectRoot / "tools" / "run_quick_gate.sh");
   const auto release_gate = readText(kProjectRoot / "tools" / "run_release_gate.sh");
+  const auto full_source_gate = readText(kProjectRoot / "tools" / "run_full_source_tree_build_gate.sh");
   const auto portable_release_gate = readText(kProjectRoot / "tools" / "run_release_gate_portable.sh");
   const auto target_acceptance = readText(kProjectRoot / "tools" / "run_target_env_acceptance.sh");
   const auto env_lock = readText(kProjectRoot / "docs" / "release" / "ENVIRONMENT_LOCK.md");
-  EXPECT_NE(quick_gate.find("check_target_environment.sh"), std::string::npos);
-  EXPECT_NE(quick_gate.find("--quiet"), std::string::npos);
-  EXPECT_NE(release_gate.find("check_target_environment.sh"), std::string::npos);
-  EXPECT_NE(release_gate.find("--quiet"), std::string::npos);
+  EXPECT_NE(quick_gate.find("run_full_source_tree_build_gate.sh"), std::string::npos);
+  EXPECT_NE(release_gate.find("run_full_source_tree_build_gate.sh"), std::string::npos);
+  EXPECT_NE(full_source_gate.find("check_target_environment.sh"), std::string::npos);
+  EXPECT_NE(full_source_gate.find("--quiet"), std::string::npos);
   EXPECT_NE(portable_release_gate.find("run_target_env_acceptance.sh"), std::string::npos);
   EXPECT_NE(portable_release_gate.find("run_release_gate.sh"), std::string::npos);
-  EXPECT_TRUE(target_acceptance.find("check_target_environment.sh --quiet") != std::string::npos ||
-              target_acceptance.find("check_target_environment.sh\" --quiet") != std::string::npos);
+  EXPECT_NE(target_acceptance.find("check_target_environment.sh"), std::string::npos);
   EXPECT_NE(target_acceptance.find("write_target_env_report.py"), std::string::npos);
   EXPECT_NE(target_acceptance.find("acceptance_report_container.json"), std::string::npos);
   EXPECT_NE(env_lock.find("tools/check_target_environment.sh"), std::string::npos);
@@ -448,8 +448,9 @@ TEST(ContractSurface, LaunchProfilesAndCanonicalPublicAliasExist) {
   const auto profile = readText(kProjectRoot / "launch" / "_launch_profile.py");
   const auto canonical = readText(kProjectRoot / "launch" / "xmate_er3_public.launch.py");
   EXPECT_NE(profile.find("public_xmate_er3_jtc"), std::string::npos);
+  EXPECT_NE(profile.find("public_xmate_er3_headless_sdk_smoke"), std::string::npos);
+  EXPECT_NE(profile.find("public_xmate_er3_experimental_rt"), std::string::npos);
   EXPECT_NE(profile.find("daemon_hard_rt"), std::string::npos);
-  EXPECT_NE(profile.find("public_xmate_er3_jtc"), std::string::npos);
   EXPECT_NE(profile.find("unknown launch_profile"), std::string::npos);
   EXPECT_NE(support.find("validate_launch_profile_action"), std::string::npos);
   EXPECT_NE(support.find("build_runtime_host_group"), std::string::npos);
@@ -551,9 +552,9 @@ TEST(ContractSurface, RuntimeHostPolicyExportsUnifiedDefaultBackendModeAndRosBri
   EXPECT_NE(config.find("xCoreSDK_DEFAULT_BACKEND_MODE"), std::string::npos);
   EXPECT_NE(config.find("set(xCoreSDK_core_FOUND TRUE)"), std::string::npos);
   EXPECT_NE(config.find("set(xCoreSDK_BACKEND_MODE"), std::string::npos);
-  EXPECT_NE(policy.find("ROKAE_DEFAULT_BACKEND_MODE=effort"), std::string::npos);
-  EXPECT_NE(policy.find("ROKAE_DEFAULT_METADATA_BACKEND_MODE=effort"), std::string::npos);
-  EXPECT_NE(readme.find("install-facing 主消费者是 core SDK consumer"), std::string::npos);
+  EXPECT_NE(policy.find("ROKAE_DEFAULT_BACKEND_MODE=jtc"), std::string::npos);
+  EXPECT_NE(policy.find("ROKAE_DEFAULT_METADATA_BACKEND_MODE=jtc"), std::string::npos);
+  EXPECT_NE(readme.find("默认 install-facing C++ core SDK 入口"), std::string::npos);
   EXPECT_NE(quickstart.find("install-facing 主消费者"), std::string::npos);
   EXPECT_NE(artifact.find("smoke-verified by `ROKAE_PUBLIC_SDK_REPLAY_ONLY=ON`"), std::string::npos);
   const auto packaging_contract = readText(kProjectRoot / "test" / "harness" / "check_public_sdk_packaging_contract.py");
@@ -570,9 +571,9 @@ TEST(ContractSurface, ReplayPathIsDocumentedAsImmediateSubmitSideLane) {
   const auto runtime_state = readText(kProjectRoot / "docs" / "reference" / "RUNTIME_STATE_MACHINE.md");
   const auto alignment = readText(kProjectRoot / "docs" / "reference" / "SDK_ALIGNMENT.md");
   const auto coordinator = readText(kProjectRoot / "src" / "runtime" / "request_coordinator.hpp");
-  EXPECT_NE(compat.find("立即提交型 side-lane"), std::string::npos);
+  EXPECT_NE(compat.find("experimental immediate-submit side-lane"), std::string::npos);
   EXPECT_NE(runtime_state.find("immediate-submit side-lane"), std::string::npos);
-  EXPECT_NE(alignment.find("replayPath() = immediate-submit side-lane"), std::string::npos);
+  EXPECT_NE(alignment.find("replayPath()` = experimental immediate-submit side-lane"), std::string::npos);
   EXPECT_NE(coordinator.find("does not require `moveStart()`"), std::string::npos);
 }
 

@@ -8,7 +8,7 @@ namespace rokae_xmate3_ros2::runtime {
 namespace {
 
 constexpr const char *kGazeboRuntimeFactoryKey = "gazebo_runtime";
-constexpr const char *kHeadlessMockFactoryKey = "headless_mock";
+constexpr const char *kHeadlessSimFactoryKey = "headless_sim";
 
 class RequestedFactoryRuntimeBackendProvider final : public RuntimeBackendProvider {
  public:
@@ -56,22 +56,22 @@ std::vector<std::shared_ptr<const RuntimeBackendProvider>> builtinProviders() {
       std::make_shared<RequestedFactoryRuntimeBackendProvider>(
           describeBackendMode("jtc"),
           std::vector<std::string>{"compat.alias.get_joint_torque", "compat.alias.get_end_torque"},
-          RuntimeBackendFactoryRequest{kGazeboRuntimeFactoryKey, true},
+          RuntimeBackendFactoryRequest{kGazeboRuntimeFactoryKey, true, false},
           true),
       std::make_shared<RequestedFactoryRuntimeBackendProvider>(
           describeBackendMode("hybrid"),
           std::vector<std::string>{"compat.alias.get_joint_torque", "compat.alias.get_end_torque"},
-          RuntimeBackendFactoryRequest{kGazeboRuntimeFactoryKey, true},
+          RuntimeBackendFactoryRequest{kGazeboRuntimeFactoryKey, true, true},
           false),
       std::make_shared<RequestedFactoryRuntimeBackendProvider>(
           describeBackendMode("effort"),
           std::vector<std::string>{"compat.alias.get_joint_torque", "compat.alias.get_end_torque"},
-          RuntimeBackendFactoryRequest{kGazeboRuntimeFactoryKey, false},
+          RuntimeBackendFactoryRequest{kGazeboRuntimeFactoryKey, false, true},
           false),
       std::make_shared<RequestedFactoryRuntimeBackendProvider>(
-          describeBackendMode("headless_mock"),
+          describeBackendMode("headless_sim"),
           std::vector<std::string>{},
-          RuntimeBackendFactoryRequest{kHeadlessMockFactoryKey, false},
+          RuntimeBackendFactoryRequest{kHeadlessSimFactoryKey, false, true},
           false),
   };
 }

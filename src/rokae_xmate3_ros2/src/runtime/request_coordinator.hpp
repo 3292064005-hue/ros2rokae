@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "runtime/runtime_state.hpp"
+#include "runtime/service_exposure_profile.hpp"
 #include "runtime/motion_runtime.hpp"
 #include "runtime/session_state.hpp"
 #include "rokae_xmate3_ros2/action/move_append.hpp"
@@ -41,6 +42,16 @@ class MotionRequestCoordinator {
                                              std::array<double, 6> &vel,
                                              std::array<double, 6> &tau) const;
   [[nodiscard]] bool canAcceptRequest() const;
+
+  /**
+   * @brief Set the service exposure profile used to gate experimental motion payloads.
+   * @param profile Effective runtime service exposure profile selected by launch/configuration.
+   * @throws None.
+   * @note Boundary behavior: public_xmate_er3_only rejects experimental action payload fields
+   *       such as MoveSP even though their ROSIDL types are installed for source compatibility.
+   */
+  void setServiceExposureProfile(ServiceExposureProfile profile) noexcept;
+  [[nodiscard]] ServiceExposureProfile serviceExposureProfile() const noexcept;
 
   /**
    * @brief Convert a public MoveAppend goal into a staged runtime request without starting execution.
@@ -113,6 +124,7 @@ class MotionRequestCoordinator {
   ToolingState &tooling_state_;
   SessionState &session_state_;
   MotionRuntime &motion_runtime_;
+  ServiceExposureProfile service_exposure_profile_ = defaultServiceExposureProfile();
 };
 
 }  // namespace rokae_xmate3_ros2::runtime

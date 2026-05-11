@@ -8,7 +8,6 @@ set(ROKAE_PUBLIC_COMPAT_EXAMPLES
   03_kinematics
   04_motion_basic
   07_safety_collision
-  08_path_record_replay
   09_advanced_sdk_compat
   10_sdk_workflow_xmate3
   11_move_advanced_xmate3
@@ -23,6 +22,7 @@ set(ROKAE_PUBLIC_COMPAT_EXAMPLES
 
 set(ROKAE_INTERNAL_BACKEND_EXAMPLES
   05_motion_cartesian
+  08_path_record_replay
   06_io_control
   13_rl_project_workflow
   16_registers_and_runtime_options

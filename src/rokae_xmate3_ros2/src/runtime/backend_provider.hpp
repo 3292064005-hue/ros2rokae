@@ -25,6 +25,7 @@ namespace rokae_xmate3_ros2::runtime {
 struct RuntimeBackendFactoryRequest {
   std::string factory_key;
   bool attach_trajectory_client = false;
+  bool enable_effort_execution = false;
 };
 
 /**

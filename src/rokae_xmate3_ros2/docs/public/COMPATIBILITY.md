@@ -24,6 +24,7 @@
 - IO / 寄存器 / xPanel 的 public 承诺
 - internal/full service exposure
 - experimental RT loop examples
+- path record/replay as default public behavior
 
 ## 2. Consumer contract
 
@@ -60,9 +61,9 @@ target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_core)
 - `moveReset()`：清队列与执行缓存。
 - `calibrateFrame()`：仅保留签名，返回 `function_not_supported`。
 - `GetEndWrench`：public lane 的首选扩展查询面。
-- `MoveSP`：已收敛为 public xMateER3 lane 的 NRT 扩展能力，遵循 queue/start/pause 主链。
-- 路径录制：属于 public xMateER3 lane 的 NRT 扩展能力。
-- `replayPath()`：立即提交型 side-lane；不进入 `MoveAppend -> moveStart()` staged queue，但仍受 NRT 连接/上电/runtime gate 约束。
+- `MoveSP`：experimental NRT extension；启用 profile 为 `public_xmate_er3_experimental` 或 `internal_full`；类型和 SDK overload 为 source compatibility 保留，但默认 public profile 会在 `MoveAppend` payload 进入队列前拒绝 `sp_cmds`。
+- 路径录制/回放：默认 public profile 不注册；即使内部调用到 replay 构建路径，也会按 service exposure 拒绝。
+- `replayPath()`：experimental immediate-submit side-lane，不进入默认 staged NRT 主链。
 - profile capability 查询返回 machine-readable `authority_scope / fidelity_class / model_revision`。
 
 ## 4. Alignment summary
@@ -71,11 +72,11 @@ target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_core)
 |---|---|---|
 | 机器人基本操作及信息查询 | 对齐 | xMateER3 public lane 主路径 |
 | 非实时运动控制 | 对齐 | NRT queue/start/pause 语义已收口 |
-| 实时控制 | 部分对齐 | install-facing 保留接口；Gazebo 语义仍是 simulation-grade |
+| 实时控制 | experimental opt-in | install-facing 和 ROSIDL 类型保留接口；默认 public profile 不注册 RT ROS 服务；Gazebo 语义仍是 simulation-grade |
 | IO / communication | 不纳入 public | 仅保留 legacy/internal 语义 |
 | RL project | 不纳入 public | 仅保留 internal/backend 语义 |
-| cobot specific | 部分对齐 | 拖动、路径录制/回放保留在 xMateER3 六轴 public lane；奇异规避不纳入 public |
-| planner | 对齐 | `MoveSP` 已并入 public xMateER3 lane 的 NRT 扩展面 |
+| cobot specific | experimental opt-in | 拖动、路径录制/回放不属于默认 public profile；奇异规避不纳入 public |
+| planner | 默认主链对齐 | `MoveSP` 和路径回放属于 experimental extension，不属于默认主链 |
 | model | 仿真近似 | 见 `KINEMATICS_AND_MODEL.md` |
 
 ## 5. Source-tree boundary
@@ -98,7 +99,7 @@ target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_core)
 - [`../release/ACCEPTANCE_LAYERS.md`](../release/ACCEPTANCE_LAYERS.md)
 
 
-- `compatibility_alias_policy`：`canonical_plus_compat` / `canonical_only` / `legacy_only`，默认导出为 `canonical_plus_compat`。
+- `compatibility_alias_policy`：`canonical_plus_compat` / `canonical_only` / `legacy_only`，默认导出为 `canonical_only`。
 
 ## 7. Consumer matrix
 

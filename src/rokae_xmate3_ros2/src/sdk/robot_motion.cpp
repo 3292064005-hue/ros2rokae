@@ -9,7 +9,6 @@ constexpr size_t kExecuteCommandMaxCount = 1000;
 template <typename ImplLike>
 bool try_snapshot_motion_mode(ImplLike &impl, std::error_code &ec, rokae::MotionControlMode &mode);
 
-
 /**
  * @brief Validate install-facing NRT queue preconditions before accepting queued commands.
  * @param impl Backend implementation.
@@ -28,6 +27,7 @@ bool validate_nrt_queue_preconditions(ImplLike &impl,
                                       std::size_t max_count,
                                       const char *command_family,
                                       std::error_code &ec) {
+    (void)command_family;
     if (!impl.connected_) {
         ec = std::make_error_code(std::errc::not_connected);
         return false;
@@ -629,6 +629,15 @@ void xMateRobot::moveAppend(const std::vector<rokae::MoveCFCommand>& cmds, std::
 
 void xMateRobot::moveAppend(const std::vector<rokae::MoveSPCommand>& cmds, std::string& cmdID, std::error_code& ec) {
     auto _last_error_scope = track_last_error(impl_, ec);
+    if (!impl_->allowExperimentalMotionExtensions()) {
+        cmdID.clear();
+        ec = std::make_error_code(std::errc::function_not_supported);
+        RCLCPP_WARN(impl_->node_->get_logger(),
+                    "MoveSP is experimental and disabled for the default public xMateER3 SDK client; "
+                    "set RosClientOptions::allow_experimental_motion_extensions=true or "
+                    "ROKAE_ENABLE_EXPERIMENTAL_MOTION_EXTENSIONS=1 when the runtime exposure profile is experimental");
+        return;
+    }
     if (!validate_nrt_queue_preconditions(*impl_, cmds.size(), kMoveAppendMaxCount, "move_sp", ec)) {
         return;
     }

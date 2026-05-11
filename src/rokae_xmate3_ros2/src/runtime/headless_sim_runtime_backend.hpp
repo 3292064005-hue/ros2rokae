@@ -1,5 +1,5 @@
-#ifndef ROKAE_XMATE3_ROS2_RUNTIME_MOCK_RUNTIME_BACKEND_HPP
-#define ROKAE_XMATE3_ROS2_RUNTIME_MOCK_RUNTIME_BACKEND_HPP
+#ifndef ROKAE_XMATE3_ROS2_RUNTIME_HEADLESS_SIM_RUNTIME_BACKEND_HPP
+#define ROKAE_XMATE3_ROS2_RUNTIME_HEADLESS_SIM_RUNTIME_BACKEND_HPP
 
 #include <algorithm>
 #include <atomic>
@@ -11,9 +11,19 @@
 
 namespace rokae_xmate3_ros2::runtime {
 
-class HeadlessMockRuntimeBackend final : public BackendInterface {
+class HeadlessSimRuntimeBackend final : public BackendInterface {
+  /**
+   * @brief Headless deterministic six-axis simulation backend.
+   *
+   * Function: executes SDK NRT/RT effort commands without Gazebo.
+   * Inputs: effort commands from MotionExecutor, power/brake state from runtime session.
+   * Outputs: RobotSnapshot with joint position, velocity, torque, and power state.
+   * Exceptions: does not throw during the control tick; invalid commands are clamped.
+   * Boundary behavior: no trajectory controller and no contact physics; motion is integration-based
+   * and must be surfaced as simulation_grade through diagnostics.
+   */
  public:
-  HeadlessMockRuntimeBackend() = default;
+  HeadlessSimRuntimeBackend() = default;
 
   [[nodiscard]] RobotSnapshot readSnapshot() const override {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -54,6 +64,8 @@ class HeadlessMockRuntimeBackend final : public BackendInterface {
   }
 
   [[nodiscard]] bool brakesLocked() const override { return brakes_locked_.load(); }
+
+  [[nodiscard]] bool supportsEffortExecution() const override { return true; }
 
   void stepSimulation(double dt, bool power_on) override {
     if (shutting_down_.load()) {

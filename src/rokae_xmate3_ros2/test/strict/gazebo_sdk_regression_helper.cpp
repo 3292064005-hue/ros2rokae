@@ -130,25 +130,25 @@ class JointStateRecorder {
  public:
   JointStateRecorder() {
     node_ = std::make_shared<rclcpp::Node>("rokae_gazebo_sdk_regression_probe");
-    connect_client_ = node_->create_client<rokae_xmate3_ros2::srv::Connect>("/xmate3/cobot/connect");
+    connect_client_ = node_->create_client<rokae_xmate3_ros2::srv::Connect>("/xmate_er3/cobot/connect");
     get_joint_pos_client_ =
-        node_->create_client<rokae_xmate3_ros2::srv::GetJointPos>("/xmate3/cobot/get_joint_pos");
+        node_->create_client<rokae_xmate3_ros2::srv::GetJointPos>("/xmate_er3/cobot/get_joint_pos");
     get_posture_client_ =
-        node_->create_client<rokae_xmate3_ros2::srv::GetPosture>("/xmate3/cobot/get_posture");
+        node_->create_client<rokae_xmate3_ros2::srv::GetPosture>("/xmate_er3/cobot/get_posture");
     move_reset_client_ =
-        node_->create_client<rokae_xmate3_ros2::srv::MoveReset>("/xmate3/cobot/move_reset");
+        node_->create_client<rokae_xmate3_ros2::srv::MoveReset>("/xmate_er3/cobot/move_reset");
     move_start_client_ =
-        node_->create_client<rokae_xmate3_ros2::srv::MoveStart>("/xmate3/cobot/move_start");
+        node_->create_client<rokae_xmate3_ros2::srv::MoveStart>("/xmate_er3/cobot/move_start");
     set_default_speed_client_ =
-        node_->create_client<rokae_xmate3_ros2::srv::SetDefaultSpeed>("/xmate3/cobot/set_default_speed");
+        node_->create_client<rokae_xmate3_ros2::srv::SetDefaultSpeed>("/xmate_er3/cobot/set_default_speed");
     adjust_speed_online_client_ = node_->create_client<rokae_xmate3_ros2::srv::AdjustSpeedOnline>(
-        "/xmate3/cobot/adjust_speed_online");
+        "/xmate_er3/cobot/adjust_speed_online");
     move_append_action_client_ =
-        rclcpp_action::create_client<MoveAppend>(node_, "/xmate3/cobot/move_append");
+        rclcpp_action::create_client<MoveAppend>(node_, "/xmate_er3/cobot/move_append");
     trajectory_action_client_ = rclcpp_action::create_client<FollowJointTrajectory>(
         node_, "/joint_trajectory_controller/follow_joint_trajectory");
     joint_state_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
-        "/xmate3/joint_states",
+        "/xmate_er3/joint_states",
         50,
         [this](const sensor_msgs::msg::JointState::SharedPtr msg) { handleJointState(*msg); });
     ros2_control_joint_state_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
@@ -156,7 +156,7 @@ class JointStateRecorder {
         20,
         [this](const sensor_msgs::msg::JointState::SharedPtr msg) { handleRos2ControlJointState(*msg); });
     operation_state_sub_ = node_->create_subscription<rokae_xmate3_ros2::msg::OperationState>(
-        "/xmate3/cobot/operation_state",
+        "/xmate_er3/cobot/operation_state",
         50,
         [this](const rokae_xmate3_ros2::msg::OperationState::SharedPtr msg) {
           handleOperationState(*msg);
@@ -197,13 +197,13 @@ class JointStateRecorder {
 
   bool waitForInterfaces(std::chrono::steady_clock::duration timeout) {
     const std::vector<ServiceProbe> service_probes{
-        {"/xmate3/cobot/connect", connect_client_},
-        {"/xmate3/cobot/get_joint_pos", get_joint_pos_client_},
-        {"/xmate3/cobot/get_posture", get_posture_client_},
-        {"/xmate3/cobot/move_reset", move_reset_client_},
-        {"/xmate3/cobot/move_start", move_start_client_},
-        {"/xmate3/cobot/set_default_speed", set_default_speed_client_},
-        {"/xmate3/cobot/adjust_speed_online", adjust_speed_online_client_},
+        {"/xmate_er3/cobot/connect", connect_client_},
+        {"/xmate_er3/cobot/get_joint_pos", get_joint_pos_client_},
+        {"/xmate_er3/cobot/get_posture", get_posture_client_},
+        {"/xmate_er3/cobot/move_reset", move_reset_client_},
+        {"/xmate_er3/cobot/move_start", move_start_client_},
+        {"/xmate_er3/cobot/set_default_speed", set_default_speed_client_},
+        {"/xmate_er3/cobot/adjust_speed_online", adjust_speed_online_client_},
     };
 
     const auto deadline = Clock::now() + timeout;
@@ -229,7 +229,7 @@ class JointStateRecorder {
       }
     }
     if (!action_ready) {
-      std::cerr << "Timed out waiting for action /xmate3/cobot/move_append" << std::endl;
+      std::cerr << "Timed out waiting for action /xmate_er3/cobot/move_append" << std::endl;
       return false;
     }
 
@@ -262,7 +262,7 @@ class JointStateRecorder {
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    std::cerr << "Timed out waiting for /xmate3/joint_states heartbeat" << std::endl;
+    std::cerr << "Timed out waiting for /xmate_er3/joint_states heartbeat" << std::endl;
     return false;
   }
 
@@ -277,7 +277,7 @@ class JointStateRecorder {
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    std::cerr << "Timed out waiting for /xmate3/cobot/operation_state heartbeat" << std::endl;
+    std::cerr << "Timed out waiting for /xmate_er3/cobot/operation_state heartbeat" << std::endl;
     return false;
   }
 

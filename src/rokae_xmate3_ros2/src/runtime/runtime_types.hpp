@@ -255,6 +255,17 @@ class BackendInterface {
     (void)locked;
   }
   [[nodiscard]] virtual bool brakesLocked() const { return false; }
+
+  /**
+   * @brief Reports whether the backend can consume MotionExecutor effort commands directly.
+   * @return true when applyControl() is an authoritative NRT execution path for this backend.
+   * @throws Never throws.
+   * @details The runtime uses this capability only after planning succeeds and no trajectory
+   * controller path is available. Backends that expose ros2_control/JTC as their public contract
+   * should keep this false to avoid silently masking controller startup failures.
+   */
+  [[nodiscard]] virtual bool supportsEffortExecution() const { return false; }
+
   [[nodiscard]] virtual bool supportsTrajectoryExecution() const { return false; }
   virtual bool startTrajectoryExecution(const TrajectoryExecutionGoal &goal, std::string &message) {
     (void)goal;

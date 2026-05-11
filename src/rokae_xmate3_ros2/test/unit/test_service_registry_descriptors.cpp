@@ -77,11 +77,10 @@ TEST(ServiceRegistrationDescriptorTest, PublishesControlQueryManifestForPrimaryA
   EXPECT_STREQ(runtime_snapshot->domain, "query");
 
   EXPECT_FALSE(aliases.empty());
-
-#if ROKAE_ENABLE_INTERNAL_SURFACE
   EXPECT_GT(internal_primary.size(), primary.size());
   ASSERT_FALSE(internal_aliases.empty());
 
+#if ROKAE_ENABLE_INTERNAL_SURFACE
   const auto internal_register = std::find_if(internal_primary.begin(), internal_primary.end(), [](const auto &descriptor) {
     return std::string(descriptor.name) == "/xmate3/cobot/read_register_ex";
   });
@@ -96,8 +95,10 @@ TEST(ServiceRegistrationDescriptorTest, PublishesControlQueryManifestForPrimaryA
   EXPECT_TRUE(sim_alias->compatibility_alias);
   EXPECT_STREQ(sim_alias->domain, "compatibility");
 #else
-  EXPECT_EQ(internal_primary.size(), primary.size());
-  EXPECT_TRUE(internal_aliases.empty());
+  const auto internal_register = std::find_if(internal_primary.begin(), internal_primary.end(), [](const auto &descriptor) {
+    return std::string(descriptor.name) == "/xmate3/cobot/read_register_ex";
+  });
+  EXPECT_EQ(internal_register, internal_primary.end());
 #endif
 }
 

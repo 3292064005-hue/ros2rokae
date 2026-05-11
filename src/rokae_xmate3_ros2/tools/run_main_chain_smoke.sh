@@ -64,11 +64,16 @@ fi
 
 echo "[main_chain_smoke] launching simulation..."
 ros2 launch rokae_xmate3_ros2 simulation.launch.py \
+  launch_profile:=public_xmate_er3_jtc \
   gui:=false \
   rviz:=false \
   allow_noncanonical_model:=true \
   model:="${MODEL_PATH}" \
-  enable_ros2_control:=false >"${LOG_FILE}" 2>&1 &
+  enable_ros2_control:=true \
+  enable_xcore_plugin:=true \
+  backend_mode:=jtc \
+  service_exposure_profile:=public_xmate_er3_only \
+  compatibility_alias_policy:=canonical_only >"${LOG_FILE}" 2>&1 &
 LAUNCH_PID=$!
 
 cleanup() {

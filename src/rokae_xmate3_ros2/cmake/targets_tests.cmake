@@ -307,6 +307,13 @@ set_tests_properties(target_env_acceptance_report_contract PROPERTIES LABELS "qu
 rokae_disable_test_python_bytecode(target_env_acceptance_report_contract)
 
 add_test(
+  NAME capability_matrix_contract
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_capability_matrix_contract.py"
+)
+set_tests_properties(capability_matrix_contract PROPERTIES LABELS "quick_gate;contract_gate")
+rokae_disable_test_python_bytecode(capability_matrix_contract)
+
+add_test(
   NAME public_contract_manifest
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_public_contract_manifest.py"
 )

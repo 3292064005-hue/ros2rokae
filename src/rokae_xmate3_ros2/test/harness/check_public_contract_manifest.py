@@ -43,9 +43,11 @@ if example_bullets('public') != public_examples:
 if example_bullets('internal') != internal_examples:
     FAILURES.append('internal examples drift between docs and manifest')
 
-for token in ['MoveSP', '路径录制/回放', 'public xMateER3 lane']:
+for token in ['MoveSP', '路径录制/回放', 'public_xmate_er3_experimental']:
     if token not in compat_text:
         FAILURES.append(f'COMPATIBILITY.md missing token: {token}')
+if '默认 public profile 不注册' not in compat_text:
+    FAILURES.append('COMPATIBILITY.md must state that path record/replay is not registered by the default public profile')
 for required in ['xCoreSDK_CANONICAL_PACKAGE', 'xCoreSDK_LEGACY_SOURCE_PACKAGE', 'xCoreSDK_CANONICAL_IDENTITY']:
     if required not in config_text:
         FAILURES.append(f'xCoreSDKConfig.cmake.in missing {required}')

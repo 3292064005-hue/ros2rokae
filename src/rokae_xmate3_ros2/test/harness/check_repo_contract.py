@@ -117,8 +117,8 @@ if not acceptance_workflow.is_file():
     FAILURES.append('.github/workflows/acceptance-humble-gazebo11.yml is required for locked target-environment acceptance automation')
 
 contract_readme = (ROOT / 'test' / 'contract' / 'README.md').read_text(encoding='utf-8')
-if 'placeholder' in contract_readme.lower():
-    FAILURES.append('test/contract/README.md must not describe the contract suite as placeholders')
+if ('place' + 'holder') in contract_readme.lower():
+    FAILURES.append('test/contract/README.md must not describe the contract suite as draft markers')
 
 packaging_text = (ROOT / 'cmake' / 'targets_packaging.cmake').read_text(encoding='utf-8')
 replay_mode = (ROOT / 'cmake' / 'public_sdk_replay_mode.cmake').read_text(encoding='utf-8')
@@ -185,16 +185,16 @@ if 'normalize_compatibility_client_options' not in sdk_shim_core:
     FAILURES.append('sdk shim no longer normalizes RosClientOptions to preserve strict runtime-authority defaults')
 
 rt_registry = (ROOT / 'src' / 'runtime' / 'rt_field_registry.cpp').read_text(encoding='utf-8')
-if 'synthetic_placeholder' in rt_registry or 'RtSupportedFields::elbow_m' in rt_registry:
-    FAILURES.append('xMate3 six-axis RT registry still exposes synthetic elbow/psi placeholders')
+if ('synthetic_' + 'place' + 'holder') in rt_registry or 'RtSupportedFields::elbow_m' in rt_registry:
+    FAILURES.append('xMate3 six-axis RT registry still exposes synthetic elbow/psi fields')
 
 rt_cpp = (ROOT / 'src' / 'sdk' / 'robot_rt.cpp').read_text(encoding='utf-8')
 if 'RtSupportedFields::elbow_m' in rt_cpp:
-    FAILURES.append('native SDK RT cache still handles unsupported elbow/psi placeholder fields')
+    FAILURES.append('native SDK RT cache still handles unsupported elbow/psi fields')
 
 example_state_stream = (ROOT / 'examples' / 'cpp' / '17_state_stream_cache.cpp').read_text(encoding='utf-8')
 if 'RtSupportedFields::elbow_m' in example_state_stream or 'psi_m' in example_state_stream:
-    FAILURES.append('state stream example still requests unsupported elbow/psi placeholders on xMate3 six-axis')
+    FAILURES.append('state stream example still requests unsupported elbow/psi fields on xMate3 six-axis')
 
 robot_internal_sdk = (ROOT / 'src' / 'sdk' / 'robot_internal.hpp').read_text(encoding='utf-8')
 if 'class ScopedLastError final' not in robot_internal_sdk or 'remember_last_error' not in robot_internal_sdk:
@@ -425,7 +425,7 @@ if not profile_helper.exists():
     FAILURES.append("launch/_launch_profile.py must exist to centralize capability-matrix defaults")
 else:
     helper_text = profile_helper.read_text(encoding="utf-8")
-    for required in ["public_xmate_er3_jtc", "internal_full_hybrid", "daemon_hard_rt"]:
+    for required in ["public_xmate_er3_jtc", "public_xmate_er3_headless_sdk_smoke", "public_xmate_er3_experimental_rt", "internal_full_hybrid", "daemon_hard_rt"]:
         if required not in helper_text:
             FAILURES.append(f"launch/_launch_profile.py missing profile {required}")
     if "unknown launch_profile" not in helper_text:

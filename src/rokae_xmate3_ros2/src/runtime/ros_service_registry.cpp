@@ -11,13 +11,15 @@ namespace rokae_xmate3_ros2::runtime {
 
 std::vector<ServiceRegistrationDescriptor> buildPrimaryServiceDescriptors(ServiceExposureProfile profile) {
   auto descriptors = buildPublicPrimaryServiceContractManifest();
+  if (includesExperimentalServices(profile)) {
+    auto experimental = buildPublicExperimentalPrimaryServiceContractManifest();
+    descriptors.insert(descriptors.end(), experimental.begin(), experimental.end());
+  }
 #if ROKAE_ENABLE_INTERNAL_SURFACE
   if (profile == ServiceExposureProfile::internal_full) {
     auto internal = buildInternalPrimaryServiceContractManifest();
     descriptors.insert(descriptors.end(), internal.begin(), internal.end());
   }
-#else
-  (void)profile;
 #endif
   return descriptors;
 }

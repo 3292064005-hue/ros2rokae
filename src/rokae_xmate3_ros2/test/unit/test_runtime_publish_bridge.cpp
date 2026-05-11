@@ -67,7 +67,7 @@ TEST(RuntimePublishBridgeTest, PublisherTickBuildsMessagesLogsAndPathSamplesFrom
   EXPECT_TRUE(recording_tick.publish_runtime_diagnostics);
   EXPECT_TRUE(recording_tick.recorded_path_sample);
   context.programState().stopRecordingPath();
-  context.programState().saveRecordedPath("capture");
+  ASSERT_TRUE(context.programState().saveRecordedPath("capture"));
 
   std::vector<std::vector<double>> saved_path;
   ASSERT_TRUE(context.programState().getSavedPath("capture", saved_path));

@@ -23,7 +23,7 @@
 #include "rokae_xmate3_ros2/spec/xmate_er3_truth.hpp"
 #include "runtime/backend_provider.hpp"
 #include "runtime/compatibility_alias_policy.hpp"
-#include "runtime/mock_runtime_backend.hpp"
+#include "runtime/headless_sim_runtime_backend.hpp"
 #include "runtime/ros_bindings.hpp"
 #include "runtime/runtime_context.hpp"
 #include "runtime/runtime_control_bridge.hpp"
@@ -60,23 +60,23 @@ class HeadlessRuntimeBackendHost final : public RuntimeBackendProviderHost {
   [[nodiscard]] const std::vector<std::string> *jointNames() const override { return nullptr; }
 
   [[nodiscard]] bool supportsFactory(const std::string &factory_key) const noexcept override {
-    return factory_key == "headless_mock";
+    return factory_key == "headless_sim";
   }
 
   [[nodiscard]] std::vector<std::string> advertisedFactoryKeys() const override {
-    return {"headless_mock"};
+    return {"headless_sim"};
   }
 
   [[nodiscard]] std::unique_ptr<BackendInterface> createBackend(
       const RuntimeBackendFactoryRequest &request) const override {
-    if (request.factory_key != "headless_mock") {
+    if (request.factory_key != "headless_sim") {
       throw std::runtime_error("backend factory '" + request.factory_key +
                                "' is unavailable from headless runtime host");
     }
     if (request.attach_trajectory_client) {
       throw std::runtime_error("headless runtime backend host does not support trajectory-client attachment");
     }
-    return std::make_unique<HeadlessMockRuntimeBackend>();
+    return std::make_unique<HeadlessSimRuntimeBackend>();
   }
 
  private:
@@ -92,7 +92,7 @@ int run_sim_runtime_main() {
   auto node = std::make_shared<rclcpp::Node>("rokae_sim_runtime");
 
   RuntimeContext runtime_context;
-  const auto backend_provider = resolveRuntimeBackendProvider("headless_mock");
+  const auto backend_provider = resolveRuntimeBackendProvider("headless_sim");
   HeadlessRuntimeBackendHost backend_host(node);
   auto backend = backend_provider->createBackend(backend_host);
   runtime_context.attachBackend(backend.get());

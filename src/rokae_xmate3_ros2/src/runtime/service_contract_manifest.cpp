@@ -20,7 +20,7 @@ void appendServiceDescriptor(std::vector<ServiceRegistrationDescriptor> &descrip
 
 std::vector<ServiceRegistrationDescriptor> buildPublicPrimaryServiceContractManifest() {
   std::vector<ServiceRegistrationDescriptor> descriptors;
-  descriptors.reserve(51);
+  descriptors.reserve(41);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::Connect, ControlFacade>(descriptors, "control", "/xmate_er3/cobot/connect", false, &RosBindings::controlFacade, &ControlFacade::handleConnect);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::Disconnect, ControlFacade>(descriptors, "control", "/xmate_er3/cobot/disconnect", false, &RosBindings::controlFacade, &ControlFacade::handleDisconnect);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::SetPowerState, ControlFacade>(descriptors, "control", "/xmate_er3/cobot/set_power_state", false, &RosBindings::controlFacade, &ControlFacade::handleSetPowerState);
@@ -56,13 +56,19 @@ std::vector<ServiceRegistrationDescriptor> buildPublicPrimaryServiceContractMani
   appendServiceDescriptor<rokae_xmate3_ros2::srv::SetDefaultZone, ControlFacade>(descriptors, "control", "/xmate_er3/cobot/set_default_zone", false, &RosBindings::controlFacade, &ControlFacade::handleSetDefaultZone);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::SetDefaultConfOpt, ControlFacade>(descriptors, "control", "/xmate_er3/cobot/set_default_conf_opt", false, &RosBindings::controlFacade, &ControlFacade::handleSetDefaultConfOpt);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::AdjustSpeedOnline, ControlFacade>(descriptors, "control", "/xmate_er3/cobot/adjust_speed_online", false, &RosBindings::controlFacade, &ControlFacade::handleAdjustSpeedOnline);
-  appendServiceDescriptor<rokae_xmate3_ros2::srv::SetRtControlMode, ControlFacade>(descriptors, "control", "/xmate_er3/cobot/set_rt_control_mode", false, &RosBindings::controlFacade, &ControlFacade::handleSetRtControlMode);
-  appendServiceDescriptor<rokae_xmate3_ros2::srv::GetRtJointData, QueryFacade>(descriptors, "query", "/xmate_er3/cobot/get_rt_joint_data", false, &RosBindings::queryFacade, &QueryFacade::handleGetRtJointData);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::GetEndEffectorTorque, QueryFacade>(descriptors, "query", "/xmate_er3/cobot/get_end_torque", false, &RosBindings::queryFacade, &QueryFacade::handleGetEndEffectorTorque);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::GetEndWrench, QueryFacade>(descriptors, "query", "/xmate_er3/cobot/get_end_wrench", false, &RosBindings::queryFacade, &QueryFacade::handleGetEndWrench);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::CalcJointTorque, QueryFacade>(descriptors, "query", "/xmate_er3/cobot/calc_joint_torque", false, &RosBindings::queryFacade, &QueryFacade::handleCalcJointTorque);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::GenerateSTrajectory, QueryFacade>(descriptors, "query", "/xmate_er3/cobot/generate_s_trajectory", false, &RosBindings::queryFacade, &QueryFacade::handleGenerateSTrajectory);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::MapCartesianToJointTorque, QueryFacade>(descriptors, "query", "/xmate_er3/cobot/map_cartesian_to_joint_torque", false, &RosBindings::queryFacade, &QueryFacade::handleMapCartesianToJointTorque);
+  return descriptors;
+}
+
+std::vector<ServiceRegistrationDescriptor> buildPublicExperimentalPrimaryServiceContractManifest() {
+  std::vector<ServiceRegistrationDescriptor> descriptors;
+  descriptors.reserve(11);
+  appendServiceDescriptor<rokae_xmate3_ros2::srv::SetRtControlMode, ControlFacade>(descriptors, "control", "/xmate_er3/cobot/set_rt_control_mode", false, &RosBindings::controlFacade, &ControlFacade::handleSetRtControlMode);
+  appendServiceDescriptor<rokae_xmate3_ros2::srv::GetRtJointData, QueryFacade>(descriptors, "query", "/xmate_er3/cobot/get_rt_joint_data", false, &RosBindings::queryFacade, &QueryFacade::handleGetRtJointData);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::EnableDrag, ControlFacade>(descriptors, "control", "/xmate_er3/cobot/enable_drag", false, &RosBindings::controlFacade, &ControlFacade::handleEnableDrag);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::DisableDrag, ControlFacade>(descriptors, "control", "/xmate_er3/cobot/disable_drag", false, &RosBindings::controlFacade, &ControlFacade::handleDisableDrag);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::StartRecordPath, PathFacade>(descriptors, "path", "/xmate_er3/cobot/start_record_path", false, &RosBindings::pathFacade, &PathFacade::handleStartRecordPath);
@@ -77,7 +83,7 @@ std::vector<ServiceRegistrationDescriptor> buildPublicPrimaryServiceContractMani
 
 std::vector<ServiceRegistrationDescriptor> buildPublicCompatibilityAliasContractManifest() {
   std::vector<ServiceRegistrationDescriptor> descriptors;
-  descriptors.reserve(48);
+  descriptors.reserve(37);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::Connect, ControlFacade>(descriptors, "compatibility", "/xmate3/cobot/connect", true, &RosBindings::controlFacade, &ControlFacade::handleConnect);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::Disconnect, ControlFacade>(descriptors, "compatibility", "/xmate3/cobot/disconnect", true, &RosBindings::controlFacade, &ControlFacade::handleDisconnect);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::SetPowerState, ControlFacade>(descriptors, "compatibility", "/xmate3/cobot/set_power_state", true, &RosBindings::controlFacade, &ControlFacade::handleSetPowerState);
@@ -110,13 +116,19 @@ std::vector<ServiceRegistrationDescriptor> buildPublicCompatibilityAliasContract
   appendServiceDescriptor<rokae_xmate3_ros2::srv::SetDefaultZone, ControlFacade>(descriptors, "compatibility", "/xmate3/cobot/set_default_zone", true, &RosBindings::controlFacade, &ControlFacade::handleSetDefaultZone);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::SetDefaultConfOpt, ControlFacade>(descriptors, "compatibility", "/xmate3/cobot/set_default_conf_opt", true, &RosBindings::controlFacade, &ControlFacade::handleSetDefaultConfOpt);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::AdjustSpeedOnline, ControlFacade>(descriptors, "compatibility", "/xmate3/cobot/adjust_speed_online", true, &RosBindings::controlFacade, &ControlFacade::handleAdjustSpeedOnline);
-  appendServiceDescriptor<rokae_xmate3_ros2::srv::SetRtControlMode, ControlFacade>(descriptors, "compatibility", "/xmate3/cobot/set_rt_control_mode", true, &RosBindings::controlFacade, &ControlFacade::handleSetRtControlMode);
-  appendServiceDescriptor<rokae_xmate3_ros2::srv::GetRtJointData, QueryFacade>(descriptors, "compatibility", "/xmate3/cobot/get_rt_joint_data", true, &RosBindings::queryFacade, &QueryFacade::handleGetRtJointData);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::GetEndEffectorTorque, QueryFacade>(descriptors, "compatibility", "/xmate3/cobot/get_end_torque", true, &RosBindings::queryFacade, &QueryFacade::handleGetEndEffectorTorque);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::GetEndWrench, QueryFacade>(descriptors, "compatibility", "/xmate3/cobot/get_end_wrench", true, &RosBindings::queryFacade, &QueryFacade::handleGetEndWrench);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::CalcJointTorque, QueryFacade>(descriptors, "compatibility", "/xmate3/cobot/calc_joint_torque", true, &RosBindings::queryFacade, &QueryFacade::handleCalcJointTorque);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::GenerateSTrajectory, QueryFacade>(descriptors, "compatibility", "/xmate3/cobot/generate_s_trajectory", true, &RosBindings::queryFacade, &QueryFacade::handleGenerateSTrajectory);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::MapCartesianToJointTorque, QueryFacade>(descriptors, "compatibility", "/xmate3/cobot/map_cartesian_to_joint_torque", true, &RosBindings::queryFacade, &QueryFacade::handleMapCartesianToJointTorque);
+  return descriptors;
+}
+
+std::vector<ServiceRegistrationDescriptor> buildPublicExperimentalCompatibilityAliasContractManifest() {
+  std::vector<ServiceRegistrationDescriptor> descriptors;
+  descriptors.reserve(11);
+  appendServiceDescriptor<rokae_xmate3_ros2::srv::SetRtControlMode, ControlFacade>(descriptors, "compatibility", "/xmate3/cobot/set_rt_control_mode", true, &RosBindings::controlFacade, &ControlFacade::handleSetRtControlMode);
+  appendServiceDescriptor<rokae_xmate3_ros2::srv::GetRtJointData, QueryFacade>(descriptors, "compatibility", "/xmate3/cobot/get_rt_joint_data", true, &RosBindings::queryFacade, &QueryFacade::handleGetRtJointData);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::EnableDrag, ControlFacade>(descriptors, "compatibility", "/xmate3/cobot/enable_drag", true, &RosBindings::controlFacade, &ControlFacade::handleEnableDrag);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::DisableDrag, ControlFacade>(descriptors, "compatibility", "/xmate3/cobot/disable_drag", true, &RosBindings::controlFacade, &ControlFacade::handleDisableDrag);
   appendServiceDescriptor<rokae_xmate3_ros2::srv::StartRecordPath, PathFacade>(descriptors, "compatibility", "/xmate3/cobot/start_record_path", true, &RosBindings::pathFacade, &PathFacade::handleStartRecordPath);

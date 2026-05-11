@@ -124,6 +124,13 @@ bool build_motion_request(const rokae_xmate3_ros2::action::MoveAppend::Goal &goa
                           const MotionRequestContext &context,
                           MotionRequest &request,
                           std::string &error_message) {
+  if (!goal.sp_cmds.empty() && !context.experimental_motion_extensions_enabled) {
+    error_message = "MoveSP is an experimental motion extension and is disabled by service_exposure_profile=" +
+                    context.service_exposure_profile +
+                    "; use public_xmate_er3_experimental or internal_full to enable it";
+    return false;
+  }
+
   request = MotionRequest{};
   request.request_id = context.request_id;
   request.start_joints = context.start_joints;
@@ -241,6 +248,12 @@ bool build_replay_request(const ReplayPathAsset &replay_asset,
                           const MotionRequestContext &context,
                           MotionRequest &request,
                           std::string &error_message) {
+  if (!context.experimental_motion_extensions_enabled) {
+    error_message = "recorded path replay is an experimental motion extension and is disabled by service_exposure_profile=" +
+                    context.service_exposure_profile +
+                    "; use public_xmate_er3_experimental or internal_full to enable it";
+    return false;
+  }
   if (!isReplayPathSchemaVersionSupported(replay_asset.metadata.version)) {
     error_message = "Path schema version is not supported";
     return false;

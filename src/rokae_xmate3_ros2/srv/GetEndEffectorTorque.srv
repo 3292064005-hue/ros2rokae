@@ -3,3 +3,8 @@
 bool success
 float64[6] end_torque
 string message
+string fidelity_level
+string[] valid_fields
+string[] approximate_fields
+string[] unsupported_fields
+string field_validity_summary

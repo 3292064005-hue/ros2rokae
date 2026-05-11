@@ -26,6 +26,7 @@ def run_renderer(package_share: pathlib.Path,
                  canonical_urdf: pathlib.Path,
                  metadata: pathlib.Path,
                  *,
+                 mesh_root: str = 'package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/',
                  backend_mode: str = 'jtc',
                  service_exposure_profile: str = 'public_xmate_er3_only',
                  enable_xcore_plugin: str = 'true',
@@ -35,7 +36,7 @@ def run_renderer(package_share: pathlib.Path,
         str(RENDERER),
         '--model', str(canonical_urdf),
         '--package-share', str(package_share),
-        '--mesh-root', 'model://rokae_xmate3_ros2/meshes/',
+        '--mesh-root', mesh_root,
         '--enable-ros2-control', enable_ros2_control,
         '--enable-xcore-plugin', enable_xcore_plugin,
         '--backend-mode', backend_mode,
@@ -67,6 +68,7 @@ def main() -> int:
             'source_xacro': str(installed_xacro),
             'source_xacro_package_relative': 'urdf/xMateER3.xacro',
             'xacro_args': {
+                'mesh_root': 'package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/',
                 'enable_ros2_control': 'true',
                 'enable_xcore_plugin': 'true',
                 'backend_mode': 'jtc',
@@ -83,8 +85,9 @@ for item in sys.argv[2:]:
     if ':=' in item:
         key, value = item.split(':=', 1)
         pairs[key] = value
-print('<robot source="{}" backend="{}" profile="{}" plugin="{}" control="{}"/>'.format(
+print('<robot source="{}" mesh="{}" backend="{}" profile="{}" plugin="{}" control="{}"/>'.format(
     Path(sys.argv[1]).name,
+    pairs.get('mesh_root', ''),
     pairs.get('backend_mode', ''),
     pairs.get('service_exposure_profile', ''),
     pairs.get('enable_xcore_plugin', ''),
@@ -97,12 +100,13 @@ print('<robot source="{}" backend="{}" profile="{}" plugin="{}" control="{}"/>'.
         env['PATH'] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
 
         def invoke(**kwargs: str) -> str:
+            mesh_root = kwargs.get('mesh_root', 'package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/')
             cmd = [
                 sys.executable,
                 str(RENDERER),
                 '--model', str(canonical_urdf),
                 '--package-share', str(package_share),
-                '--mesh-root', 'model://rokae_xmate3_ros2/meshes/',
+                '--mesh-root', mesh_root,
                 '--enable-ros2-control', kwargs.get('enable_ros2_control', 'true'),
                 '--enable-xcore-plugin', kwargs.get('enable_xcore_plugin', 'true'),
                 '--backend-mode', kwargs.get('backend_mode', 'jtc'),
@@ -116,17 +120,20 @@ print('<robot source="{}" backend="{}" profile="{}" plugin="{}" control="{}"/>'.
         canonical_out = invoke()
         assert canonical_out == '<robot name="canonical" backend="jtc" profile="public_xmate_er3_only" plugin="true" control="true"/>', canonical_out
 
+        gazebo_out = invoke(mesh_root='model://rokae_xmate3_ros2/meshes/')
+        assert gazebo_out == '<robot source="xMateER3.xacro" mesh="model://rokae_xmate3_ros2/meshes/" backend="jtc" profile="public_xmate_er3_only" plugin="true" control="true"/>', gazebo_out
+
         internal_out = invoke(service_exposure_profile='internal_full')
-        assert internal_out == '<robot source="xMateER3.xacro" backend="jtc" profile="internal_full" plugin="true" control="true"/>', internal_out
+        assert internal_out == '<robot source="xMateER3.xacro" mesh="package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/" backend="jtc" profile="internal_full" plugin="true" control="true"/>', internal_out
 
         hybrid_out = invoke(backend_mode='hybrid', service_exposure_profile='internal_full')
-        assert hybrid_out == '<robot source="xMateER3.xacro" backend="hybrid" profile="internal_full" plugin="true" control="true"/>', hybrid_out
+        assert hybrid_out == '<robot source="xMateER3.xacro" mesh="package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/" backend="hybrid" profile="internal_full" plugin="true" control="true"/>', hybrid_out
 
         plugin_off_out = invoke(enable_xcore_plugin='false')
-        assert plugin_off_out == '<robot source="xMateER3.xacro" backend="jtc" profile="public_xmate_er3_only" plugin="false" control="true"/>', plugin_off_out
+        assert plugin_off_out == '<robot source="xMateER3.xacro" mesh="package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/" backend="jtc" profile="public_xmate_er3_only" plugin="false" control="true"/>', plugin_off_out
 
         control_off_out = invoke(enable_ros2_control='false')
-        assert control_off_out == '<robot source="xMateER3.xacro" backend="jtc" profile="public_xmate_er3_only" plugin="true" control="false"/>', control_off_out
+        assert control_off_out == '<robot source="xMateER3.xacro" mesh="package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/" backend="jtc" profile="public_xmate_er3_only" plugin="true" control="false"/>', control_off_out
 
         alias_urdf = package_share / 'generated' / 'urdf' / 'xMate3.urdf'
         alias_metadata = package_share / 'generated' / 'urdf' / 'xMate3.description.json'
@@ -143,6 +150,7 @@ print('<robot source="{}" backend="{}" profile="{}" plugin="{}" control="{}"/>'.
             'canonical_identity': 'xCoreSDK:xmate_er3',
             'canonical_source_xacro': 'urdf/xMateER3.xacro',
             'xacro_args': {
+                'mesh_root': 'package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/',
                 'enable_ros2_control': 'true',
                 'enable_xcore_plugin': 'true',
                 'backend_mode': 'jtc',
@@ -151,11 +159,21 @@ print('<robot source="{}" backend="{}" profile="{}" plugin="{}" control="{}"/>'.
         }
         write_text(alias_metadata, json.dumps(alias_metadata_payload))
 
-        alias_out = subprocess.run([
+        alias_default = subprocess.run([
             sys.executable, str(RENDERER), '--model', str(alias_urdf), '--package-share', str(package_share),
-            '--mesh-root', 'model://rokae_xmate3_ros2/meshes/', '--enable-ros2-control', 'true',
+            '--mesh-root', 'package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/', '--enable-ros2-control', 'true',
             '--enable-xcore-plugin', 'true', '--backend-mode', 'jtc', '--service-exposure-profile', 'public_xmate_er3_only',
             '--canonical-model', str(canonical_urdf), '--canonical-metadata', str(alias_metadata)
+        ], check=False, capture_output=True, text=True, env=env)
+        assert alias_default.returncode != 0, alias_default.stdout
+        assert 'non-canonical model override is disabled by default' in alias_default.stderr, alias_default.stderr
+
+        alias_out = subprocess.run([
+            sys.executable, str(RENDERER), '--model', str(alias_urdf), '--package-share', str(package_share),
+            '--mesh-root', 'package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/', '--enable-ros2-control', 'true',
+            '--enable-xcore-plugin', 'true', '--backend-mode', 'jtc', '--service-exposure-profile', 'public_xmate_er3_only',
+            '--canonical-model', str(canonical_urdf), '--canonical-metadata', str(alias_metadata),
+            '--allow-noncanonical-model', 'true'
         ], check=True, capture_output=True, text=True, env=env).stdout.strip()
         assert alias_out == '<robot name="xmate3-alias" backend="jtc" profile="public_xmate_er3_only" plugin="true" control="true"/>', alias_out
 

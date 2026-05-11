@@ -11,7 +11,7 @@
   <xacro:arg name="enable_xcore_plugin" default="true"/>
   <xacro:arg name="backend_mode" default="jtc"/>
   <xacro:arg name="service_exposure_profile" default="public_xmate_er3_only"/>
-  <xacro:arg name="compatibility_alias_policy" default="canonical_plus_compat"/>
+  <xacro:arg name="compatibility_alias_policy" default="canonical_only"/>
   <xacro:arg name="joint_damping" default="0.5"/>
   <xacro:arg name="joint_friction" default="0.1"/>
   <xacro:arg name="flange_to_tool0_xyz" default="0 0 0"/>

@@ -29,12 +29,12 @@ def load_runtime_host_policy() -> dict[str, str]:
 
 
 POLICY = load_runtime_host_policy()
-DEFAULT_RUNTIME_HOST = POLICY.get('ROKAE_DEFAULT_RUNTIME_HOST', 'daemonized_runtime')
-DEFAULT_BACKEND_MODE = POLICY.get('ROKAE_DEFAULT_BACKEND_MODE', 'effort')
+DEFAULT_RUNTIME_HOST = POLICY.get('ROKAE_DEFAULT_RUNTIME_HOST', 'gazebo_plugin')
+DEFAULT_BACKEND_MODE = POLICY.get('ROKAE_DEFAULT_BACKEND_MODE', 'jtc')
 DEFAULT_SERVICE_PROFILE = POLICY.get('ROKAE_DEFAULT_SERVICE_EXPOSURE_PROFILE', 'public_xmate_er3_only')
-DEFAULT_ENABLE_ROS2_CONTROL = POLICY.get('ROKAE_DEFAULT_ENABLE_ROS2_CONTROL', 'false')
-DEFAULT_ENABLE_XCORE_PLUGIN = POLICY.get('ROKAE_DEFAULT_ENABLE_XCORE_PLUGIN', 'false')
-DEFAULT_COMPATIBILITY_ALIAS_POLICY = POLICY.get('ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY', 'canonical_plus_compat')
+DEFAULT_ENABLE_ROS2_CONTROL = POLICY.get('ROKAE_DEFAULT_ENABLE_ROS2_CONTROL', 'true')
+DEFAULT_ENABLE_XCORE_PLUGIN = POLICY.get('ROKAE_DEFAULT_ENABLE_XCORE_PLUGIN', 'true')
+DEFAULT_COMPATIBILITY_ALIAS_POLICY = POLICY.get('ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY', 'canonical_only')
 
 block_match = re.search(r'install\(FILES(?P<body>.*?)DESTINATION share/\$\{PROJECT_NAME\}/generated/urdf\s+COMPONENT public_sdk\s*\)', PACKAGING, re.S)
 if not block_match:
@@ -215,7 +215,7 @@ print('<robot source="{}" backend="{}" profile="{}" plugin="{}" control="{}"/>'.
             str(prefix / 'share' / 'rokae_xmate3_ros2' / 'tools' / 'render_robot_description.py'),
             '--model', str(model),
             '--package-share', str(pkg_share),
-            '--mesh-root', 'model://rokae_xmate3_ros2/meshes/',
+            '--mesh-root', 'package://rokae_xmate3_ros2/models/rokae_xmate3_ros2/meshes/',
             '--enable-ros2-control', DEFAULT_ENABLE_ROS2_CONTROL,
             '--enable-xcore-plugin', DEFAULT_ENABLE_XCORE_PLUGIN,
             '--backend-mode', DEFAULT_BACKEND_MODE,
@@ -238,7 +238,7 @@ print('<robot source="{}" backend="{}" profile="{}" plugin="{}" control="{}"/>'.
     config_text = (prefix / 'lib' / 'cmake' / 'xCoreSDK' / 'xCoreSDKConfig.cmake').read_text(encoding='utf-8')
     expected_tokens = [
         'set(xCoreSDK_PRIMARY_INSTALL_CONSUMER "cxx_sdk_core_consumer")',
-        f'set(xCoreSDK_DEFAULT_COMPATIBILITY_ALIAS_POLICY "{POLICY.get("ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY", "canonical_plus_compat")}")',
+        f'set(xCoreSDK_DEFAULT_COMPATIBILITY_ALIAS_POLICY "{POLICY.get("ROKAE_DEFAULT_COMPATIBILITY_ALIAS_POLICY", "canonical_only")}")',
         f'set(xCoreSDK_DEFAULT_BACKEND_MODE "{DEFAULT_BACKEND_MODE}")',
         f'set(xCoreSDK_BACKEND_MODE "{DEFAULT_BACKEND_MODE}")',
     ]

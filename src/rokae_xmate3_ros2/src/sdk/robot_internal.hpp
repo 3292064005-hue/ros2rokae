@@ -163,6 +163,8 @@ public:
 
     void applyCatalogPolicyFromEnvironment();
     void applyCatalogPolicyOverride(const std::optional<SdkCatalogConsistencyPolicy>& override_policy);
+    void applyMotionExtensionPolicyFromEnvironment();
+    [[nodiscard]] bool allowExperimentalMotionExtensions() const noexcept { return allow_experimental_motion_extensions_; }
 
     void cacheCommand(const rokae_xmate3_ros2::action::MoveAppend::Goal &goal);
     void ensureToolingClients();
@@ -216,6 +218,7 @@ public:
     bool nrt_queue_initialized_ = false;
     bool nrt_queue_has_cached_commands_ = false;
     bool nrt_queue_remote_request_known_ = false;
+    bool allow_experimental_motion_extensions_ = false;
     std::string current_cached_command_family_;
 
     void resetNrtQueueState() noexcept {

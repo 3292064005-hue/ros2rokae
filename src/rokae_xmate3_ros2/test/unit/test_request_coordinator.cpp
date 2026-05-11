@@ -48,3 +48,68 @@ TEST(MotionRequestCoordinatorTest, SubmitMoveAppendOccupiesRuntimeSlotUntilReset
   coordinator.reset();
   EXPECT_TRUE(coordinator.canAcceptRequest());
 }
+
+TEST(MotionRequestCoordinatorTest, DefaultPublicProfileRejectsMoveSpExtensionBeforeQueueing) {
+  rt::MotionOptionsState motion_options_state;
+  rt::ToolingState tooling_state;
+  rt::SessionState session_state;
+  session_state.connect("127.0.0.1");
+  session_state.setPowerOn(true);
+  session_state.setOperateMode(static_cast<std::uint8_t>(rokae::OperateMode::automatic));
+
+  rt::MotionRuntime runtime;
+  runtime.reset();
+  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, session_state, runtime);
+
+  rokae_xmate3_ros2::action::MoveAppend::Goal goal;
+  goal.sp_cmds.resize(1);
+  goal.sp_cmds.front().target.x = 0.42;
+  goal.sp_cmds.front().target.z = 0.36;
+  goal.sp_cmds.front().target.rx = 3.14159265358979323846;
+  goal.sp_cmds.front().radius = 0.004;
+  goal.sp_cmds.front().radius_step = 0.0001;
+  goal.sp_cmds.front().angle = 3.14159265358979323846;
+  goal.sp_cmds.front().direction = true;
+  goal.sp_cmds.front().speed = 60;
+
+  const std::array<double, 6> current = {0.0, 0.0, 1.5, 0.0, 1.2, 3.14};
+  const auto submission = coordinator.queueMoveAppend(goal, current, 0.01, "req_move_sp_default");
+  EXPECT_FALSE(submission.success);
+  EXPECT_NE(submission.message.find("MoveSP is an experimental motion extension"), std::string::npos);
+
+  const auto view = coordinator.currentView();
+  EXPECT_FALSE(view.has_request);
+  EXPECT_TRUE(coordinator.canAcceptRequest());
+}
+
+TEST(MotionRequestCoordinatorTest, ExperimentalProfileAllowsMoveSpExtensionToQueue) {
+  rt::MotionOptionsState motion_options_state;
+  motion_options_state.setExperimentalMotionExtensionsEnabled(true, "public_xmate_er3_experimental");
+  rt::ToolingState tooling_state;
+  rt::SessionState session_state;
+  session_state.connect("127.0.0.1");
+  session_state.setPowerOn(true);
+  session_state.setOperateMode(static_cast<std::uint8_t>(rokae::OperateMode::automatic));
+
+  rt::MotionRuntime runtime;
+  runtime.reset();
+  rt::MotionRequestCoordinator coordinator(motion_options_state, tooling_state, session_state, runtime);
+  coordinator.setServiceExposureProfile(
+      rokae_xmate3_ros2::runtime::ServiceExposureProfile::public_xmate_er3_experimental);
+
+  rokae_xmate3_ros2::action::MoveAppend::Goal goal;
+  goal.sp_cmds.resize(1);
+  goal.sp_cmds.front().target.x = 0.42;
+  goal.sp_cmds.front().target.z = 0.36;
+  goal.sp_cmds.front().target.rx = 3.14159265358979323846;
+  goal.sp_cmds.front().radius = 0.004;
+  goal.sp_cmds.front().radius_step = 0.0001;
+  goal.sp_cmds.front().angle = 3.14159265358979323846;
+  goal.sp_cmds.front().direction = true;
+  goal.sp_cmds.front().speed = 60;
+
+  const std::array<double, 6> current = {0.0, 0.0, 1.5, 0.0, 1.2, 3.14};
+  const auto submission = coordinator.queueMoveAppend(goal, current, 0.01, "req_move_sp_experimental");
+  ASSERT_TRUE(submission.success) << submission.message;
+  EXPECT_EQ(coordinator.currentView().status.request_id, "req_move_sp_experimental");
+}

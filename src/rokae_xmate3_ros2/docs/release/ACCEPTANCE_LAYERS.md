@@ -11,7 +11,7 @@
 | 层级 | 目标 | 默认入口 | 环境要求 |
 |---|---|---|---|
 | L0 | unit / contract correctness | `tools/run_full_source_tree_build_gate.sh` + `ctest -L quick_gate` | locked build/test env |
-| L1 | fake/mock semantic closure | `ctest -L semantic_gate` | build/test env |
+| L1 | simulated semantic closure | `ctest -L semantic_gate` | build/test env |
 | L2 | Gazebo / launch main-chain smoke | `tools/run_launch_smoke.sh` + `tools/run_main_chain_smoke.sh` | Ubuntu 22.04 + ROS2 Humble + Gazebo11 |
 | L3 | real dry-run acceptance | `tools/run_real_dryrun_acceptance.sh` | real runtime namespace + robot endpoint |
 | L4 | loaded sensor acceptance | `tools/run_loaded_sensor_acceptance.sh` | L3 + external sensor topic(s) |
@@ -32,7 +32,7 @@
 - 不得用 launch smoke 替代
 
 ### L1
-- 关注 fake/mock/runtime semantic closure
+- 关注 simulated/runtime semantic closure
 - 必须覆盖 queue/start/pause/stop/replay 等主链语义
 
 ### L2
