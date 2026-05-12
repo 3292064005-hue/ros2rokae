@@ -1,16 +1,14 @@
 # Examples
 
-> 状态：Active  
-> 受众：使用者 / 示例维护者  
-> 作用：示例分层与运行方式的唯一主说明  
-> 最后校验：2026-04-18
+Status: Active
+Audience: users and example maintainers
+Purpose: public/internal example split and the shortest run order
 
 ## 1. Rules
 
-- public examples 只服务 xMateER3 六轴 public compatibility lane
-- internal/backend examples 用于 runtime / backend / RT 验证
-- public lane 不包含 IO / RL / calibration
-- public lane 不公开 experimental RT 控制回环示例
+- Public examples serve the xMateER3 public compatibility lane.
+- Internal/backend examples serve runtime, backend, path, and experimental RT validation.
+- The public lane does not include IO, RL, calibration, or experimental RT control-loop examples.
 
 ## 2. Public examples
 
@@ -48,31 +46,40 @@
 
 ## 4. Run
 
-### install-facing mirrored tools
-安装态公共文档默认使用安装镜像工具入口：
-```bash
-ROKAE_PKG_PREFIX="$(ros2 pkg prefix rokae_xmate3_ros2)"
-ROKAE_TOOLS="${ROKAE_PKG_PREFIX}/share/rokae_xmate3_ros2/tools"
-```
+Build and source:
 
-### public lane
 ```bash
-"${ROKAE_TOOLS}/clean_build_env.sh" colcon build --packages-select rokae_xmate3_ros2
+cd /media/chen/New/plform/project/ros2_ws0
+source /opt/ros/humble/setup.bash
+bash src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  colcon build --packages-select rokae_xmate3_ros2 --symlink-install
 source install/setup.bash
-ros2 launch rokae_xmate3_ros2 simulation.launch.py
-ros2 run rokae_xmate3_ros2 example_04_motion_basic
 ```
 
-### internal/backend lane
-internal/backend lane 仍要求 maintainer workspace，并通过内部服务暴露配置启动。install-facing 公共文档只保留入口说明，不直接展开 source-tree 命令；具体维护步骤见 [`../release/BUILD_RELEASE.md`](../release/BUILD_RELEASE.md)。
+Launch:
 
-## 5. Behavioral reminders
+```bash
+ros2 launch rokae_xmate3_ros2 simulation.launch.py launch_profile:=public_xmate_er3_jtc
+```
 
-- `MoveAppend` success means **queue accepted**
-- `moveStart()` is the only execution authority
-- `stop()` is pause-only
-- `moveReset()` drops queued NRT work
-- path record/replay examples are experimental/internal and are not part of the default public xMateER3 lane
-- acceptance layers and install-facing entrypoints follow [`../release/ACCEPTANCE_LAYERS.md`](../release/ACCEPTANCE_LAYERS.md)
+Recommended public smoke order:
 
-> Source layout: public examples are stored in `examples/cpp/`; internal/backend-only examples are stored in `examples/internal/cpp/` and are only built when `ROKAE_BUILD_INTERNAL_BACKEND_EXAMPLES=ON`.
+```bash
+ros2 run rokae_xmate3_ros2 example_04_motion_basic
+ros2 run rokae_xmate3_ros2 example_15_move_queue_and_events
+ros2 run rokae_xmate3_ros2 example_19_diagnostics_and_wrench
+ros2 run rokae_xmate3_ros2 example_99_complete_demo
+```
+
+Internal/backend examples require maintainer workspace configuration and explicit internal or experimental service exposure. They are not part of the default public xMateER3 lane.
+
+## 5. Behavioral Reminders
+
+- `MoveAppend` success means queue accepted.
+- `moveStart()` is the execution authority.
+- `stop()` is pause-only.
+- `moveReset()` drops queued NRT work.
+- Path record/replay examples are experimental/internal.
+- Acceptance layers and install-facing entrypoints follow [../release/ACCEPTANCE_LAYERS.md](../release/ACCEPTANCE_LAYERS.md).
+
+Source layout: public examples live in `examples/cpp/`; internal/backend examples live in `examples/internal/cpp/` and are only built when `ROKAE_BUILD_INTERNAL_BACKEND_EXAMPLES=ON`.

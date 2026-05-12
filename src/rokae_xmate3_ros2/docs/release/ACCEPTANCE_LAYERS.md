@@ -12,7 +12,7 @@
 |---|---|---|---|
 | L0 | unit / contract correctness | `tools/run_full_source_tree_build_gate.sh` + `ctest -L quick_gate` | locked build/test env |
 | L1 | simulated semantic closure | `ctest -L semantic_gate` | build/test env |
-| L2 | Gazebo / launch main-chain smoke | `tools/run_launch_smoke.sh` + `tools/run_main_chain_smoke.sh` | Ubuntu 22.04 + ROS2 Humble + Gazebo11 |
+| L2 | Gazebo / launch main-chain smoke | `tools/run_launch_smoke.sh` + `tools/run_main_chain_smoke.sh` + `tools/run_headless_sdk_smoke.sh` | Ubuntu 22.04 + ROS2 Humble + Gazebo11 |
 | L3 | real dry-run acceptance | `tools/run_real_dryrun_acceptance.sh` | real runtime namespace + robot endpoint |
 | L4 | loaded sensor acceptance | `tools/run_loaded_sensor_acceptance.sh` | L3 + external sensor topic(s) |
 | L5 | full task acceptance | `tools/run_full_task_acceptance.sh` | L4 + explicit motion approval |
@@ -37,7 +37,8 @@
 
 ### L2
 - 关注 canonical launch / install-tree / Gazebo main chain
-- 必须包含 launch discovery 与 main-chain smoke
+- 必须包含 launch discovery、Gazebo/JTC main-chain smoke 与 headless SDK smoke
+- `tools/run_experimental_opt_in_smoke.sh` 是显式 experimental surface 探针，不替代默认 public L2 结论
 
 ### L3
 - 只允许 dry-run，不允许隐式运动
@@ -59,6 +60,8 @@
 - `tools/run_full_task_acceptance.sh`
 - `tools/run_launch_smoke.sh`
 - `tools/run_main_chain_smoke.sh`
+- `tools/run_headless_sdk_smoke.sh`
+- `tools/run_experimental_opt_in_smoke.sh`
 
 install-tree public artifact 会同步镜像这些入口到 `share/rokae_xmate3_ros2/tools/`，且这些入口必须通过 sibling tool resolution 与 installed config/helper 直接工作，不能硬编码回 `src/rokae_xmate3_ros2/tools/*`。L1 默认还必须执行 `run_xmate_er3_alignment_behavior_gate.sh`。
 

@@ -11,12 +11,12 @@ required = [
     'docs/INDEX.md','docs/public/QUICKSTART.md','docs/public/COMPATIBILITY.md','docs/public/EXAMPLES.md','docs/public/PUBLIC_SDK_ARTIFACT.md','docs/public/KINEMATICS_AND_MODEL.md','docs/public/RUNTIME_PROFILES.md',
     'docs/architecture/ARCHITECTURE.md','docs/architecture/PROVIDER_BOUNDARY.md',
     'docs/release/BUILD_RELEASE.md','docs/release/ENVIRONMENT_LOCK.md','docs/release/RELEASE_GATE.md','docs/release/ACCEPTANCE_LAYERS.md','docs/release/acceptance_layers_manifest.json','docs/release/HARDENING_BACKLOG.md',
-    'docs/reference/SDK_ALIGNMENT.md','docs/reference/xmate_er3_alignment_manifest.json','docs/reference/RUNTIME_STATE_MACHINE.md','docs/reference/runtime_state_machine_manifest.json','docs/reference/RECORDED_PATH_SCHEMA.md','docs/reference/recorded_path_schema_manifest.json','docs/archive/audits/IMPLEMENTATION_AUDIT.md','examples/README.md']
+    'docs/reference/SDK_ALIGNMENT.md','docs/reference/xmate_er3_alignment_manifest.json','docs/reference/RUNTIME_STATE_MACHINE.md','docs/reference/runtime_state_machine_manifest.json','docs/reference/RECORDED_PATH_SCHEMA.md','docs/reference/recorded_path_schema_manifest.json','examples/README.md']
 for rel in required:
     if not (ROOT/rel).is_file():
         FAILURES.append(f'missing required docs/layout file: {rel}')
 removed = [
-    'docs/COMPAT_ABI.md','docs/API_ALIGNMENT_MATRIX.md','docs/XMATE_ER3_OFFICIAL_ALIGNMENT_MATRIX.md','docs/RT_PROFILE_GUIDE.md','docs/RT_HARDENING_PROFILE.md','docs/PROFILE_CAPABILITY_MATRIX.md','docs/PROFILE_QUERY_POLICY.md','docs/RUNTIME_CATALOG_POLICY.md','docs/KINEMATICS_POLICY.md','docs/FIDELITY_POLICY.md','docs/MODEL_TRACEABILITY.md','docs/EXTENSION_FRAMEWORK.md','docs/P0_1_DEEP_REVIEW_REPORT.md','docs/P0_1_IMPLEMENTATION_SUMMARY.md','docs/P0_1_ISSUE_REMEDIATION_SUMMARY.md','docs/P0_1_SECOND_REFINEMENT_SUMMARY.md','docs/HARDENING_BACKLOG.md','docs/IMPLEMENTATION_AUDIT.md','docs/maintenance/HARDENING_BACKLOG.md','examples/PUBLIC_SDK_README.md']
+    'docs/COMPAT_ABI.md','docs/API_ALIGNMENT_MATRIX.md','docs/XMATE_ER3_OFFICIAL_ALIGNMENT_MATRIX.md','docs/RT_PROFILE_GUIDE.md','docs/RT_HARDENING_PROFILE.md','docs/PROFILE_CAPABILITY_MATRIX.md','docs/PROFILE_QUERY_POLICY.md','docs/RUNTIME_CATALOG_POLICY.md','docs/KINEMATICS_POLICY.md','docs/FIDELITY_POLICY.md','docs/MODEL_TRACEABILITY.md','docs/EXTENSION_FRAMEWORK.md','docs/P0_1_DEEP_REVIEW_REPORT.md','docs/P0_1_IMPLEMENTATION_SUMMARY.md','docs/P0_1_ISSUE_REMEDIATION_SUMMARY.md','docs/P0_1_SECOND_REFINEMENT_SUMMARY.md','docs/HARDENING_BACKLOG.md','docs/IMPLEMENTATION_AUDIT.md','docs/maintenance/HARDENING_BACKLOG.md','docs/architecture/TARGET_LAYERING.md','docs/archive/audits/IMPLEMENTATION_AUDIT.md','examples/PUBLIC_SDK_README.md']
 for rel in removed:
     if (ROOT/rel).exists():
         FAILURES.append(f'legacy/duplicate doc should be removed: {rel}')
@@ -25,7 +25,7 @@ index = (ROOT/'docs'/'INDEX.md').read_text(encoding='utf-8')
 for token in ['docs/public/QUICKSTART.md','docs/architecture/PROVIDER_BOUNDARY.md','docs/release/BUILD_RELEASE.md','docs/release/ACCEPTANCE_LAYERS.md','docs/reference/SDK_ALIGNMENT.md']:
     if token not in readme:
         FAILURES.append(f'README.md missing entry: {token}')
-for token in ['public/','architecture/','release/','reference/','archive/']:
+for token in ['public/','architecture/','release/','reference/']:
     if token not in index:
         FAILURES.append(f'docs/INDEX.md missing group token: {token}')
 

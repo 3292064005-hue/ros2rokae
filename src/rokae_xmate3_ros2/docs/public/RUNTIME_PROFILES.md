@@ -1,65 +1,64 @@
 # Runtime Profiles
 
-> 状态：Active  
-> 受众：Runtime 维护者 / profile 审计人员 / 需要理解 query authority 的集成人员  
-> 作用：profile、RT/NRT 边界、query authority、hardening 规则的唯一主说明  
-> 上游事实来源：`launch/_launch_profile.py`、`launch/_simulation_support.py`、runtime query services、diagnostics policy  
-> 最后校验：2026-04-18
+Status: Active
+Audience: users who choose launch profiles, runtime maintainers, acceptance owners
+Purpose: profile choice, RT/NRT boundary, query authority, and readiness behavior
 
-## 1. Canonical profiles
+## 1. Profile Choices
 
-| profile | 用途 | 对外级别 |
+| profile | Use | Surface |
 |---|---|---|
-| `public_xmate_er3_jtc` | 默认 public Gazebo/JTC 可执行仿真主线 | public |
-| `public_xmate_er3_headless_sdk_smoke` | 无 Gazebo 的 SDK smoke/CI 快速验证 profile | public smoke |
-| `public_xmate_er3_experimental_rt` | 显式 opt-in 的 RT/drag/path experimental profile | experimental |
-| `internal_full_hybrid` | 内部全暴露混合验证 | internal |
-| `daemon_hard_rt` | daemon-owned runtime 验证 | internal |
+| `public_xmate_er3_jtc` | default Gazebo/JTC simulation main chain | public |
+| `public_xmate_er3_headless_sdk_smoke` | SDK smoke without Gazebo GUI workload | public smoke |
+| `public_xmate_er3_experimental_rt` | explicit RT/drag/path opt-in | experimental |
+| `internal_full_hybrid` | full internal mixed validation | internal |
+| `daemon_hard_rt` | daemon-owned runtime validation | internal |
 
-`launch_profile` 现在 **fail-fast**：未知 profile 直接报错，不再静默回退默认值。默认 profile、runtime host、service exposure 与 backend mode 统一由 `config/default_runtime_host_policy.env` 提供；其中 install-facing `xCoreSDK_BACKEND_MODE` 与 launch 默认 `backend_mode` 保持同值，runtime host ownership 继续单独由 `ROKAE_DEFAULT_RUNTIME_HOST` 表达。
+`launch_profile` is fail-fast: unknown values are errors. Default profile, backend mode, runtime host, and service exposure come from `config/default_runtime_host_policy.env`.
 
-`public_xmate_er3_jtc` 还绑定运行期 readiness gate：`require_runtime_readiness:=true` 时，launch 会在 spawn 后等待 controller manager、active JTC controller 和 FollowJointTrajectory action server。该检查是默认 public profile 的强约束；关闭它只适用于 show-args、图形或依赖排查。
+## 2. Public Readiness
 
-## 2. RT / NRT split
+`public_xmate_er3_jtc` defaults to `require_runtime_readiness:=true`. Launch waits for:
 
-- NRT：默认 public 主链。
-- RT：默认 public profile 不注册 RT ROS 服务；install-facing 保留兼容接口，Gazebo 语义仍是 simulation-grade。
-- `public_xmate_er3_experimental_rt` 是显式 opt-in profile，不作为 public release proof。
-- strict 1kHz fail-fast RT profile 只允许存在于 internal/runtime lane。
+- controller manager service
+- active `joint_trajectory_controller`
+- `/joint_trajectory_controller/follow_joint_trajectory` action server
 
-## 3. Query authority
+Disable readiness only for show-args, graphics, or dependency debugging.
 
-runtime / coordinator 是唯一权威状态面。
+`run_main_chain_smoke.sh` exercises the default JTC profile end to end. `run_headless_sdk_smoke.sh` reuses the same public service/action checks with `public_xmate_er3_headless_sdk_smoke`, proving SDK-facing behavior without Gazebo GUI/JTC.
 
-因此：
-- `GetRuntimeStateSnapshot`、`GetRtJointData`、`GetPosture`、`GetCartPosture`、`GetJointPos`、`GetJointVel`、`GetJointTorques`、`GetBaseFrame` 等查询，都应从 `MotionRequestCoordinator -> MotionRuntime::readAuthoritativeSnapshot()` 读取或投影。
-- `joint_states` / runtime publisher 现在优先从 authority snapshot 投影；backend 原始 joint state 只保留为内部采样与退化诊断来源，不再直接充当 public topic 真值。 authority snapshot 暂时失效时，publisher 只允许回退到显式允许的 input snapshot；否则复用最近一次有效 authority 样本，仍无有效样本时直接抑制 joint_state 发布，而不再静默归零。
-- legacy raw fetcher 不再是 query / topic 真值源。
-- diagnostics 中的 `query_authority=runtime_request_coordinator` 必须与实际读取路径一致。
-- planner 执行前报告不再借用 `ValidateMotion` 作为唯一承载；internal lane 额外提供 `PlannerPreflightReport`，把 reachable / singularity / continuity / branch-switch / fallback notes 收口为独立 report payload。
+## 3. RT / NRT Split
 
-## 4. Capability and hardening summary
+- NRT is the default public main chain.
+- RT ROS services are not registered by the default public profile.
+- `public_xmate_er3_experimental_rt` is opt-in and is not public release proof.
+- `run_experimental_opt_in_smoke.sh` only checks explicit registration and minimum simulation-grade behavior for RT/drag/path services.
+- strict 1kHz fail-fast RT profile remains internal/runtime lane.
+- Gazebo RT semantics are simulation-grade, not controller-grade hardware parity.
 
-- runtime main chain: `MoveReset -> MoveAppend -> MoveStart -> Stop(pause)`
-- path replay 是 experimental side-lane；不占用默认 public staged MoveAppend queue contract
-- profile capability / diagnostics banner 必须说明当前 backend、authority 与 exposure policy
-- public lane 不承诺 IO / RL / calibration
-- Observability remains runtime-owned
-- profile capability 查询返回 machine-readable `authority_scope / fidelity_class / model_revision`
+## 4. Query Authority
 
-## 5. Runtime host and provider boundary
+Runtime/coordinator is the only public state authority.
 
-`simulation.launch.py`、`xmate_er3_public.launch.py`、daemon runtime 与 Gazebo runtime 共享 `runtime_host_builder` 的 bootstrap / assembly contract。
+Public queries and publishers should derive from `MotionRequestCoordinator -> MotionRuntime::readAuthoritativeSnapshot()`. Diagnostics must report `query_authority=runtime_request_coordinator` when using this path.
 
-provider 具体边界规则不再散落在 `RT_PROFILE_GUIDE.md`、`RT_HARDENING_PROFILE.md`、`PROFILE_CAPABILITY_MATRIX.md`、`PROFILE_QUERY_POLICY.md` 这类拆分页，而统一收口到：
+Planner preflight is separated from legacy `ValidateMotion` through the internal `PlannerPreflightReport` service-level payload, with reachable, singularity, continuity, branch-switch, fallback notes, and reject reasons in one report object.
 
-- [`../architecture/PROVIDER_BOUNDARY.md`](../architecture/PROVIDER_BOUNDARY.md)
+## 5. Operational Summary
 
-## 6. Related docs
+- Main chain: `MoveReset -> MoveAppend -> MoveStart -> Stop(pause)`.
+- Path replay is an experimental side-lane and does not occupy the default staged MoveAppend queue contract.
+- Profile capability and diagnostics banners must show backend, authority, exposure policy, `authority_scope`, `fidelity_class`, and `model_revision`.
+- Public lane does not promise IO, RL, or calibration.
+- Observability remains runtime-owned.
 
-- [`../architecture/ARCHITECTURE.md`](../architecture/ARCHITECTURE.md)
-- [`../architecture/PROVIDER_BOUNDARY.md`](../architecture/PROVIDER_BOUNDARY.md)
-- [`../release/RELEASE_GATE.md`](../release/RELEASE_GATE.md)
+## 6. Provider Boundary
 
+`simulation.launch.py`, `xmate_er3_public.launch.py`, daemon runtime, and Gazebo runtime share the `runtime_host_builder` bootstrap and assembly contract.
 
-- `compatibility_alias_policy`：`canonical_plus_compat` / `canonical_only` / `legacy_only`，默认导出为 `canonical_only`。
+The provider/backend chain is documented in [../architecture/PROVIDER_BOUNDARY.md](../architecture/PROVIDER_BOUNDARY.md). It replaces the old split pages for RT profile guide, hardening profile, capability matrix, query policy, and catalog policy.
+
+`compatibility_alias_policy` accepts `canonical_plus_compat`, `canonical_only`, or `legacy_only`; the default is `canonical_only`.
+
+Related docs: [../architecture/ARCHITECTURE.md](../architecture/ARCHITECTURE.md), [../release/RELEASE_GATE.md](../release/RELEASE_GATE.md), [../reference/CAPABILITY_MATRIX.md](../reference/CAPABILITY_MATRIX.md).

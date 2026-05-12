@@ -17,7 +17,7 @@
     {
       "id": "L2",
       "goal": "gazebo_launch_smoke",
-      "entrypoint": "tools/run_launch_smoke.sh + tools/run_main_chain_smoke.sh",
+      "entrypoint": "tools/run_launch_smoke.sh + tools/run_main_chain_smoke.sh + tools/run_headless_sdk_smoke.sh",
       "requires_real_hardware": false
     },
     {
@@ -52,10 +52,13 @@
     "tools/run_loaded_sensor_acceptance.sh",
     "tools/run_full_task_acceptance.sh",
     "tools/run_launch_smoke.sh",
-    "tools/run_main_chain_smoke.sh"
+    "tools/run_main_chain_smoke.sh",
+    "tools/run_headless_sdk_smoke.sh",
+    "tools/run_experimental_opt_in_smoke.sh"
   ],
   "install_helpers": [
     "tools/check_runtime_diag_gate.py",
-    "tools/derive_runtime_diag_gate.py"
+    "tools/derive_runtime_diag_gate.py",
+    "tools/run_public_kinematics_probe.py"
   ]
 }

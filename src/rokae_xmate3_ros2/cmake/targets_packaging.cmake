@@ -25,6 +25,12 @@ else()
 endif()
 
 install(TARGETS
+  rokae_sim_runtime
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+  COMPONENT internal_runtime
+)
+
+install(TARGETS
   xcore_controller_gazebo_plugin
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -118,11 +124,14 @@ install(PROGRAMS
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/derive_runtime_diag_gate.py
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/publish_description_topic.py
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/render_robot_description.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_public_kinematics_probe.py
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_acceptance_layers.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_full_task_acceptance.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_headless_sdk_smoke.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_launch_smoke.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_loaded_sensor_acceptance.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_main_chain_smoke.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_experimental_opt_in_smoke.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_quick_gate.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_real_dryrun_acceptance.sh
   ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_release_gate.sh

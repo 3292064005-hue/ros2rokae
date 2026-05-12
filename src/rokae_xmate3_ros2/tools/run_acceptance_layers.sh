@@ -62,10 +62,13 @@ run_layer() {
     L2)
       local launch_smoke
       local main_chain_smoke
+      local headless_sdk_smoke
       launch_smoke="$(rokae_acceptance_tool_path "${SCRIPT_DIR}" "${WORKSPACE_ROOT}" run_launch_smoke.sh)"
       main_chain_smoke="$(rokae_acceptance_tool_path "${SCRIPT_DIR}" "${WORKSPACE_ROOT}" run_main_chain_smoke.sh)"
+      headless_sdk_smoke="$(rokae_acceptance_tool_path "${SCRIPT_DIR}" "${WORKSPACE_ROOT}" run_headless_sdk_smoke.sh)"
       "${launch_smoke}" "${WORKSPACE_ROOT}"
       "${main_chain_smoke}" "${WORKSPACE_ROOT}"
+      "${headless_sdk_smoke}" "${WORKSPACE_ROOT}"
       ;;
     L3)
       local dryrun

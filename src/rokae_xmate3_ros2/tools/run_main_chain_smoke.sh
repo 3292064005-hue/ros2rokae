@@ -50,8 +50,22 @@ if [[ -d "${BUILD_LIB_DIR}" ]]; then
   export LD_LIBRARY_PATH="${BUILD_LIB_DIR}:${LD_LIBRARY_PATH:-}"
 fi
 
-LOG_FILE="${WORKSPACE_ROOT}/build/rokae_xmate3_ros2/main_chain_smoke.log"
-mkdir -p "$(dirname "${LOG_FILE}")"
+LOG_DIR="${WORKSPACE_ROOT}/build/rokae_xmate3_ros2"
+SMOKE_LABEL="${ROKAE_MAIN_CHAIN_SMOKE_LABEL:-main_chain_smoke}"
+LOG_FILE="${LOG_DIR}/${SMOKE_LABEL}.log"
+mkdir -p "${LOG_DIR}"
+
+LAUNCH_PROFILE="${ROKAE_MAIN_CHAIN_LAUNCH_PROFILE:-public_xmate_er3_jtc}"
+BACKEND_MODE="${ROKAE_MAIN_CHAIN_BACKEND_MODE:-jtc}"
+SERVICE_EXPOSURE_PROFILE="${ROKAE_MAIN_CHAIN_SERVICE_EXPOSURE_PROFILE:-public_xmate_er3_only}"
+ENABLE_ROS2_CONTROL="${ROKAE_MAIN_CHAIN_ENABLE_ROS2_CONTROL:-true}"
+ENABLE_XCORE_PLUGIN="${ROKAE_MAIN_CHAIN_ENABLE_XCORE_PLUGIN:-true}"
+COMPATIBILITY_ALIAS_POLICY="${ROKAE_MAIN_CHAIN_COMPATIBILITY_ALIAS_POLICY:-canonical_only}"
+SERVICE_CALL_TIMEOUT="${ROKAE_MAIN_CHAIN_SERVICE_CALL_TIMEOUT:-60}"
+SERVICE_CALL_RETRIES="${ROKAE_MAIN_CHAIN_SERVICE_CALL_RETRIES:-3}"
+MOVE_TARGET_JOINTS="${ROKAE_MAIN_CHAIN_MOVE_TARGET_JOINTS:-[0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926]}"
+MOVE_TARGET_SPEED="${ROKAE_MAIN_CHAIN_MOVE_TARGET_SPEED:-80}"
+MOVE_TARGET_ZONE="${ROKAE_MAIN_CHAIN_MOVE_TARGET_ZONE:-5}"
 
 MODEL_PATH="${WORKSPACE_ROOT}/install/rokae_xmate3_ros2/share/rokae_xmate3_ros2/urdf/xMateER3.xacro"
 if [[ ! -f "${MODEL_PATH}" ]]; then
@@ -62,18 +76,18 @@ if [[ ! -f "${MODEL_PATH}" ]]; then
   exit 1
 fi
 
-echo "[main_chain_smoke] launching simulation..."
+echo "[main_chain_smoke] launching simulation profile=${LAUNCH_PROFILE} backend=${BACKEND_MODE} exposure=${SERVICE_EXPOSURE_PROFILE}..."
 ros2 launch rokae_xmate3_ros2 simulation.launch.py \
-  launch_profile:=public_xmate_er3_jtc \
+  launch_profile:="${LAUNCH_PROFILE}" \
   gui:=false \
   rviz:=false \
   allow_noncanonical_model:=true \
   model:="${MODEL_PATH}" \
-  enable_ros2_control:=true \
-  enable_xcore_plugin:=true \
-  backend_mode:=jtc \
-  service_exposure_profile:=public_xmate_er3_only \
-  compatibility_alias_policy:=canonical_only >"${LOG_FILE}" 2>&1 &
+  enable_ros2_control:="${ENABLE_ROS2_CONTROL}" \
+  enable_xcore_plugin:="${ENABLE_XCORE_PLUGIN}" \
+  backend_mode:="${BACKEND_MODE}" \
+  service_exposure_profile:="${SERVICE_EXPOSURE_PROFILE}" \
+  compatibility_alias_policy:="${COMPATIBILITY_ALIAS_POLICY}" >"${LOG_FILE}" 2>&1 &
 LAUNCH_PID=$!
 
 cleanup() {
@@ -103,6 +117,16 @@ wait_for_service() {
   done
 }
 
+assert_service_absent() {
+  local name="$1"
+  if ros2 service list | grep -Fxq "${name}"; then
+    echo "main_chain_smoke: service must not be registered in ${SERVICE_EXPOSURE_PROFILE}: ${name}" >&2
+    return 1
+  fi
+  echo "[main_chain_smoke] service correctly absent: ${name}"
+}
+
+LAST_SERVICE_RESPONSE=""
 call_service_expect_success() {
   local step_label="$1"
   local service_name="$2"
@@ -111,14 +135,30 @@ call_service_expect_success() {
 
   echo "[main_chain_smoke] ${step_label}"
   local response
-  if ! response="$(ros2 service call "${service_name}" "${service_type}" "${payload}" 2>&1)"; then
+  local attempt
+  for attempt in $(seq 1 "${SERVICE_CALL_RETRIES}"); do
+    if response="$(timeout "${SERVICE_CALL_TIMEOUT}" ros2 service call "${service_name}" "${service_type}" "${payload}" 2>&1)" &&
+        grep -q "success=True" <<< "${response}"; then
+      echo "${response}"
+      LAST_SERVICE_RESPONSE="${response}"
+      return 0
+    fi
     echo "${response}"
-    echo "main_chain_smoke: service call failed at ${service_name}" >&2
-    return 1
-  fi
-  echo "${response}"
-  if ! grep -q "success=True" <<< "${response}"; then
-    echo "main_chain_smoke: ${service_name} returned non-success response" >&2
+    if (( attempt < SERVICE_CALL_RETRIES )); then
+      echo "main_chain_smoke: retrying ${service_name} (${attempt}/${SERVICE_CALL_RETRIES})" >&2
+      sleep 1
+    fi
+  done
+  LAST_SERVICE_RESPONSE="${response}"
+  echo "main_chain_smoke: ${service_name} did not return a success response after ${SERVICE_CALL_RETRIES} attempt(s)" >&2
+  return 1
+}
+
+require_last_response_contains() {
+  local token="$1"
+  local label="$2"
+  if ! grep -q "${token}" <<< "${LAST_SERVICE_RESPONSE}"; then
+    echo "main_chain_smoke: ${label} missing token: ${token}" >&2
     return 1
   fi
 }
@@ -130,12 +170,83 @@ wait_for_service "/xmate_er3/cobot/set_motion_control_mode" 60
 wait_for_service "/xmate_er3/cobot/move_reset" 60
 wait_for_service "/xmate_er3/cobot/move_start" 60
 wait_for_service "/xmate_er3/cobot/get_joint_pos" 60
+wait_for_service "/xmate_er3/cobot/get_toolset" 60
+wait_for_service "/xmate_er3/cobot/set_toolset" 60
+wait_for_service "/xmate_er3/cobot/set_toolset_by_name" 60
+wait_for_service "/xmate_er3/cobot/get_soft_limit" 60
+wait_for_service "/xmate_er3/cobot/set_soft_limit" 60
+wait_for_service "/xmate_er3/cobot/calc_fk" 60
+wait_for_service "/xmate_er3/cobot/calc_ik" 60
+wait_for_service "/xmate_er3/cobot/get_end_wrench" 60
+wait_for_service "/xmate_er3/cobot/calc_joint_torque" 60
 wait_for_service "/xmate_er3/cobot/get_runtime_diagnostics" 60
+wait_for_service "/xmate_er3/cobot/get_runtime_state_snapshot" 60
+wait_for_service "/xmate_er3/cobot/get_profile_capabilities" 60
+wait_for_service "/xmate_er3/cobot/disconnect" 60
+
+if [[ "${SERVICE_EXPOSURE_PROFILE}" == "public_xmate_er3_only" ]]; then
+  assert_service_absent "/xmate_er3/cobot/enable_drag"
+  assert_service_absent "/xmate_er3/cobot/start_record_path"
+  assert_service_absent "/xmate_er3/cobot/set_rt_control_mode"
+  assert_service_absent "/xmate3/io/get_di"
+  assert_service_absent "/xmate3/cobot/read_register"
+  assert_service_absent "/xmate3/cobot/load_rl_project"
+fi
 
 call_service_expect_success "connect" \
   /xmate_er3/cobot/connect \
   rokae_xmate3_ros2/srv/Connect \
   "{remote_ip: '127.0.0.1', local_ip: '127.0.0.1'}"
+
+call_service_expect_success "profile capabilities" \
+  /xmate_er3/cobot/get_profile_capabilities \
+  rokae_xmate3_ros2/srv/GetProfileCapabilities \
+  "{}"
+require_last_response_contains "simulation_grade" "profile capabilities"
+require_last_response_contains "xmate_er3" "profile capabilities"
+
+call_service_expect_success "set_operate_mode(manual)" \
+  /xmate_er3/cobot/set_operate_mode \
+  rokae_xmate3_ros2/srv/SetOperateMode \
+  "{mode: 0}"
+
+call_service_expect_success "set_soft_limit(enable broad public limits)" \
+  /xmate_er3/cobot/set_soft_limit \
+  rokae_xmate3_ros2/srv/SetSoftLimit \
+  "{enable: true, limits: [-3.0527, 3.0527, -2.0933, 2.0933, -2.0933, 2.0933, -3.0527, 3.0527, -2.0933, 2.0933, -6.1082, 6.1082]}"
+
+call_service_expect_success "get_soft_limit(enabled)" \
+  /xmate_er3/cobot/get_soft_limit \
+  rokae_xmate3_ros2/srv/GetSoftLimit \
+  "{}"
+require_last_response_contains "enable=True" "get_soft_limit(enabled)"
+
+call_service_expect_success "set_soft_limit(disable before motion)" \
+  /xmate_er3/cobot/set_soft_limit \
+  rokae_xmate3_ros2/srv/SetSoftLimit \
+  "{enable: false, limits: [-3.0527, 3.0527, -2.0933, 2.0933, -2.0933, 2.0933, -3.0527, 3.0527, -2.0933, 2.0933, -6.1082, 6.1082]}"
+
+call_service_expect_success "set_toolset" \
+  /xmate_er3/cobot/set_toolset \
+  rokae_xmate3_ros2/srv/SetToolset \
+  "{tool_name: 'tool_smoke', wobj_name: 'fixture_smoke', tool_pose: [0.0, 0.0, 0.08, 0.0, 0.0, 0.0], wobj_pose: [0.20, -0.10, 0.30, 0.0, 0.0, 0.0]}"
+
+call_service_expect_success "set_toolset_by_name" \
+  /xmate_er3/cobot/set_toolset_by_name \
+  rokae_xmate3_ros2/srv/SetToolsetByName \
+  "{tool_name: 'tool_smoke', wobj_name: 'fixture_smoke'}"
+
+call_service_expect_success "get_toolset" \
+  /xmate_er3/cobot/get_toolset \
+  rokae_xmate3_ros2/srv/GetToolset \
+  "{}"
+require_last_response_contains "tool_smoke" "get_toolset"
+require_last_response_contains "fixture_smoke" "get_toolset"
+
+call_service_expect_success "calc_joint_torque" \
+  /xmate_er3/cobot/calc_joint_torque \
+  rokae_xmate3_ros2/srv/CalcJointTorque \
+  "{joint_pos: [0.0, -0.4, 0.35, 0.0, 0.45, 0.0], joint_vel: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], joint_acc: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], external_force: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}"
 
 call_service_expect_success "set_power_state(on)" \
   /xmate_er3/cobot/set_power_state \
@@ -159,7 +270,7 @@ call_service_expect_success "move_reset" \
 
 echo "[main_chain_smoke] move_append(absj) + move_start"
 MOVE_APPEND_LOG="${WORKSPACE_ROOT}/build/rokae_xmate3_ros2/main_chain_move_append.log"
-timeout 120 ros2 action send_goal /xmate_er3/cobot/move_append rokae_xmate3_ros2/action/MoveAppend "{absj_cmds: [{target: {joints: [0.2, -0.2, 0.3, -0.1, 0.2, 0.4], external: []}, speed: 20, zone: 5}], j_cmds: [], l_cmds: [], c_cmds: [], cf_cmds: [], sp_cmds: []}" >"${MOVE_APPEND_LOG}" 2>&1 &
+timeout 120 ros2 action send_goal /xmate_er3/cobot/move_append rokae_xmate3_ros2/action/MoveAppend "{absj_cmds: [{target: {joints: ${MOVE_TARGET_JOINTS}, external: []}, speed: ${MOVE_TARGET_SPEED}, zone: ${MOVE_TARGET_ZONE}}], j_cmds: [], l_cmds: [], c_cmds: [], cf_cmds: [], sp_cmds: []}" >"${MOVE_APPEND_LOG}" 2>&1 &
 MOVE_APPEND_PID=$!
 MOVE_APPEND_ACCEPT_TIMEOUT=30
 MOVE_APPEND_ACCEPT_START="$(date +%s)"
@@ -204,9 +315,53 @@ else
   exit 1
 fi
 
+POST_MOVE_SETTLE_SEC="${ROKAE_MAIN_CHAIN_POST_MOVE_SETTLE_SEC:-5}"
+echo "[main_chain_smoke] waiting ${POST_MOVE_SETTLE_SEC}s for runtime/JTC state to advance"
+sleep "${POST_MOVE_SETTLE_SEC}"
+
 call_service_expect_success "get_joint_pos" \
   /xmate_er3/cobot/get_joint_pos \
   rokae_xmate3_ros2/srv/GetJointPos \
+  "{}"
+
+KINEMATICS_PROBE="${SCRIPT_DIR}/run_public_kinematics_probe.py"
+if [[ ! -f "${KINEMATICS_PROBE}" ]]; then
+  echo "main_chain_smoke: missing public kinematics probe next to installed tools" >&2
+  exit 1
+fi
+call_service_expect_success "set_toolset_by_name(default for kinematics)" \
+  /xmate_er3/cobot/set_toolset_by_name \
+  rokae_xmate3_ros2/srv/SetToolsetByName \
+  "{tool_name: 'tool0', wobj_name: 'wobj0'}"
+echo "[main_chain_smoke] public kinematics fk/ik probe"
+"${ROKAE_PYTHON_EXECUTABLE:-python3}" "${KINEMATICS_PROBE}"
+call_service_expect_success "restore smoke toolset" \
+  /xmate_er3/cobot/set_toolset_by_name \
+  rokae_xmate3_ros2/srv/SetToolsetByName \
+  "{tool_name: 'tool_smoke', wobj_name: 'fixture_smoke'}"
+
+call_service_expect_success "get_end_wrench" \
+  /xmate_er3/cobot/get_end_wrench \
+  rokae_xmate3_ros2/srv/GetEndWrench \
+  "{ref_type: 0}"
+require_last_response_contains "SimApprox" "get_end_wrench"
+require_last_response_contains "joint_torque_measured" "get_end_wrench"
+
+call_service_expect_success "runtime state snapshot" \
+  /xmate_er3/cobot/get_runtime_state_snapshot \
+  rokae_xmate3_ros2/srv/GetRuntimeStateSnapshot \
+  "{}"
+require_last_response_contains "runtime-owned read snapshot" "runtime state snapshot"
+require_last_response_contains "tool_smoke" "runtime state snapshot"
+
+call_service_expect_success "stop" \
+  /xmate_er3/cobot/stop \
+  rokae_xmate3_ros2/srv/Stop \
+  "{}"
+
+call_service_expect_success "move_reset(after stop)" \
+  /xmate_er3/cobot/move_reset \
+  rokae_xmate3_ros2/srv/MoveReset \
   "{}"
 
 echo "[main_chain_smoke] get_runtime_diagnostics"
@@ -312,6 +467,11 @@ if ! "${ROKAE_PYTHON_EXECUTABLE:-python3}"   "${RUNTIME_DIAG_GATE_TOOL}"   "${DI
   echo "main_chain_smoke: runtime diagnostics threshold gate failed" >&2
   exit 1
 fi
+
+call_service_expect_success "disconnect" \
+  /xmate_er3/cobot/disconnect \
+  rokae_xmate3_ros2/srv/Disconnect \
+  "{}"
 
 echo "[main_chain_smoke] success"
 echo "[main_chain_smoke] launch log: ${LOG_FILE}"

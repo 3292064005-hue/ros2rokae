@@ -17,14 +17,16 @@ std::string readText(const std::filesystem::path &path) {
 
 const std::filesystem::path kProjectRoot = ROKAE_TEST_PROJECT_ROOT;
 
-TEST(ImplementationAudit, AuditDocExistsAndIsHonestAboutCoverage) {
-  const auto audit = readText(kProjectRoot / "docs" / "archive" / "audits" / "IMPLEMENTATION_AUDIT.md");
-  EXPECT_NE(audit.find("not yet a controller-grade parity implementation"), std::string::npos);
-  EXPECT_NE(audit.find("4.5 Realtime control"), std::string::npos);
-  EXPECT_NE(audit.find("Not fully closed"), std::string::npos);
-  EXPECT_NE(audit.find("Simulation-grade"), std::string::npos);
-  EXPECT_NE(audit.find("ReadRegisterEx"), std::string::npos);
-  EXPECT_NE(audit.find("GetEndWrench"), std::string::npos);
+TEST(ImplementationAudit, ActiveDocsAreHonestAboutCoverage) {
+  const auto readme = readText(kProjectRoot / "README.md");
+  const auto profiles = readText(kProjectRoot / "docs" / "public" / "RUNTIME_PROFILES.md");
+  const auto alignment = readText(kProjectRoot / "docs" / "reference" / "SDK_ALIGNMENT.md");
+  EXPECT_NE(readme.find("simulation-grade"), std::string::npos);
+  EXPECT_NE(readme.find("controller-grade"), std::string::npos);
+  EXPECT_NE(profiles.find("strict 1kHz fail-fast RT profile"), std::string::npos);
+  EXPECT_NE(profiles.find("simulation-grade"), std::string::npos);
+  EXPECT_NE(alignment.find("ReadRegisterEx"), std::string::npos);
+  EXPECT_NE(alignment.find("GetEndWrench"), std::string::npos);
 }
 
 TEST(ImplementationAudit, HardeningBacklogCapturesRemainingHighRiskWork) {
@@ -37,12 +39,14 @@ TEST(ImplementationAudit, HardeningBacklogCapturesRemainingHighRiskWork) {
   EXPECT_NE(backlog.find("rt_field_registry"), std::string::npos);
 }
 
-TEST(ImplementationAudit, ReadmeLinksToAuditAndBacklog) {
+TEST(ImplementationAudit, ReadmeLinksToActiveDocsAndContractAnchors) {
   const auto readme = readText(kProjectRoot / "README.md");
-  EXPECT_NE(readme.find("docs/archive/audits/IMPLEMENTATION_AUDIT.md"), std::string::npos);
-  EXPECT_NE(readme.find("docs/release/HARDENING_BACKLOG.md"), std::string::npos);
-  EXPECT_NE(readme.find("## 维护与审计入口"), std::string::npos);
+  EXPECT_NE(readme.find("docs/public/QUICKSTART.md"), std::string::npos);
+  EXPECT_NE(readme.find("docs/release/BUILD_RELEASE.md"), std::string::npos);
+  EXPECT_NE(readme.find("docs/release/ACCEPTANCE_LAYERS.md"), std::string::npos);
+  EXPECT_NE(readme.find("docs/reference/SDK_ALIGNMENT.md"), std::string::npos);
   EXPECT_NE(readme.find("<build>/generated/urdf/xMateER3.urdf"), std::string::npos);
+  EXPECT_EQ(readme.find("docs/archive/audits/IMPLEMENTATION_AUDIT.md"), std::string::npos);
   EXPECT_EQ(readme.find("│   ├── xMate3.urdf"), std::string::npos);
   EXPECT_EQ(readme.find("├── generated/"), std::string::npos);
 }

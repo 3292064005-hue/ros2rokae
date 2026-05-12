@@ -1,78 +1,70 @@
 # Architecture
 
-> 状态：Active  
-> 受众：Runtime / SDK 维护者  
-> 作用：主链、状态权威、分层与扩展边界的唯一高层架构说明  
-> 上游事实来源：runtime sources、launch/runtime host builder、contract tests  
-> 最后校验：2026-04-18
+Status: Active
+Audience: runtime and SDK maintainers
+Purpose: high-level package identity, runtime authority, target layering, and extension boundaries
 
-## 1. Platform identity
+## Platform Identity
 
-本仓当前身份是：
-- **xMateER3 public SDK compatibility lane**
-- 通过 ROS2/Gazebo-backed runtime 提供 install-facing compat facade
-- 保留 legacy `rokae_xmate3_ros2` 包名与部分历史入口，仅用于兼容
+This repository is the xMateER3 public SDK compatibility lane. It keeps the historical ROS package name `rokae_xmate3_ros2` for compatibility, but the current public identity is the xMateER3 six-axis lane and the install-facing `xCoreSDK` surface.
 
-不是：
-- 全机型通用 SDK 文档仓
-- 真机控制柜级 authoritative RT 文档仓
-- RL / IO / calibration 公共说明仓
+It is not a generic multi-robot SDK, not a controller-grade hardware RT proof, and not a public RL/IO/calibration documentation set.
 
-## 2. Main layers
+## Runtime Layers
 
-1. public SDK façade (`include/rokae/*`, `xCoreSDK::*`)
-2. runtime services / actions / queries
-3. request coordinator / motion runtime / state authority
-4. backend / simulation host
+1. public SDK facade: `include/rokae/*`, `xCoreSDK::*`
+2. runtime services, actions, queries, and diagnostics
+3. request coordinator, motion runtime, and state authority
+4. backend provider and simulation/runtime host
 
-## 3. Immutable design rules
+Runtime is the only state authority. Public query and topic paths must flow through runtime/coordinator authority instead of raw fetchers.
 
-### Runtime is the only state authority
-所有状态真值都必须回到 runtime/coordinator authority surface。
+## Target Layering Contract
 
-### Main contracts and legacy contracts must be explicit
-- preferred surface: public xMateER3 lane
-- legacy facade: 兼容历史名称，但不能伪装成新的主契约
+The repository stays as one ROS 2 package, but build and install surfaces are frozen by target role:
 
-### Kinematics uses one primary backend per request
-单个请求必须使用一个 primary backend；详见 `docs/public/KINEMATICS_AND_MODEL.md`。
+- `rokae_xmate3_ros2_runtime_motion_core`
+- `rokae_xmate3_ros2_runtime_state`
+- `rokae_xmate3_ros2_runtime_facade`
+- `rokae_xmate3_ros2_runtime_ros_bridge`
+- `rokae_xmate3_ros2_runtime_control_bridge`
+- `rokae_xmate3_ros2_runtime_core`
+- `rokae_xmate3_ros2_runtime_test`
+- `xCoreSDK_static`
+- `xCoreSDK_shared`
+- `xCoreSDK_core`
+- `xCoreSDK_ros_bridge`
 
-### RT and NRT remain permanently split
-RT 与 NRT 语义永久分层；RT 在 Gazebo 中只声明 simulation-grade，不伪装成 controller-grade。
+Dependency direction is fixed:
 
-### Backend providers are resolved through one provider interface
-更具体的 provider/host/backend 边界见 [`PROVIDER_BOUNDARY.md`](PROVIDER_BOUNDARY.md)。唯一允许的解析链仍是 `RuntimeBackendProviderHost -> RuntimeBackendProvider -> BackendInterface`。
+- motion/state/facade/ros_bridge/control_bridge feed the runtime assembly.
+- `runtime_core` and `runtime_test` consume shared runtime assembly only.
+- `xCoreSDK_static` and `xCoreSDK_shared` consume compat facade, runtime object layers, and SDK backend objects.
+- `xCoreSDK_core` is the SDK-shaped minimum consumer surface; it is not an empty INTERFACE shell.
+- `xCoreSDK_ros_bridge` is the explicit install-facing ROS 2 runtime/action/service bridge.
+- public ABI exports `include/rokae/*` and `xCoreSDK::*`; backend/internal headers stay gated.
 
-## 4. Fidelity semantics
+## Design Rules
 
-- **StrictAligned**：接口与语义已收口到当前 public 主线
-- **SimApprox**：接口可用，但底层为仿真近似
-- **Experimental**：只允许 internal/runtime lane 公开
+- Preferred public surface is `/xmate_er3/*`; legacy `/xmate3/*` names require explicit compatibility alias policy.
+- RT and NRT stay split. Gazebo RT paths are simulation-grade and are not controller-grade parity claims.
+- A kinematics request must use one primary backend. KDL is primary; `improved_dh` is auxiliary.
+- New motion/runtime extensions must pass the `motion_extension_contract` fail-fast checks before registration.
+- Backend resolution uses the single provider chain described in [PROVIDER_BOUNDARY.md](PROVIDER_BOUNDARY.md): `RuntimeBackendProviderHost -> RuntimeBackendProvider -> BackendInterface`.
+- Backend factories use one generic backend factory request shape, not host-specific factory entrypoints.
 
-## 5. Catalog and contract policy
+## Allowed Extension Domains
 
-- runtime catalog 是 tool/wobj/runtime state 的唯一真值源
-- public lane 不能继续扩写 RL / IO / calibration 的公共承诺
-- 新能力接入前必须过 `motion_extension_contract` 启动期 fail-fast 校验
-
-## 6. Extension domains
-
-允许扩展：
-- xMateER3 public lane 文档与 compat facade
+- xMateER3 public lane docs and compat facade
 - runtime query authority
-- diagnostics / catalog / host lifecycle
+- diagnostics, catalog, and host lifecycle
+- acceptance/reporting gates
 
-不应再在 public lane 继续扩展：
-- RL
-- IO
-- calibration
-- experimental RT examples
+Do not extend the default public lane with RL, IO, calibration, or experimental RT examples. Those remain explicit experimental/internal surfaces.
 
-## 7. Related docs
+## Related Docs
 
-- [`PROVIDER_BOUNDARY.md`](PROVIDER_BOUNDARY.md)
-- [`../public/RUNTIME_PROFILES.md`](../public/RUNTIME_PROFILES.md)
-- [`../public/KINEMATICS_AND_MODEL.md`](../public/KINEMATICS_AND_MODEL.md)
-
-
-- target-level layering contract: `docs/architecture/TARGET_LAYERING.md`
+- [PROVIDER_BOUNDARY.md](PROVIDER_BOUNDARY.md)
+- [../public/RUNTIME_PROFILES.md](../public/RUNTIME_PROFILES.md)
+- [../public/KINEMATICS_AND_MODEL.md](../public/KINEMATICS_AND_MODEL.md)
+- [../release/ACCEPTANCE_LAYERS.md](../release/ACCEPTANCE_LAYERS.md)

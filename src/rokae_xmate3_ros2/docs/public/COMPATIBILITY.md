@@ -1,116 +1,91 @@
 # Compatibility
 
-> 状态：Active  
-> 受众：Public SDK 集成者 / 兼容性审计人员  
-> 作用：xMateER3 public compatibility lane 的唯一主说明  
-> 上游事实来源：`include/rokae/*`、`cmake/targets_sdk_compat.cmake`、`cmake/xCoreSDKConfig.cmake.in`、`docs/reference/xmate_er3_alignment_manifest.json`、compat tests  
-> 最后校验：2026-04-18
+Status: Active
+Audience: public SDK integrators and compatibility reviewers
+Purpose: current xMateER3 public lane boundary and opt-in rules
 
-## 1. Scope
+## 1. Public Scope
 
-当前 public contract 只覆盖：
-- xMateER3 六轴 public lane
-- `rokae/robot.h`
-- `rokae/model.h`
-- `rokae/motion_control_rt.h`
-- `rokae/planner.h`
-- `rokae/data_types.h`
-- `rokae/utility.h`
-- install-facing targets: `xCoreSDK::xCoreSDK_core`, `xCoreSDK::xCoreSDK_shared`, `xCoreSDK::xCoreSDK_ros_bridge`（其中主消费者为 `xCoreSDK::xCoreSDK_core`；运行时桥接 target 需显式组件请求；兼容导出仍保留 `xCoreSDK::xCoreSDK_static`）
+The public contract covers:
 
-明确排除：
-- 标定
-- RL
-- IO / 寄存器 / xPanel 的 public 承诺
-- internal/full service exposure
-- experimental RT loop examples
-- path record/replay as default public behavior
+- xMateER3 six-axis public lane
+- public headers: `rokae/robot.h`, `rokae/model.h`, `rokae/motion_control_rt.h`, `rokae/planner.h`, `rokae/data_types.h`, `rokae/utility.h`
+- install-facing targets: `xCoreSDK::xCoreSDK_core`, `xCoreSDK::xCoreSDK_shared`, `xCoreSDK::xCoreSDK_static`, `xCoreSDK::xCoreSDK_ros_bridge`
+- canonical ROS surface under `/xmate_er3/*`
 
-## 2. Consumer contract
+The default public lane excludes calibration, RL, generic IO/register/xPanel parity, internal/full service exposure, controller-grade hardware RT parity, and path record/replay as default public behavior.
 
-### CMake
+Everything else in the default public simulation lane is expected to be smoke-verifiable: connection lifecycle, power/mode control, state queries, toolset, soft limits, FK/IK, NRT motion queue/start/stop/reset, wrench diagnostics, runtime snapshot, and profile capability reporting.
+
+## 2. Consumer Contract
+
+Primary install-tree consumer:
+
 ```cmake
 find_package(xCoreSDK COMPONENTS core CONFIG REQUIRED)
 add_executable(app main.cpp)
-# install-facing 主消费者：
 target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_core)
 ```
 
-若只做纯模型/规划消费，再改用 `find_package(xCoreSDK COMPONENTS core CONFIG REQUIRED)` + `xCoreSDK::xCoreSDK_core`。
+Runtime component consumers must request components explicitly:
 
-### Public include surface
-```cpp
-#include <rokae/robot.h>
-#include <rokae/model.h>
-#include <rokae/motion_control_rt.h>
-#include <rokae/planner.h>
-#include <rokae/data_types.h>
-#include <rokae/utility.h>
+```cmake
+find_package(xCoreSDK COMPONENTS shared static ros_bridge CONFIG REQUIRED)
+target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_shared)
 ```
 
-说明：
-- `rokae_xmate3_ros2/*`、`rokae/sdk_shim*.hpp`、`rokae/detail/*` 不属于 install-facing public contract。
-- `xCoreSDK::xCoreSDK_core` 是 install-facing 主消费者；`xCoreSDK::xCoreSDK_shared` / `xCoreSDK::xCoreSDK_static` / `xCoreSDK::xCoreSDK_ros_bridge` 仅在显式请求 shared/static/ros_bridge 组件时导出，用于 Robot 会话、RT 控制和 ROS2 runtime / action / service 桥接能力。
-- source-tree package 仍然可以声明 ROS2/Gazebo 依赖用于仿真构建；但 install-facing `xCoreSDK` public target 不再把 Gazebo 作为 public CMake 直绑依赖导出。
-- 默认 launch/runtime host 与 install-facing `xCoreSDK_BACKEND_MODE` 统一由 `config/default_runtime_host_policy.env` 单点导出到 `xCoreSDKConfig.cmake`。
+Rules:
 
-## 3. Behavioral contract
+- `xCoreSDK::xCoreSDK_core` is the install-facing primary consumer.
+- `xCoreSDK::xCoreSDK_shared`, `xCoreSDK::xCoreSDK_static`, and `xCoreSDK::xCoreSDK_ros_bridge` are opt-in component paths.
+- `rokae_xmate3_ros2/*`, `rokae/sdk_shim*.hpp`, and `rokae/detail/*` are not install-facing public contracts.
+- Source-tree ROS/Gazebo dependencies are allowed for simulation builds; they are not exported as public CMake dependencies of the core target.
 
-- `MoveAppend`：**queue accepted** 即成功；执行由 `moveStart()` 提交。
-- `stop()`：pause-only。
-- `moveReset()`：清队列与执行缓存。
-- `calibrateFrame()`：仅保留签名，返回 `function_not_supported`。
-- `GetEndWrench`：public lane 的首选扩展查询面。
-- `MoveSP`：experimental NRT extension；启用 profile 为 `public_xmate_er3_experimental` 或 `internal_full`；类型和 SDK overload 为 source compatibility 保留，但默认 public profile 会在 `MoveAppend` payload 进入队列前拒绝 `sp_cmds`。
-- 路径录制/回放：默认 public profile 不注册；即使内部调用到 replay 构建路径，也会按 service exposure 拒绝。
-- `replayPath()`：experimental immediate-submit side-lane，不进入默认 staged NRT 主链。
-- profile capability 查询返回 machine-readable `authority_scope / fidelity_class / model_revision`。
+## 3. Behavioral Contract
 
-## 4. Alignment summary
+- `MoveAppend`: queue accepted means success; execution begins only through `moveStart()`.
+- `stop()`: pause-only.
+- `moveReset()`: clears queued NRT work and runtime execution cache.
+- `calibrateFrame()`: compatibility signature only; returns `function_not_supported`.
+- `GetEndWrench`: preferred public wrench query.
+- `GetEndEffectorTorque`: legacy compatibility facade.
+- `MoveSP`: experimental extension; default public profile rejects `sp_cmds` before queueing.
+- RT compatibility APIs remain explicit opt-in; Gazebo 语义仍是 simulation-grade.
+- 路径录制/回放: 默认 public profile 不注册; enable only through `public_xmate_er3_experimental` or `internal_full`.
+- `replayPath()`: experimental immediate-submit side-lane and does not require `moveStart()`.
+- Public smoke must also prove that IO/RL/register services are absent and that headless SDK smoke follows the same public behavior as Gazebo/JTC.
 
-| 区域 | 当前状态 | 说明 |
+## 4. Alignment Summary
+
+| Area | Status | Notes |
 |---|---|---|
-| 机器人基本操作及信息查询 | 对齐 | xMateER3 public lane 主路径 |
-| 非实时运动控制 | 对齐 | NRT queue/start/pause 语义已收口 |
-| 实时控制 | experimental opt-in | install-facing 和 ROSIDL 类型保留接口；默认 public profile 不注册 RT ROS 服务；Gazebo 语义仍是 simulation-grade |
-| IO / communication | 不纳入 public | 仅保留 legacy/internal 语义 |
-| RL project | 不纳入 public | 仅保留 internal/backend 语义 |
-| cobot specific | experimental opt-in | 拖动、路径录制/回放不属于默认 public profile；奇异规避不纳入 public |
-| planner | 默认主链对齐 | `MoveSP` 和路径回放属于 experimental extension，不属于默认主链 |
-| model | 仿真近似 | 见 `KINEMATICS_AND_MODEL.md` |
+| basic robot operations and state queries | aligned | xMateER3 public lane |
+| NRT motion | aligned | queue/start/pause/reset semantics are fixed |
+| RT compatibility APIs | experimental opt-in | installed signatures remain; default public ROS services are not registered |
+| IO / communication | outside public scope | internal/legacy only |
+| RL project | outside public scope | internal/backend only |
+| planner | aligned default lane | `MoveSP` and path replay are experimental extensions |
+| model | simulation-grade | see [KINEMATICS_AND_MODEL.md](KINEMATICS_AND_MODEL.md) |
 
-## 5. Source-tree boundary
+## 5. Source Layout
 
-- public contract ROSIDL root: `srv/`
-- internal/backend-only ROSIDL root: `internal_interfaces/srv/`
-- public examples root: `examples/cpp/`
-- internal/backend examples root: `examples/internal/cpp/`
+- public ROSIDL root: `srv/`
+- internal/backend ROSIDL root: `internal_interfaces/srv/`
+- public examples: `examples/cpp/`
+- internal/backend examples: `examples/internal/cpp/`
 
-## 6. Related docs
+## 6. Compatibility Alias Policy
 
-- [`../reference/SDK_ALIGNMENT.md`](../reference/SDK_ALIGNMENT.md)
-- [`../reference/RUNTIME_STATE_MACHINE.md`](../reference/RUNTIME_STATE_MACHINE.md)
-- [`../reference/RECORDED_PATH_SCHEMA.md`](../reference/RECORDED_PATH_SCHEMA.md)
-- [`RUNTIME_PROFILES.md`](RUNTIME_PROFILES.md)
-- [`../release/BUILD_RELEASE.md`](../release/BUILD_RELEASE.md)
-- [`EXAMPLES.md`](EXAMPLES.md)
+`compatibility_alias_policy` accepts `canonical_only`, `canonical_plus_compat`, or `legacy_only`. The default is `canonical_only`.
 
+Use `/xmate_er3/*` for current public code. Use `/xmate3/*` only for explicit compatibility-alias testing.
 
-- [`../release/ACCEPTANCE_LAYERS.md`](../release/ACCEPTANCE_LAYERS.md)
+## 7. Consumer Matrix
 
+- `test/compat/install_tree_core_only/`: core-only public consumer.
+- `test/compat/install_tree_runtime_components/`: explicit runtime component path for `shared/static/ros_bridge`.
+- `test/compat/install_tree/`: aggregate compatibility regression harness.
 
-- `compatibility_alias_policy`：`canonical_plus_compat` / `canonical_only` / `legacy_only`，默认导出为 `canonical_only`。
+The model facade public header depends on the backend-neutral provider interface only. Gazebo-backed provider ownership is an implementation detail guarded by runtime source-integrity checks.
 
-## 7. Consumer matrix
-
-Install-tree consumer coverage is split by contract surface:
-
-- `test/compat/install_tree_core_only/` validates the pure C++ core SDK consumer without resolving runtime/ROS bridge targets.
-- `test/compat/install_tree_runtime_components/` validates the explicit runtime component path for `shared/static/ros_bridge`.
-- `test/compat/install_tree/` remains the aggregate compatibility regression harness.
-
-This split is intentional: the core target is the install-facing primary consumer, while runtime and ROS bridge targets are opt-in components.
-
-### Public model provider boundary
-
-The model facade public header depends on the backend-neutral provider interface only. Gazebo-backed provider ownership is an implementation detail and is guarded by the runtime source-integrity checks.
+Related docs: [../reference/SDK_ALIGNMENT.md](../reference/SDK_ALIGNMENT.md), [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md), [../release/BUILD_RELEASE.md](../release/BUILD_RELEASE.md), [EXAMPLES.md](EXAMPLES.md).

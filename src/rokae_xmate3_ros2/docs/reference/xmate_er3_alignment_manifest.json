@@ -245,8 +245,7 @@
     "public_root": "docs/public/",
     "architecture_root": "docs/architecture/",
     "release_root": "docs/release/",
-    "reference_root": "docs/reference/",
-    "archive_root": "docs/archive/"
+    "reference_root": "docs/reference/"
   },
   "provider_boundary_evidence": [
     "RuntimeBackendFactoryRequest",

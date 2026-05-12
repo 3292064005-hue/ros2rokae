@@ -1,78 +1,124 @@
-# 快速入门指南
+# Quickstart
 
-> 状态：Active  
-> 受众：第一次使用本仓的人  
-> 作用：最短路径跑起 xMateER3 六轴 public lane  
-> 最后校验：2026-04-18
+Status: Active
+Audience: first-time users and acceptance runners
+Purpose: shortest path to build, launch, smoke, and diagnose the xMateER3 public lane
 
-## 1. 先确认范围
+## Scope
 
-当前快速入门只覆盖：
-- xMateER3 六轴 public compatibility lane
-- canonical launch
-- 非实时主链和 public examples
-- ROS2/Gazebo-backed install-facing compatibility lane
+This guide covers the xMateER3 six-axis public compatibility lane, canonical launch, public examples, and the ROS2/Gazebo-backed install-facing compatibility lane.
 
-不覆盖：
-- 标定
-- RL
-- IO
-- internal/backend 专家路径
+It does not cover calibration, RL, generic IO/register parity, or internal/backend expert paths.
 
-## 2. 环境准备
+## Environment
 
-### baseline
+Target baseline:
+
 - Ubuntu 22.04
-- ROS2 Humble
+- ROS 2 Humble
 - Gazebo 11
+- initialized `rosdep` database
 
-### 依赖安装
+Install common dependencies:
+
 ```bash
-sudo apt install   ros-humble-desktop-full   ros-humble-gazebo-ros   ros-humble-gazebo-ros-pkgs   ros-humble-ros2-control   ros-humble-ros2-controllers   ros-humble-joint-state-publisher-gui   ros-humble-xacro   python3-numpy   python3-lxml   libeigen3-dev
+sudo apt install \
+  ros-humble-desktop-full \
+  ros-humble-gazebo-ros \
+  ros-humble-gazebo-ros-pkgs \
+  ros-humble-ros2-control \
+  ros-humble-ros2-controllers \
+  ros-humble-joint-state-publisher-gui \
+  ros-humble-xacro \
+  python3-numpy \
+  python3-lxml \
+  libeigen3-dev
 ```
 
-先执行安装态 preflight：
+Preflight after install:
+
 ```bash
 ROKAE_PKG_PREFIX="$(ros2 pkg prefix rokae_xmate3_ros2)"
 ROKAE_TOOLS="${ROKAE_PKG_PREFIX}/share/rokae_xmate3_ros2/tools"
 "${ROKAE_TOOLS}/check_target_environment.sh"
 ```
 
-## 3. 编译工作空间
+## Build
 
-### install-facing mirrored entrypoint
-公共快速入门只给 install-facing 命令：
+Source workspace path used by the maintained gates:
+
 ```bash
-cd ~/ros2_ws0
+cd /media/chen/New/plform/project/ros2_ws0
 source /opt/ros/humble/setup.bash
-ROKAE_PKG_PREFIX="$(ros2 pkg prefix rokae_xmate3_ros2)"
-ROKAE_TOOLS="${ROKAE_PKG_PREFIX}/share/rokae_xmate3_ros2/tools"
-"${ROKAE_TOOLS}/clean_build_env.sh" colcon build --packages-select rokae_xmate3_ros2 --symlink-install
+bash src/rokae_xmate3_ros2/tools/clean_build_env.sh \
+  colcon build --packages-select rokae_xmate3_ros2 --symlink-install
 source install/setup.bash
 ```
 
-维护命令只在 [`../release/BUILD_RELEASE.md`](../release/BUILD_RELEASE.md) 中说明，不在 install-facing 公共文档里展开。
+Release/source-tree validation is documented in [../release/BUILD_RELEASE.md](../release/BUILD_RELEASE.md). The full gate runs with `ROKAE_PUBLIC_SDK_REPLAY_ONLY=OFF` and is not a real hardware/实机 validation.
 
-## 4. 启动 public lane
+## Launch
 
-### canonical 入口
+Canonical default:
+
 ```bash
 ros2 launch rokae_xmate3_ros2 simulation.launch.py
 ```
 
-或：
+Equivalent public wrapper:
+
 ```bash
 ros2 launch rokae_xmate3_ros2 xmate_er3_public.launch.py
 ```
 
-说明：
-- `simulation.launch.py` 是规范入口
-- `xmate3_simulation.launch.py` / `xmate3_gazebo.launch.py` 是兼容别名
-- `launch_profile` 默认值现在由 `config/default_runtime_host_policy.env` 提供，默认 profile 为 `public_xmate_er3_jtc`
-- `launch_profile` 现在 fail-fast，未知值会直接报错
-- `public_xmate_er3_jtc` 默认 `require_runtime_readiness:=true`，会等待 controller manager、active JTC controller 和 FollowJointTrajectory action server；只做 launch 排查时才关闭该检查
+Useful smoke variants:
 
-## 5. 运行 public 示例
+```bash
+ros2 launch rokae_xmate3_ros2 simulation.launch.py \
+  launch_profile:=public_xmate_er3_jtc gui:=false rviz:=false
+
+ros2 launch rokae_xmate3_ros2 simulation.launch.py \
+  launch_profile:=public_xmate_er3_headless_sdk_smoke gui:=false rviz:=false
+```
+
+Notes:
+
+- `simulation.launch.py` is the canonical entry.
+- `xmate3_simulation.launch.py` and `xmate3_gazebo.launch.py` are compatibility aliases.
+- Unknown `launch_profile` values fail fast.
+- `public_xmate_er3_jtc` defaults to `require_runtime_readiness:=true`, waiting for controller manager, active JTC, and the FollowJointTrajectory action server.
+
+## Verify
+
+Run static contracts:
+
+```bash
+bash src/rokae_xmate3_ros2/tools/run_static_sanity.sh
+```
+
+Run source-tree quick/semantic gate:
+
+```bash
+ROKAE_IGNORE_ENV_LOCK=1 bash src/rokae_xmate3_ros2/tools/run_full_source_tree_build_gate.sh \
+  /media/chen/New/plform/project/ros2_ws0 --ctest-labels 'quick_gate;semantic_gate'
+```
+
+Use the environment-lock version without `ROKAE_IGNORE_ENV_LOCK=1` for release evidence.
+
+Run launch, JTC main-chain, headless SDK, and explicit experimental opt-in smoke:
+
+```bash
+bash src/rokae_xmate3_ros2/tools/run_launch_smoke.sh /media/chen/New/plform/project/ros2_ws0
+bash src/rokae_xmate3_ros2/tools/run_main_chain_smoke.sh /media/chen/New/plform/project/ros2_ws0
+bash src/rokae_xmate3_ros2/tools/run_headless_sdk_smoke.sh /media/chen/New/plform/project/ros2_ws0
+bash src/rokae_xmate3_ros2/tools/run_experimental_opt_in_smoke.sh /media/chen/New/plform/project/ros2_ws0
+```
+
+`run_main_chain_smoke.sh` proves the default public chain: connect/disconnect, power, operate mode, toolset, soft limit, FK/IK, NRT motion, wrench diagnostics, runtime snapshot, and absence of non-target IO/RL/register services.
+
+Runtime diagnostics thresholds can be inspected and recalibrated with `share/rokae_xmate3_ros2/tools/derive_runtime_diag_gate.py`.
+
+## Public Examples
 
 ```bash
 ros2 run rokae_xmate3_ros2 example_04_motion_basic
@@ -80,18 +126,20 @@ ros2 run rokae_xmate3_ros2 example_15_move_queue_and_events
 ros2 run rokae_xmate3_ros2 example_99_complete_demo
 ```
 
-更多示例见 [`EXAMPLES.md`](EXAMPLES.md)。
+More examples are listed in [EXAMPLES.md](EXAMPLES.md).
 
-## 6. install-facing C++ 工程消费
+## Install-Tree C++ Consumer
+
+Core-only install-facing 主消费者:
 
 ```cmake
 find_package(xCoreSDK COMPONENTS core CONFIG REQUIRED)
 add_executable(app main.cpp)
-# install-facing 主消费者：
 target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_core)
 ```
 
-只使用公共头：
+Public headers:
+
 ```cpp
 #include <rokae/robot.h>
 #include <rokae/model.h>
@@ -101,49 +149,39 @@ target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_core)
 #include <rokae/utility.h>
 ```
 
-不要把 `rokae/sdk_shim*.hpp` 当作安装态 public contract；这些头属于兼容实现细节。
+Do not treat `rokae/sdk_shim*.hpp` as an install-facing public contract.
 
-需要 Robot/RT/runtime bridge 时，显式请求：
+Robot session, RT control, or ROS bridge consumers must request runtime components explicitly:
+
 ```cmake
 find_package(xCoreSDK COMPONENTS shared static ros_bridge CONFIG REQUIRED)
 target_link_libraries(app PRIVATE xCoreSDK::xCoreSDK_shared)
 ```
 
-只做纯 SDK / 模型消费时，可改用：
-```cmake
-find_package(xCoreSDK COMPONENTS core CONFIG REQUIRED)
-```
-这条路径只解析 `xCoreSDK::xCoreSDK_core`，并只暴露模型/规划 core 能力；`Robot` 会话、RT 控制需要显式请求 `shared` 组件并链接 `xCoreSDK::xCoreSDK_shared`，ROS2 action/service 桥接则走 `xCoreSDK::xCoreSDK_ros_bridge`。兼容导出仍保留 `xCoreSDK::xCoreSDK_static`，但不再作为主消费者验证链。
+`xCoreSDK::xCoreSDK_ros_bridge` is the ROS bridge target. `xCoreSDK::xCoreSDK_static` is retained for compatibility, but the primary consumer remains `xCoreSDK::xCoreSDK_core`.
 
-## 7. 先记住这 5 条语义
+Install-tree consumer tests are split:
 
-1. `MoveAppend` 只负责排队，**queue accepted** 就返回成功。
-2. `moveStart()` 才真正提交执行。
-3. `stop()` 是 pause，不清空队列。
-4. `moveReset()` 才会丢弃已排队 NRT 请求。
-5. `replayPath()` 是立即提交型 side-lane，不经过 `moveStart()`。
+- `test/compat/install_tree_core_only/`: `find_package(xCoreSDK COMPONENTS core CONFIG REQUIRED)` and `xCoreSDK::xCoreSDK_core`.
+- `test/compat/install_tree_runtime_components/`: explicit shared/static/ros_bridge runtime component path.
+- `test/compat/install_tree/`: aggregate regression harness.
 
-## 8. 出错先看哪里
+## Behavioral Reminders
 
-- 环境/依赖：[`../release/BUILD_RELEASE.md`](../release/BUILD_RELEASE.md)
-- profile / query authority：[`RUNTIME_PROFILES.md`](RUNTIME_PROFILES.md)
-- public contract：[`COMPATIBILITY.md`](COMPATIBILITY.md)
-- runtime 状态机：[`../reference/RUNTIME_STATE_MACHINE.md`](../reference/RUNTIME_STATE_MACHINE.md)
-- 路径录制/回放仅用于 experimental/internal exposure，不属于默认 public 主链
-- 示例分层：[`EXAMPLES.md`](EXAMPLES.md)
-- 诊断门限派生工具：`share/rokae_xmate3_ros2/tools/derive_runtime_diag_gate.py`
-- 分层验收矩阵：[`../release/ACCEPTANCE_LAYERS.md`](../release/ACCEPTANCE_LAYERS.md)
+1. `MoveAppend` returns success when the queue accepts the command.
+2. `moveStart()` starts staged NRT execution.
+3. `stop()` pauses; `moveReset()` clears queued work.
+4. `replayPath()` is an experimental immediate-submit side-lane.
+5. Default public profile does not register path record/replay, drag, or RT ROS services.
+6. Headless SDK smoke uses the same public semantics without Gazebo GUI/JTC.
 
-## 9. install-tree consumer matrix
+## Troubleshooting Map
 
-安装态消费样例拆成三层，避免把主消费者和运行时组件混在一起：
-
-- `test/compat/install_tree_core_only/`：只请求 `find_package(xCoreSDK COMPONENTS core CONFIG REQUIRED)`，只链接 `xCoreSDK::xCoreSDK_core`。
-- `test/compat/install_tree_runtime_components/`：显式请求 `shared static ros_bridge`，用于 Robot/RT/runtime bridge 消费面。
-- `test/compat/install_tree/`：聚合型回归样例，用于一次性覆盖 core 与 runtime 组合契约。
-
-因此，`xCoreSDK::xCoreSDK_core` 是 install-facing 主消费者；`xCoreSDK::xCoreSDK_shared` 和 `xCoreSDK::xCoreSDK_ros_bridge` 只属于显式 runtime/bridge 组件路径。
-
-### Model facade include rule
+- Environment fails before build: [../release/ENVIRONMENT_LOCK.md](../release/ENVIRONMENT_LOCK.md)
+- Build/release gates: [../release/BUILD_RELEASE.md](../release/BUILD_RELEASE.md)
+- Runtime profile or query authority: [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)
+- Public contract: [COMPATIBILITY.md](COMPATIBILITY.md)
+- Runtime state machine: [../reference/RUNTIME_STATE_MACHINE.md](../reference/RUNTIME_STATE_MACHINE.md)
+- Acceptance layers: [../release/ACCEPTANCE_LAYERS.md](../release/ACCEPTANCE_LAYERS.md)
 
 Applications that include `rokae_xmate3_ros2/model_facade.hpp` receive only the backend-neutral provider contract. Concrete Gazebo provider headers are not part of the public facade include chain.

@@ -75,7 +75,7 @@ release gate 执行链见 [`RELEASE_GATE.md`](RELEASE_GATE.md)。
 ## 6.1 Acceptance layers
 
 确认方案要求的 L0-L5 分层验收体系见 [`ACCEPTANCE_LAYERS.md`](ACCEPTANCE_LAYERS.md)。
-source-tree / CI 默认只强制 L0-L2；其中 L1 必须执行 `xmate_er3_alignment` 行为 bundle。L3-L5 通过独立脚本在真实 runtime 环境中执行。
+source-tree / CI 默认只强制 L0-L2；其中 L1 必须执行 `xmate_er3_alignment` 行为 bundle，L2 必须覆盖 launch discovery、Gazebo/JTC main-chain smoke 和 headless SDK smoke。L3-L5 通过独立脚本在真实 runtime 环境中执行。
 
 ## 7. Source-tree physical split
 
@@ -85,7 +85,8 @@ source-tree / CI 默认只强制 L0-L2；其中 L1 必须执行 `xmate_er3_align
 
 ## 8. Maintenance docs
 
-- 实现审计：[`../archive/audits/IMPLEMENTATION_AUDIT.md`](../archive/audits/IMPLEMENTATION_AUDIT.md)
+- 当前架构边界：[`../architecture/ARCHITECTURE.md`](../architecture/ARCHITECTURE.md)
+- SDK 对齐参考：[`../reference/SDK_ALIGNMENT.md`](../reference/SDK_ALIGNMENT.md)
 - 剩余硬化项：[`HARDENING_BACKLOG.md`](HARDENING_BACKLOG.md)
 
 ## 9. Non-replay full source-tree build gate

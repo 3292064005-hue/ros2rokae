@@ -69,11 +69,12 @@ TEST(ContractSurface, RobotHeaderAgainTransitivelyIncludesPlannerHeader) {
   EXPECT_NE(robot_header.find("#include \"rokae/planner.h\""), std::string::npos);
 }
 
-TEST(ContractSurface, AuditDocumentsSimulationGradePpToMain) {
-  const auto audit = readText(kProjectRoot / "docs" / "archive" / "audits" / "IMPLEMENTATION_AUDIT.md");
-  EXPECT_NE(audit.find("Simulation-grade"), std::string::npos);
-  EXPECT_NE(audit.find("ppToMain()"), std::string::npos);
-  EXPECT_NE(audit.find("last successfully loaded project path"), std::string::npos);
+TEST(ContractSurface, ProjectCompatResetToMainRemainsSourceBacked) {
+  const auto profiles = readText(kProjectRoot / "docs" / "public" / "RUNTIME_PROFILES.md");
+  const auto robot_project = readText(kProjectRoot / "src" / "sdk" / "robot_project.cpp");
+  EXPECT_NE(profiles.find("simulation-grade"), std::string::npos);
+  EXPECT_NE(robot_project.find("ppToMain"), std::string::npos);
+  EXPECT_NE(robot_project.find("previously loaded RL project path"), std::string::npos);
 }
 
 
@@ -121,11 +122,12 @@ TEST(ContractSurface, ModelContextIsSharedBetweenSessionModelAndRtFacade) {
   EXPECT_NE(shim_header.find("syncContextFromSession()"), std::string::npos);
 }
 
-TEST(ContractSurface, ReadmeDocumentsForceFrameAndRciCompatibilitySemantics) {
-  const auto audit = readText(kProjectRoot / "docs" / "archive" / "audits" / "IMPLEMENTATION_AUDIT.md");
-  EXPECT_NE(audit.find("setFcCoor()"), std::string::npos);
-  EXPECT_NE(audit.find("useRciClient(true)"), std::string::npos);
-  EXPECT_NE(audit.find("setRtNetworkTolerance()"), std::string::npos);
+TEST(ContractSurface, ForceFrameAndRciCompatibilitySemanticsRemainSourceBacked) {
+  const auto motion_control = readText(kProjectRoot / "include" / "rokae" / "motion_control_rt.h");
+  const auto robot_header = readText(kProjectRoot / "include" / "rokae" / "robot.h");
+  EXPECT_NE(motion_control.find("setFcCoor"), std::string::npos);
+  EXPECT_NE(robot_header.find("useRciClient"), std::string::npos);
+  EXPECT_NE(robot_header.find("setRtNetworkTolerance"), std::string::npos);
 }
 
 TEST(ContractSurface, RtNetworkToleranceNowValidatesRangeAndPublishesRuntimeConfig) {
@@ -275,7 +277,6 @@ TEST(ContractSurface, RtConfigSurfaceValidatesRangesBeforePublishing) {
 }
 
 TEST(ContractSurface, CompatRtMetadataFieldsAreDocumentedAndProducedByTheNativeStateCache) {
-  const auto audit = readText(kProjectRoot / "docs" / "archive" / "audits" / "IMPLEMENTATION_AUDIT.md");
   const auto data_types = readText(kProjectRoot / "include" / "rokae" / "data_types.h");
   const auto registry = readText(kProjectRoot / "src" / "runtime" / "rt_field_registry.cpp");
   const auto rt_cpp = readText(kProjectRoot / "src" / "sdk" / "robot_rt.cpp");
@@ -289,8 +290,6 @@ TEST(ContractSurface, CompatRtMetadataFieldsAreDocumentedAndProducedByTheNativeS
   EXPECT_NE(rt_cpp.find("RtCompatFields::sampleFresh"), std::string::npos);
   EXPECT_NE(shim.find("RtCompatFields::samplePeriod_s"), std::string::npos);
   EXPECT_NE(shim.find("RtCompatFields::sampleFresh"), std::string::npos);
-  EXPECT_NE(audit.find("RtCompatFields::samplePeriod_s"), std::string::npos);
-  EXPECT_NE(audit.find("RtCompatFields::sampleFresh"), std::string::npos);
 }
 
 TEST(ContractSurface, SoftLimitPublicSurfaceRetainsOfficialDefaultSentinelSemantics) {
@@ -382,6 +381,32 @@ TEST(ContractSurface, RuntimeDiagGateIsExternalizedAndCalibratable) {
   EXPECT_NE(gate.find("--print-effective-limits"), std::string::npos);
   EXPECT_NE(derive.find("Derive a reusable runtime-diagnostics gate profile"), std::string::npos);
   EXPECT_NE(quickstart.find("derive_runtime_diag_gate.py"), std::string::npos);
+}
+
+TEST(ContractSurface, PublicSimulationSmokeCoversDefaultHeadlessAndExperimentalLanes) {
+  const auto main_smoke = readText(kProjectRoot / "tools" / "run_main_chain_smoke.sh");
+  const auto headless_smoke = readText(kProjectRoot / "tools" / "run_headless_sdk_smoke.sh");
+  const auto experimental_smoke = readText(kProjectRoot / "tools" / "run_experimental_opt_in_smoke.sh");
+  const auto kinematics_probe = readText(kProjectRoot / "tools" / "run_public_kinematics_probe.py");
+  const auto packaging = readText(kProjectRoot / "cmake" / "targets_packaging.cmake");
+  const auto quickstart = readText(kProjectRoot / "docs" / "public" / "QUICKSTART.md");
+  EXPECT_NE(main_smoke.find("/xmate_er3/cobot/get_toolset"), std::string::npos);
+  EXPECT_NE(main_smoke.find("/xmate_er3/cobot/get_soft_limit"), std::string::npos);
+  EXPECT_NE(main_smoke.find("/xmate_er3/cobot/get_end_wrench"), std::string::npos);
+  EXPECT_NE(main_smoke.find("/xmate_er3/cobot/get_runtime_state_snapshot"), std::string::npos);
+  EXPECT_NE(main_smoke.find("/xmate3/cobot/read_register"), std::string::npos);
+  EXPECT_NE(kinematics_probe.find("fk/ik closed-loop success"), std::string::npos);
+  EXPECT_NE(headless_smoke.find("public_xmate_er3_headless_sdk_smoke"), std::string::npos);
+  EXPECT_NE(headless_smoke.find("headless_sim"), std::string::npos);
+  EXPECT_NE(experimental_smoke.find("public_xmate_er3_experimental_rt"), std::string::npos);
+  EXPECT_NE(experimental_smoke.find("/xmate_er3/cobot/enable_drag"), std::string::npos);
+  EXPECT_NE(experimental_smoke.find("/xmate_er3/cobot/get_rt_joint_data"), std::string::npos);
+  EXPECT_NE(packaging.find("run_headless_sdk_smoke.sh"), std::string::npos);
+  EXPECT_NE(packaging.find("run_experimental_opt_in_smoke.sh"), std::string::npos);
+  EXPECT_NE(packaging.find("run_public_kinematics_probe.py"), std::string::npos);
+  EXPECT_NE(packaging.find("RUNTIME DESTINATION lib/${PROJECT_NAME}"), std::string::npos);
+  EXPECT_NE(quickstart.find("run_headless_sdk_smoke.sh"), std::string::npos);
+  EXPECT_NE(quickstart.find("run_experimental_opt_in_smoke.sh"), std::string::npos);
 }
 
 TEST(ContractSurface, AcceptanceWorkflowUploadsReportArtifact) {

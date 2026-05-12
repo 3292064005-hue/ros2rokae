@@ -30,6 +30,8 @@ required_entrypoints = [
     'tools/run_full_task_acceptance.sh',
     'tools/run_launch_smoke.sh',
     'tools/run_main_chain_smoke.sh',
+    'tools/run_headless_sdk_smoke.sh',
+    'tools/run_experimental_opt_in_smoke.sh',
 ]
 for rel in required_entrypoints:
     if not (ROOT / rel).is_file():
@@ -43,6 +45,7 @@ if 'release gate 只能覆盖到 L0-L2' not in release_gate:
 required_install_helpers = [
     'tools/check_runtime_diag_gate.py',
     'tools/derive_runtime_diag_gate.py',
+    'tools/run_public_kinematics_probe.py',
 ]
 if manifest.get('install_helpers') != required_install_helpers:
     FAILURES.append('acceptance_layers_manifest.json install_helpers mismatch')
@@ -67,6 +70,8 @@ acceptance_scripts = [
     'tools/run_acceptance_layers.sh',
     'tools/run_launch_smoke.sh',
     'tools/run_main_chain_smoke.sh',
+    'tools/run_headless_sdk_smoke.sh',
+    'tools/run_experimental_opt_in_smoke.sh',
 ]
 for rel in acceptance_scripts:
     content = (ROOT / rel).read_text(encoding='utf-8')
@@ -77,6 +82,17 @@ main_chain_text = (ROOT / 'tools/run_main_chain_smoke.sh').read_text(encoding='u
 for token in ('SCRIPT_DIR', 'PACKAGE_ROOT', 'check_runtime_diag_gate.py'):
     if token not in main_chain_text:
         FAILURES.append(f'run_main_chain_smoke.sh missing install-tree token: {token}')
+for token in ('run_public_kinematics_probe.py', 'get_end_wrench', 'get_runtime_state_snapshot', 'get_soft_limit'):
+    if token not in main_chain_text:
+        FAILURES.append(f'run_main_chain_smoke.sh missing public simulation completeness token: {token}')
+headless_text = (ROOT / 'tools/run_headless_sdk_smoke.sh').read_text(encoding='utf-8')
+for token in ('public_xmate_er3_headless_sdk_smoke', 'headless_sim', 'run_main_chain_smoke.sh'):
+    if token not in headless_text:
+        FAILURES.append(f'run_headless_sdk_smoke.sh missing token: {token}')
+experimental_text = (ROOT / 'tools/run_experimental_opt_in_smoke.sh').read_text(encoding='utf-8')
+for token in ('public_xmate_er3_experimental_rt', 'enable_drag', 'start_record_path', 'get_rt_joint_data'):
+    if token not in experimental_text:
+        FAILURES.append(f'run_experimental_opt_in_smoke.sh missing token: {token}')
 if 'L0-L5 分层验收体系' not in build_release:
     FAILURES.append('BUILD_RELEASE.md must mention the L0-L5 acceptance system')
 if 'share/rokae_xmate3_ros2/tools/' not in doc:
