@@ -4,8 +4,8 @@ if(BUILD_TESTING)
   option(ROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS "Enable Gazebo backend mode smoke harnesses" OFF)
   option(ROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS "Enable Gazebo teardown quality contract harness" OFF)
   option(ROKAE_ENABLE_RELEASE_GATE "Enable the heavier release gate bundle (backend modes + teardown + catalog/lifecycle tests)" OFF)
-  option(ROKAE_ENABLE_RT_1KHZ_STRESS_TEST "Enable 10-minute RT 1kHz stress gate (slow)" OFF)
-  set(ROKAE_RT_1KHZ_STRESS_DURATION_SEC 600 CACHE STRING "Duration (seconds) for rt_1khz_stress gate")
+  option(ROKAE_ENABLE_RT_1KHZ_STRESS_TEST "Enable opt-in daemon hard_1khz RT stress gate (slow)" OFF)
+  set(ROKAE_RT_1KHZ_STRESS_DURATION_SEC 60 CACHE STRING "Duration (seconds) for rt_1khz_stress gate; pass 600 explicitly for release/soak runs")
   if(ROKAE_ENABLE_RELEASE_GATE)
     set(ROKAE_ENABLE_GAZEBO_BACKEND_MODE_TESTS ON)
     set(ROKAE_ENABLE_GAZEBO_TEARDOWN_QUALITY_TESTS ON)
@@ -1189,6 +1189,13 @@ if(BUILD_TESTING)
   )
   set_tests_properties(runtime_diag_gate_tools PROPERTIES LABELS "quick_gate;semantic_gate")
   rokae_disable_test_python_bytecode(runtime_diag_gate_tools)
+
+  add_test(
+    NAME rt_1khz_stress_contract
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_rt_1khz_stress_contract.py"
+  )
+  set_tests_properties(rt_1khz_stress_contract PROPERTIES LABELS "quick_gate;semantic_gate;rt_stress")
+  rokae_disable_test_python_bytecode(rt_1khz_stress_contract)
 
   if(ROKAE_ENABLE_RT_1KHZ_STRESS_TEST AND TARGET example_27_rt_1khz_stress)
     math(EXPR ROKAE_RT_1KHZ_STRESS_TIMEOUT "${ROKAE_RT_1KHZ_STRESS_DURATION_SEC} + 240")

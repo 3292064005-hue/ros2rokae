@@ -80,7 +80,7 @@ TEST(ServiceRegistrationDescriptorTest, PublishesControlQueryManifestForPrimaryA
   EXPECT_GT(internal_primary.size(), primary.size());
   ASSERT_FALSE(internal_aliases.empty());
 
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
   const auto internal_register = std::find_if(internal_primary.begin(), internal_primary.end(), [](const auto &descriptor) {
     return std::string(descriptor.name) == "/xmate3/cobot/read_register_ex";
   });

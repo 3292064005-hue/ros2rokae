@@ -639,6 +639,9 @@ void DataStoreState::ingestRtFastCommand(const RtFastCommandFrame &frame,
 }
 
 bool DataStoreState::pollRtFastShm() noexcept {
+  if (rt_fast_shm_reader_ && !rt_fast_shm_reader_->ready()) {
+    rt_fast_shm_reader_.reset();
+  }
   if (!rt_fast_shm_reader_) {
     rt_fast_shm_reader_ = std::make_unique<RtFastShmRingReader>(rt_topics::kFastShmName);
   }

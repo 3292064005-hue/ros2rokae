@@ -290,12 +290,13 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
   auto &motion_runtime = runtime_context_.motionRuntime();
   auto &motion_options = runtime_context_.motionOptionsState();
   auto &tooling_state = runtime_context_.toolingState();
+  const bool rt_command_expected = session_state.motionMode() == kSessionMotionModeRt;
   runtime_context_.diagnosticsState().setLastServoDt(dt);
   const double effective_rt_deadline_warn_sec =
       config_.authoritative_servo_clock
           ? std::max(config_.authoritative_servo_period_sec * 1.20, config_.servo_lag_warning_sec)
           : kRtDeadlineWarnSec;
-  if (std::isfinite(dt) && dt > effective_rt_deadline_warn_sec) {
+  if (rt_command_expected && std::isfinite(dt) && dt > effective_rt_deadline_warn_sec) {
     runtime_context_.diagnosticsState().incrementRtDeadlineMiss();
     if (config_.fail_on_rt_deadline_miss) {
       motion_runtime.stop("strict_rt_deadline_miss");
@@ -346,7 +347,6 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
       default_rt_plan_};
   const auto prearm_report = evaluateRtPrearm(prearm_input);
   runtime_context_.diagnosticsState().setRtPrearmStatus(prearm_report.summary());
-  const bool rt_command_expected = session_state.motionMode() == kSessionMotionModeRt;
   rt_watchdog_.observeCycle(dt, true, !rt_command_expected || session_state.powerOn());
   const auto watchdog_snapshot = rt_watchdog_.snapshot();
   runtime_context_.diagnosticsState().setRtWatchdogSummary(
@@ -641,7 +641,11 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
             semantic_surface,
             direct_command.present ? "runtime_rt_transport_contract_violation" : "runtime_rt_waiting_for_shm",
             direct_command.present ? "direct_rt_shm_only_rejected" : "direct_rt_shm_only_waiting");
-        runtime_context_.diagnosticsState().setRtIngressMetrics("shm_only", rt_fast_snapshot.rx_latency_us, rt_fast_snapshot.queue_depth);
+        const auto observed_transport = rt_fast_snapshot.present
+            ? toString(rt_fast_snapshot.transport)
+            : std::string{"shm_only"};
+        runtime_context_.diagnosticsState().setRtIngressMetrics(
+            observed_transport, rt_fast_snapshot.rx_latency_us, rt_fast_snapshot.queue_depth);
         return result;
       }
     }

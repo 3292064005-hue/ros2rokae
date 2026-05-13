@@ -209,7 +209,10 @@ void RuntimeDiagnosticsState::setRtIngressMetrics(const std::string &transport_s
                                                   const std::uint32_t queue_depth) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!transport_source.empty()) {
-    snapshot_.rt_transport_source = transport_source;
+    if (!(snapshot_.rt_transport_source == "shm_ring" &&
+          (transport_source == "shm_only" || transport_source == "unknown"))) {
+      snapshot_.rt_transport_source = transport_source;
+    }
   }
   snapshot_.rt_rx_latency_us = std::isfinite(rx_latency_us) ? std::max(0.0, rx_latency_us) : 0.0;
   snapshot_.rt_queue_depth = queue_depth;

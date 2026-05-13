@@ -31,7 +31,7 @@ std::uint8_t toRtFastKind(const rokae_xmate3_ros2::runtime::RtFastCommandKind ki
 std::string xMateRobot::sendCustomData(const std::string& topic,
                                        const std::string& payload,
                                        std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
     (void)topic;
     (void)payload;
     mark_internal_surface_unsupported(ec);
@@ -109,7 +109,7 @@ bool xMateRobot::publishRtFastCommand(const rokae_xmate3_ros2::runtime::RtFastCo
 bool xMateRobot::registerDataCallback(const std::string& data_topic,
                                       const std::string& callback_id,
                                       std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)data_topic; (void)callback_id; mark_internal_surface_unsupported(ec); return false;
 #else
     auto _last_error_scope = track_last_error(impl_, ec);
@@ -140,7 +140,7 @@ bool xMateRobot::registerDataCallback(const std::string& data_topic,
 }
 
 std::string xMateRobot::readRegister(const std::string& name, int index, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)name; (void)index; mark_internal_surface_unsupported(ec); return {};
 #else
     auto _last_error_scope = track_last_error(impl_, ec);
@@ -162,7 +162,7 @@ std::string xMateRobot::readRegister(const std::string& name, int index, std::er
 }
 
 std::string xMateRobot::readRegister(const std::string& key, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)key; mark_internal_surface_unsupported(ec); return {};
 #else
     auto _last_error_scope = track_last_error(impl_, ec);
@@ -191,7 +191,7 @@ std::string xMateRobot::readRegister(const std::string& key, std::error_code& ec
 }
 
 void xMateRobot::writeRegister(const std::string& name, int index, const std::string& value, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)name; (void)index; (void)value; mark_internal_surface_unsupported(ec); return;
 #else
     auto _last_error_scope = track_last_error(impl_, ec);
@@ -214,7 +214,7 @@ void xMateRobot::writeRegister(const std::string& name, int index, const std::st
 }
 
 void xMateRobot::setxPanelVout(rokae::xPanelOpt::Vout opt, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)opt; mark_internal_surface_unsupported(ec); return;
 #else
     auto _last_error_scope = track_last_error(impl_, ec);
@@ -241,7 +241,7 @@ void xMateRobot::setxPanelVout(rokae::xPanelOpt::Vout opt, std::error_code& ec) 
 }
 
 void xMateRobot::writeRegister(const std::string& key, const std::string& value, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)key; (void)value; mark_internal_surface_unsupported(ec); return;
 #else
     auto _last_error_scope = track_last_error(impl_, ec);

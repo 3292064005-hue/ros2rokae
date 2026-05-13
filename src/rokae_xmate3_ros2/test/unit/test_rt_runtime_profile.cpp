@@ -13,7 +13,12 @@ TEST(RuntimeRtProfileTest, Hard1kHzRequiresDaemonizedRuntimeHost) {
   EXPECT_FALSE(hard_for_daemon.allow_topic_rt_ingress);
   EXPECT_FALSE(hard_for_daemon.allow_legacy_rt_custom_data);
   EXPECT_TRUE(hard_for_daemon.fail_on_degraded_scheduler);
+  EXPECT_TRUE(hard_for_daemon.fail_on_rt_deadline_miss);
   EXPECT_EQ(hard_for_daemon.executor_threads, 1);
+
+  const auto hard_summary = summarizeRuntimeRtProfile(hard_for_daemon);
+  EXPECT_NE(hard_summary.find("require_shm_transport=true"), std::string::npos);
+  EXPECT_NE(hard_summary.find("fail_on_rt_deadline_miss=true"), std::string::npos);
 
   const auto hard_for_plugin = resolveRuntimeRtProfile("hard_1khz", RuntimeHostKind::gazebo_plugin);
   EXPECT_FALSE(hard_for_plugin.supported);

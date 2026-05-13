@@ -35,6 +35,9 @@ Disable readiness only for show-args, graphics, or dependency debugging.
 - `public_xmate_er3_experimental_rt` is opt-in and is not public release proof.
 - `run_experimental_opt_in_smoke.sh` only checks explicit registration and minimum simulation-grade behavior for RT/drag/path services.
 - strict 1kHz fail-fast RT profile remains internal/runtime lane.
+- The only 1kHz simulation gate is `tools/run_rt_1khz_stress.sh <workspace-root> 60 5 daemon`, which uses `daemon_hard_rt` semantics: daemonized headless runtime, `hard_1khz`, `internal_full`, `canonical_plus_compat`, strict scheduler/memlock, and `shm_only` ingress.
+- Passing the 1kHz gate requires the stress metrics and runtime diagnostics to agree: `avg_hz >= 995`, `p95_ms <= 1.05`, `p99_ms <= 1.20`, active RT scheduler, `shm_ring` transport, zero deadline misses, and max RT gap no greater than 1.2 ms.
+- `mode=simulation` on the stress script is diagnostic-only and must not be used as 1kHz proof.
 - Gazebo RT semantics are simulation-grade, not controller-grade hardware parity.
 
 ## 4. Query Authority

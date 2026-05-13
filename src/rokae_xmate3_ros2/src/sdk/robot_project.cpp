@@ -10,7 +10,7 @@ inline void mark_internal_surface_unsupported(std::error_code &ec) {
 }
 }
 
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
 
 std::vector<rokae::RLProjectInfo> xMateRobot::projectInfo(std::error_code& ec) {
     mark_internal_surface_unsupported(ec);

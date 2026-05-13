@@ -1,6 +1,8 @@
 #include "runtime/rt_scheduler.hpp"
 
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
 #include <string>
 
 #include <pthread.h>
@@ -23,8 +25,10 @@ RtSchedulerResult applyRtScheduler(const rclcpp::Logger &logger,
 
   result.state = "active";
   result.active = true;
+  std::string degrade_reason;
 
   if (request.lock_all_memory && mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
+    degrade_reason = std::string{"mlockall: "} + std::strerror(errno);
     result.state = "degraded_best_effort(memory_lock_failed)";
     result.degraded = true;
   }
@@ -38,6 +42,7 @@ RtSchedulerResult applyRtScheduler(const rclcpp::Logger &logger,
   sched_param sched{};
   sched.sched_priority = std::clamp(request.priority, 1, 95);
   if (sched_setscheduler(0, sched_policy, &sched) != 0) {
+    degrade_reason = std::string{"sched_setscheduler: "} + std::strerror(errno);
     result.state = "degraded_best_effort(scheduler_failed)";
     result.degraded = true;
   }
@@ -68,6 +73,7 @@ RtSchedulerResult applyRtScheduler(const rclcpp::Logger &logger,
       start = end + 1;
     }
     if (any && pthread_setaffinity_np(pthread_self(), sizeof(set), &set) != 0) {
+      degrade_reason = "pthread_setaffinity_np failed";
       result.state = "degraded_best_effort(affinity_failed)";
       result.degraded = true;
     }
@@ -87,6 +93,9 @@ RtSchedulerResult applyRtScheduler(const rclcpp::Logger &logger,
       request.lock_all_memory ? "true" : "false",
       result.state.c_str(),
       result.hard_failure ? "true" : "false");
+  if (!degrade_reason.empty()) {
+    RCLCPP_WARN(logger, "rt scheduler degraded reason: %s", degrade_reason.c_str());
+  }
 
   return result;
 }

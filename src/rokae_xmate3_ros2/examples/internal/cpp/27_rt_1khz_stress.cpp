@@ -14,8 +14,11 @@
 #include <string>
 #include <vector>
 
+#include <rclcpp/rclcpp.hpp>
+
 #include "rokae/motion_control_rt.h"
 #include "rokae/robot.h"
+#include "rokae_xmate3_ros2/srv/get_runtime_diagnostics.hpp"
 #include "print_helper.hpp"
 
 using namespace rokae;
@@ -38,6 +41,14 @@ struct StressStats {
   double min_ms = 0.0;
   double max_ms = 0.0;
   double avg_hz = 0.0;
+};
+
+struct RuntimeDiagnosticsSample {
+  bool success = false;
+  std::string rt_scheduler_state = "unknown";
+  std::string rt_transport_source = "unknown";
+  double rt_deadline_miss = 0.0;
+  double rt_max_gap_ms = 0.0;
 };
 
 double clampPositive(double value, double fallback) {
@@ -153,6 +164,52 @@ std::string toJson(const StressConfig &cfg, const StressStats &stats) {
   return oss.str();
 }
 
+RuntimeDiagnosticsSample queryRuntimeDiagnostics() {
+  RuntimeDiagnosticsSample sample;
+  if (!rclcpp::ok()) {
+    return sample;
+  }
+
+  using Service = rokae_xmate3_ros2::srv::GetRuntimeDiagnostics;
+  auto node = rclcpp::Node::make_shared("rt_1khz_stress_diagnostics_client");
+  auto client = node->create_client<Service>("/xmate_er3/cobot/get_runtime_diagnostics");
+  if (!client->wait_for_service(std::chrono::seconds(2))) {
+    return sample;
+  }
+
+  auto request = std::make_shared<Service::Request>();
+  auto future = client->async_send_request(request);
+  const auto result = rclcpp::spin_until_future_complete(node, future, std::chrono::seconds(3));
+  if (result != rclcpp::FutureReturnCode::SUCCESS) {
+    return sample;
+  }
+
+  const auto response = future.get();
+  if (!response || !response->success) {
+    return sample;
+  }
+
+  sample.success = true;
+  sample.rt_scheduler_state = response->diagnostics.rt_scheduler_state;
+  sample.rt_transport_source = response->diagnostics.rt_transport_source;
+  sample.rt_deadline_miss = static_cast<double>(response->diagnostics.rt_deadline_miss);
+  sample.rt_max_gap_ms = response->diagnostics.rt_max_gap_ms;
+  return sample;
+}
+
+std::string toJson(const RuntimeDiagnosticsSample &sample) {
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(6);
+  oss << "{";
+  oss << "\"success\":" << (sample.success ? "true" : "false") << ",";
+  oss << "\"rt_scheduler_state\":\"" << sample.rt_scheduler_state << "\",";
+  oss << "\"rt_transport_source\":\"" << sample.rt_transport_source << "\",";
+  oss << "\"rt_deadline_miss\":" << sample.rt_deadline_miss << ",";
+  oss << "\"rt_max_gap_ms\":" << sample.rt_max_gap_ms;
+  oss << "}";
+  return oss.str();
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -190,6 +247,7 @@ int main(int argc, char **argv) {
   (void)current;
 
   printSection("2 启动 1kHz 压测回调");
+  rt->startMove(RtControllerMode::jointPosition);
   robot.startReceiveRobotState(kRtControlPeriod, {RtSupportedFields::jointPos_m});
   std::vector<double> periods_ms;
   periods_ms.reserve(static_cast<std::size_t>(cfg.duration_sec * 1100.0) + 1024u);
@@ -200,7 +258,6 @@ int main(int argc, char **argv) {
   Clock::time_point t_start{};
   Clock::time_point t_prev{};
 
-  rt->startMove(RtControllerMode::jointPosition);
   rt->setControlLoop(std::function<JointPosition(void)>([&]() {
     const auto now = Clock::now();
     if (!initialized) {
@@ -245,7 +302,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  robot.setMotionControlMode(MotionControlMode::NrtCommand, ec);
   const auto stats = computeStats(periods_ms);
+  const auto diagnostics = queryRuntimeDiagnostics();
   os << "samples=" << stats.samples
      << " avg_hz=" << std::fixed << std::setprecision(3) << stats.avg_hz
      << " avg_ms=" << stats.avg_ms
@@ -254,8 +313,8 @@ int main(int argc, char **argv) {
      << " min_ms=" << stats.min_ms
      << " max_ms=" << stats.max_ms << std::endl;
   os << "RT_STRESS_JSON " << toJson(cfg, stats) << std::endl;
+  os << "RT_DIAGNOSTICS_JSON " << toJson(diagnostics) << std::endl;
 
-  robot.setMotionControlMode(MotionControlMode::NrtCommand, ec);
   cleanupRobot(robot);
   return stats.samples > 100 ? 0 : 1;
 }

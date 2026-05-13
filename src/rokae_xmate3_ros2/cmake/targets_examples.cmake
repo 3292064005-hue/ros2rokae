@@ -75,6 +75,10 @@ function(rokae_add_example example_name link_mode)
     list(APPEND PUBLIC_COMPAT_EXAMPLE_TARGETS ${example_target})
     set(PUBLIC_COMPAT_EXAMPLE_TARGETS "${PUBLIC_COMPAT_EXAMPLE_TARGETS}" PARENT_SCOPE)
   elseif("${link_mode}" STREQUAL "internal")
+    target_include_directories(${example_target}
+      PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/examples/cpp
+    )
     if(ROKAE_BUILD_COMPAT_SDK)
       target_link_libraries(${example_target}
         xCoreSDK::xCoreSDK_static

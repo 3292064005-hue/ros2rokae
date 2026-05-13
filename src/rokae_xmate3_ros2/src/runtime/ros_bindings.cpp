@@ -46,7 +46,7 @@ RosBindings::RosBindings(rclcpp::Node::SharedPtr node,
                                                   std::move(time_provider),
                                                   trajectory_dt_provider_,
                                                   6))
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
       , io_program_facade_(std::make_unique<IoProgramFacade>(runtime_context_.sessionState(),
                                                              runtime_context_.dataStoreState(),
                                                              runtime_context_.programState(),

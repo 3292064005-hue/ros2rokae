@@ -6,6 +6,9 @@
 #ifndef ROKAE_ENABLE_INTERNAL_SURFACE
 #define ROKAE_ENABLE_INTERNAL_SURFACE 0
 #endif
+#ifndef ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
+#define ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES 0
+#endif
 #include "rokae_xmate3_ros2/model.hpp"
 #include "rokae_xmate3_ros2/runtime/ros_context_owner.hpp"
 #include "rokae_xmate3_ros2/runtime/rt_fast_shm_ring.hpp"
@@ -48,7 +51,7 @@
 #include "rokae_xmate3_ros2/srv/enable_collision_detection.hpp"
 #include "rokae_xmate3_ros2/srv/enable_drag.hpp"
 #include "rokae_xmate3_ros2/srv/generate_s_trajectory.hpp"
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
 #include "rokae_xmate3_ros2/srv/get_ai.hpp"
 #include "rokae_xmate3_ros2/srv/get_avoid_singularity.hpp"
 #include "rokae_xmate3_ros2/srv/get_di.hpp"
@@ -67,6 +70,8 @@
 #include "rokae_xmate3_ros2/srv/get_power_state.hpp"
 #if ROKAE_ENABLE_INTERNAL_SURFACE
 #include "rokae_xmate3_ros2/srv/get_profile_capabilities.hpp"
+#endif
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
 #include "rokae_xmate3_ros2/srv/get_rl_project_info.hpp"
 #include "rokae_xmate3_ros2/srv/get_tool_catalog.hpp"
 #include "rokae_xmate3_ros2/srv/get_wobj_catalog.hpp"
@@ -320,7 +325,7 @@ public:
     rclcpp::Client<rokae_xmate3_ros2::srv::SetRtControlMode>::SharedPtr xmate3_rt_set_control_mode_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::GetRtJointData>::SharedPtr xmate3_rt_get_joint_data_client_;
     rclcpp::Publisher<rokae_xmate3_ros2::msg::RtFastCommand>::SharedPtr xmate3_rt_fast_command_pub_;
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
     rclcpp::Client<rokae_xmate3_ros2::srv::SendCustomData>::SharedPtr xmate3_comm_send_custom_data_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::RegisterDataCallback>::SharedPtr xmate3_comm_register_data_callback_client_;
     rclcpp::Client<rokae_xmate3_ros2::srv::ReadRegister>::SharedPtr xmate3_comm_read_register_client_;

@@ -113,6 +113,12 @@ void xMateRobot::Impl::init_clients() {
         rt_fast_shm_writer_ = std::make_unique<rokae_xmate3_ros2::runtime::RtFastShmRingWriter>(
             rokae_xmate3_ros2::runtime::rt_topics::kFastShmName);
     }
+    RCLCPP_INFO(node_->get_logger(),
+                "RT fast transport mode=%s shm_enabled=%s topic_enabled=%s shm_ready=%s",
+                std::getenv("ROKAE_RT_TRANSPORT_MODE") ? std::getenv("ROKAE_RT_TRANSPORT_MODE") : "<auto>",
+                rt_fast_shm_enabled_ ? "true" : "false",
+                rt_fast_topic_enabled_ ? "true" : "false",
+                (rt_fast_shm_writer_ && rt_fast_shm_writer_->ready()) ? "true" : "false");
 #if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
     xmate3_comm_send_custom_data_client_ = node_->create_client<rokae_xmate3_ros2::srv::SendCustomData>("/xmate3/cobot/send_custom_data");
     xmate3_comm_register_data_callback_client_ = node_->create_client<rokae_xmate3_ros2::srv::RegisterDataCallback>("/xmate3/cobot/register_data_callback");

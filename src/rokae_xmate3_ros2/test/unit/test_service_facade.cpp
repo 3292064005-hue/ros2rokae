@@ -689,7 +689,7 @@ TEST(ServiceFacadeTest, PathFacadeSaveRequiresRecordedDataAndSupportsRenameOnlyW
   EXPECT_TRUE(program_state.getReplayAsset("renamed_path", asset));
 }
 
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
 TEST(ServiceFacadeTest, ControlFacadeRejectsAvoidSingularityOnXMateER3Lane) {
   rt::SessionState session_state;
   rt::MotionOptionsState motion_options_state;

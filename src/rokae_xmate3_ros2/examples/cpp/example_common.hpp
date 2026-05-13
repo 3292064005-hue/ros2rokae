@@ -483,7 +483,12 @@ inline bool prepareAutomaticRt(xMateRobot &robot,
   if (!retryRobotAction("setRtNetworkTolerance", ec, [&](error_code &attempt_error) {
         robot.setRtNetworkTolerance(tolerance, attempt_error);
       }, 3, std::chrono::milliseconds(150))) {
-    return false;
+    if (!isSimulationOnlyCapabilityError(ec)) {
+      return false;
+    }
+    printCapabilityStatus("approximate",
+                          "setRtNetworkTolerance unavailable; runtime profile default tolerance is used");
+    ec.clear();
   }
   if (!retryRobotAction("setMotionControlMode", ec, [&](error_code &attempt_error) {
         robot.setMotionControlMode(MotionControlMode::RtCommand, attempt_error);

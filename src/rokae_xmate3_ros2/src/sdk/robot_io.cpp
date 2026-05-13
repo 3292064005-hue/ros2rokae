@@ -29,7 +29,7 @@ inline void mark_internal_surface_unsupported(std::error_code &ec) {
 
 // ==================== IO接口实现 ====================
 bool xMateRobot::getDI(unsigned int board, unsigned int port, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)board; (void)port; mark_internal_surface_unsupported(ec); return false;
 #else
     auto _last_error_scope = track_last_error(impl_, ec);
@@ -67,7 +67,7 @@ bool xMateRobot::getDI(unsigned int board, unsigned int port, std::error_code& e
 }
 
 bool xMateRobot::getDO(unsigned int board, unsigned int port, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)board; (void)port; mark_internal_surface_unsupported(ec); return false;
 #else
     auto _last_error_scope = track_last_error(impl_, ec);
@@ -105,7 +105,7 @@ bool xMateRobot::getDO(unsigned int board, unsigned int port, std::error_code& e
 }
 
 void xMateRobot::setDI(unsigned int board, unsigned int port, bool state, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)board; (void)port; (void)state; mark_internal_surface_unsupported(ec); return;
 #else
     auto _last_error_scope = track_last_error(impl_, ec);
@@ -144,7 +144,7 @@ void xMateRobot::setDI(unsigned int board, unsigned int port, bool state, std::e
 }
 
 void xMateRobot::setDO(unsigned int board, unsigned int port, bool state, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)board; (void)port; (void)state; mark_internal_surface_unsupported(ec); return;
 #else
     auto _last_error_scope = track_last_error(impl_, ec);
@@ -184,7 +184,7 @@ void xMateRobot::setDO(unsigned int board, unsigned int port, bool state, std::e
 }
 
 double xMateRobot::getAI(unsigned int board, unsigned int port, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)board; (void)port; mark_internal_surface_unsupported(ec); return 0.0;
 #else
     auto _last_error_scope = track_last_error(impl_, ec);
@@ -222,7 +222,7 @@ double xMateRobot::getAI(unsigned int board, unsigned int port, std::error_code&
 }
 
 void xMateRobot::setAO(unsigned int board, unsigned int port, double value, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)board; (void)port; (void)value; mark_internal_surface_unsupported(ec); return;
 #else
     auto _last_error_scope = track_last_error(impl_, ec);
@@ -265,7 +265,7 @@ void xMateRobot::setAO(unsigned int board, unsigned int port, double value, std:
 }
 
 void xMateRobot::setSimulationMode(bool state, std::error_code& ec) {
-#if !ROKAE_ENABLE_INTERNAL_SURFACE
+#if !ROKAE_ENABLE_INTERNAL_SURFACE || !ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
         (void)state; mark_internal_surface_unsupported(ec); return;
 #else
     auto _last_error_scope = track_last_error(impl_, ec);

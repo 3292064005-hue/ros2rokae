@@ -3,6 +3,7 @@ set -euo pipefail
 
 usage() {
   echo "usage: run_rt_1khz_stress.sh [workspace-root] [duration-sec] [warmup-sec] [mode]" >&2
+  echo "  duration-sec default: 60 (pass 600 explicitly for release/soak runs)" >&2
   echo "  mode: daemon (default) | simulation" >&2
 }
 
@@ -23,6 +24,10 @@ check_rt_host_readiness() {
   rtprio_limit="$(ulimit -r || echo 0)"
   memlock_limit="$(ulimit -l || echo 0)"
   caps="$(getcap "${runtime_exe}" 2>/dev/null || true)"
+  local mount_target mount_options
+  mount_target="$(findmnt -T "${runtime_exe}" -no TARGET 2>/dev/null || true)"
+  mount_options="$(findmnt -T "${runtime_exe}" -no OPTIONS 2>/dev/null || true)"
+  local required_rtprio=90
 
   local has_sys_nice=0
   local has_ipc_lock=0
@@ -36,6 +41,34 @@ check_rt_host_readiness() {
   if [[ "${EUID}" -eq 0 ]]; then
     echo "[rt_1khz_stress] host readiness: running as root (strict RT scheduling allowed)"
     return 0
+  fi
+
+  local rtprio_ok=0
+  local memlock_ok=0
+  if [[ "${rtprio_limit}" == "unlimited" ]]; then
+    rtprio_ok=1
+  elif [[ "${rtprio_limit}" =~ ^[0-9]+$ && "${rtprio_limit}" -ge "${required_rtprio}" ]]; then
+    rtprio_ok=1
+  fi
+  if [[ "${memlock_limit}" == "unlimited" ]]; then
+    memlock_ok=1
+  elif [[ "${memlock_limit}" =~ ^[0-9]+$ && "${memlock_limit}" -ge 1048576 ]]; then
+    memlock_ok=1
+  fi
+  if [[ "${rtprio_ok}" -eq 1 && "${memlock_ok}" -eq 1 ]]; then
+    echo "[rt_1khz_stress] host readiness: user rtprio/memlock limits allow strict RT scheduling"
+    return 0
+  fi
+
+  if [[ "${mount_options}" == *"nosuid"* ]]; then
+    echo "rt_1khz_stress: host is not ready for hard_1khz strict scheduler contract." >&2
+    echo "rt_1khz_stress: runtime executable is on a nosuid mount, so file capabilities will not take effect." >&2
+    echo "rt_1khz_stress: mount=${mount_target:-<unknown>} options=${mount_options:-<unknown>}" >&2
+    echo "rt_1khz_stress: current user=$(id -un) euid=${EUID} rtprio_limit=${rtprio_limit} memlock_limit=${memlock_limit}" >&2
+    echo "rt_1khz_stress: executable capabilities: ${caps:-<none>}" >&2
+    echo "rt_1khz_stress: fix by running the stress gate as root, remounting/moving the workspace to a suid-capable Linux filesystem, or configuring user RT limits." >&2
+    echo "rt_1khz_stress: FAIL classification=host_readiness_failure reason=runtime_executable_on_nosuid_mount" >&2
+    return 1
   fi
 
   if [[ "${has_sys_nice}" -eq 1 && "${has_ipc_lock}" -eq 1 ]]; then
@@ -53,11 +86,22 @@ check_rt_host_readiness() {
   echo "     getcap \"${runtime_exe}\"" >&2
   echo "  3) or run simulation fallback mode:" >&2
   echo "     bash src/rokae_xmate3_ros2/tools/run_rt_1khz_stress.sh \"${WORKSPACE_ROOT}\" ${DURATION_SEC} ${WARMUP_SEC} simulation" >&2
+  echo "rt_1khz_stress: FAIL classification=host_readiness_failure reason=strict_rt_privileges_missing" >&2
   return 1
 }
 
+require_shm_only_transport() {
+  local requested="${ROKAE_RT_TRANSPORT_MODE:-}"
+  if [[ -n "${requested}" && "${requested}" != "shm_only" ]]; then
+    echo "rt_1khz_stress: ROKAE_RT_TRANSPORT_MODE must be shm_only for the hard_1khz stress gate; got '${requested}'" >&2
+    echo "rt_1khz_stress: FAIL classification=transport_contract_violation reason=non_shm_only_env" >&2
+    return 1
+  fi
+  export ROKAE_RT_TRANSPORT_MODE="shm_only"
+}
+
 WORKSPACE_ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
-DURATION_SEC="${2:-600}"
+DURATION_SEC="${2:-60}"
 WARMUP_SEC="${3:-5}"
 RT_MODE="${4:-${ROKAE_RT_STRESS_MODE:-daemon}}"
 
@@ -99,10 +143,20 @@ LAUNCH_LOG="${LOG_DIR}/rt_1khz_stress_launch.log"
 EXAMPLE_LOG="${LOG_DIR}/rt_1khz_stress_example.log"
 DIAG_LOG="${LOG_DIR}/rt_1khz_stress_runtime_status.log"
 
+require_shm_only_transport
+
+CPU_COUNT="$(nproc 2>/dev/null || echo 1)"
+if [[ ! "${CPU_COUNT}" =~ ^[0-9]+$ || "${CPU_COUNT}" -lt 1 ]]; then
+  CPU_COUNT=1
+fi
+DEFAULT_RT_DAEMON_CPU=$((CPU_COUNT - 1))
+DEFAULT_RT_CLIENT_CPU=$((CPU_COUNT > 1 ? CPU_COUNT - 2 : CPU_COUNT - 1))
+RT_DAEMON_CPU="${ROKAE_RT_DAEMON_CPU:-${DEFAULT_RT_DAEMON_CPU}}"
+RT_CLIENT_CPU="${ROKAE_RT_CLIENT_CPU:-${DEFAULT_RT_CLIENT_CPU}}"
+
 MODEL_PATH="${WORKSPACE_ROOT}/install/rokae_xmate3_ros2/share/rokae_xmate3_ros2/urdf/xMateER3.xacro"
 LAUNCH_PID=0
 if [[ "${RT_MODE}" == "daemon" ]]; then
-  export ROKAE_RT_TRANSPORT_MODE="${ROKAE_RT_TRANSPORT_MODE:-shm_only}"
   export ROKAE_REMOTE_IP="${ROKAE_REMOTE_IP:-127.0.0.1}"
   export ROKAE_LOCAL_IP="${ROKAE_LOCAL_IP:-127.0.0.1}"
   RUNTIME_EXE="${WORKSPACE_ROOT}/install/rokae_xmate3_ros2/bin/rokae_sim_runtime"
@@ -118,9 +172,12 @@ if [[ "${RT_MODE}" == "daemon" ]]; then
   "${RUNTIME_EXE}" \
     --ros-args \
     -p runtime_profile:=hard_1khz \
+    -p service_exposure_profile:=internal_full \
+    -p compatibility_alias_policy:=canonical_plus_compat \
     -p rt_scheduler.enable:=true \
     -p rt_scheduler.policy:=fifo \
     -p rt_scheduler.priority:=90 \
+    -p rt_scheduler.cpu_affinity:="'${RT_DAEMON_CPU}'" \
     -p rt_memory.lock_all:=true >"${LAUNCH_LOG}" 2>&1 &
 elif [[ "${RT_MODE}" == "simulation" ]]; then
   if [[ ! -f "${MODEL_PATH}" ]]; then
@@ -130,7 +187,6 @@ elif [[ "${RT_MODE}" == "simulation" ]]; then
     echo "rt_1khz_stress: missing xacro model for non-canonical launch" >&2
     exit 1
   fi
-  export ROKAE_RT_TRANSPORT_MODE="${ROKAE_RT_TRANSPORT_MODE:-shm_only}"
   WORLD_PATH="${WORKSPACE_ROOT}/install/rokae_xmate3_ros2/share/rokae_xmate3_ros2/worlds/rt_1khz.world"
   if [[ ! -f "${WORLD_PATH}" ]]; then
     WORLD_PATH="${WORKSPACE_ROOT}/src/rokae_xmate3_ros2/worlds/rt_1khz.world"
@@ -138,16 +194,15 @@ elif [[ "${RT_MODE}" == "simulation" ]]; then
   if [[ ! -f "${WORLD_PATH}" ]]; then
     WORLD_PATH="${WORKSPACE_ROOT}/src/rokae_xmate3_ros2/worlds/empty.world"
   fi
-  echo "[rt_1khz_stress] launching gazebo simulation (effort backend)..."
+  echo "[rt_1khz_stress] launching gazebo simulation diagnostic (non-strict experimental RT)..."
   ros2 launch rokae_xmate3_ros2 simulation.launch.py \
+    launch_profile:=public_xmate_er3_experimental_rt \
     world:="${WORLD_PATH}" \
     gui:=false \
     rviz:=false \
     verbose:=false \
     allow_noncanonical_model:=true \
-    model:="${MODEL_PATH}" \
-    enable_ros2_control:=false \
-    backend_mode:=effort >"${LAUNCH_LOG}" 2>&1 &
+    model:="${MODEL_PATH}" >"${LAUNCH_LOG}" 2>&1 &
 else
   echo "rt_1khz_stress: unsupported mode=${RT_MODE} (expect daemon|simulation)" >&2
   exit 1
@@ -172,6 +227,7 @@ wait_for_service() {
       echo "rt_1khz_stress: runtime process exited before ${name} became available" >&2
       if grep -q "degraded_best_effort(scheduler_failed).*hard_failure=true" "${LAUNCH_LOG}" 2>/dev/null; then
         echo "rt_1khz_stress: hard_1khz requires real-time privileges (CAP_SYS_NICE/CAP_IPC_LOCK or root)." >&2
+        echo "rt_1khz_stress: FAIL classification=host_readiness_failure reason=strict_scheduler_contract_failed" >&2
       fi
       echo "rt_1khz_stress: launch log: ${LAUNCH_LOG}" >&2
       return 1
@@ -201,18 +257,28 @@ if [[ ! -x "${STRESS_EXE}" ]]; then
   exit 1
 fi
 
+export ROKAE_RT_STRESS_DURATION="${DURATION_SEC}"
+export ROKAE_RT_STRESS_WARMUP="${WARMUP_SEC}"
 EXAMPLE_TIMEOUT="$(python3 - <<'PY'
 import math
 import os
-duration = float(os.environ.get("ROKAE_RT_STRESS_DURATION", "600"))
+duration = float(os.environ.get("ROKAE_RT_STRESS_DURATION", "60"))
 print(max(120, int(math.ceil(duration + 180.0))))
 PY
 )"
-export ROKAE_RT_STRESS_DURATION="${DURATION_SEC}"
 
 echo "[rt_1khz_stress] running example_27_rt_1khz_stress duration=${DURATION_SEC}s warmup=${WARMUP_SEC}s"
+STRESS_CMD=("${STRESS_EXE}")
+if [[ "${RT_MODE}" == "daemon" && "${EUID}" -eq 0 ]] && command -v chrt >/dev/null 2>&1; then
+  echo "[rt_1khz_stress] running stress client with SCHED_FIFO priority 80"
+  STRESS_CMD=(chrt -f 80 "${STRESS_EXE}")
+fi
+if [[ "${RT_MODE}" == "daemon" ]] && command -v taskset >/dev/null 2>&1; then
+  echo "[rt_1khz_stress] pinning stress client to CPU ${RT_CLIENT_CPU}"
+  STRESS_CMD=(taskset -c "${RT_CLIENT_CPU}" "${STRESS_CMD[@]}")
+fi
 if ! timeout "${EXAMPLE_TIMEOUT}" \
-    "${STRESS_EXE}" \
+    "${STRESS_CMD[@]}" \
       --duration "${DURATION_SEC}" \
       --warmup "${WARMUP_SEC}" >"${EXAMPLE_LOG}" 2>&1; then
   cat "${EXAMPLE_LOG}" || true
@@ -220,13 +286,7 @@ if ! timeout "${EXAMPLE_TIMEOUT}" \
   exit 1
 fi
 
-if ! timeout 20 ros2 topic echo /xmate_er3/cobot/runtime_status --once >"${DIAG_LOG}" 2>&1; then
-  cat "${DIAG_LOG}" || true
-  echo "rt_1khz_stress: failed to capture runtime status topic" >&2
-  exit 1
-fi
-
-python3 - "${EXAMPLE_LOG}" "${DIAG_LOG}" <<'PY'
+python3 - "${EXAMPLE_LOG}" "${DIAG_LOG}" "${RT_MODE}" <<'PY'
 import json
 import re
 import sys
@@ -234,8 +294,9 @@ from pathlib import Path
 
 example_path = Path(sys.argv[1])
 diag_path = Path(sys.argv[2])
+stress_mode = sys.argv[3]
 example_text = example_path.read_text(encoding="utf-8", errors="replace")
-diag_text = diag_path.read_text(encoding="utf-8", errors="replace")
+diag_text = diag_path.read_text(encoding="utf-8", errors="replace") if diag_path.exists() else ""
 
 metric_match = re.search(r"(?m)^RT_STRESS_JSON\s+(\{.*\})\s*$", example_text)
 if metric_match is None:
@@ -256,7 +317,22 @@ except Exception as exc:
     print(f"rt_1khz_stress: invalid RT_STRESS_JSON payload: {exc}", file=sys.stderr)
     raise SystemExit(1)
 
+diag_json_match = re.search(r"(?m)^RT_DIAGNOSTICS_JSON\s+(\{.*\})\s*$", example_text)
+diag_json = {}
+if diag_json_match is not None:
+    try:
+        diag_json = json.loads(diag_json_match.group(1))
+        diag_path.write_text(
+            "\n".join(f"{key}: {value}" for key, value in diag_json.items()) + "\n",
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        print(f"rt_1khz_stress: invalid RT_DIAGNOSTICS_JSON payload: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+
 def parse_diag_scalar(name: str, default: str = "") -> str:
+    if name in diag_json:
+        return str(diag_json[name])
     m = re.search(rf"(?m)^\s*{re.escape(name)}:\s*(.+?)\s*$", diag_text)
     if m is None:
         return default
@@ -278,14 +354,26 @@ samples = int(metrics.get("samples", 0))
 
 rt_scheduler_state = parse_diag_scalar("rt_scheduler_state", "unknown")
 rt_transport_source = parse_diag_scalar("rt_transport_source", "unknown")
+rt_deadline_miss_present = parse_diag_scalar("rt_deadline_miss", "") != ""
+rt_max_gap_ms_present = parse_diag_scalar("rt_max_gap_ms", "") != ""
 rt_deadline_miss = parse_diag_float("rt_deadline_miss", 0.0)
 rt_max_gap_ms = parse_diag_float("rt_max_gap_ms", 0.0)
 
+strict_diagnostics_ok = (
+    rt_scheduler_state.lower() == "active" and
+    rt_transport_source == "shm_ring" and
+    rt_deadline_miss_present and
+    rt_max_gap_ms_present and
+    rt_deadline_miss == 0.0 and
+    rt_max_gap_ms <= 1.2
+)
 ok = (
+    stress_mode == "daemon" and
     samples > 100 and
     avg_hz >= 995.0 and
     p95_ms <= 1.05 and
-    p99_ms <= 1.20
+    p99_ms <= 1.20 and
+    strict_diagnostics_ok
 )
 
 if ok:
@@ -297,10 +385,18 @@ if ok:
     raise SystemExit(0)
 
 classification = "executor_contention"
+if stress_mode != "daemon":
+    classification = "non_strict_diagnostic"
 lower_sched = rt_scheduler_state.lower()
-if "degraded" in lower_sched or "failed" in lower_sched or "unknown" == lower_sched:
+if stress_mode != "daemon":
+    pass
+elif not rt_deadline_miss_present or not rt_max_gap_ms_present:
+    classification = "diagnostics_missing"
+elif "degraded" in lower_sched or "failed" in lower_sched or "unknown" == lower_sched:
     classification = "scheduler_not_active"
-elif rt_transport_source in {"legacy_custom_data", "unknown"}:
+elif rt_scheduler_state.lower() != "active":
+    classification = "scheduler_not_active"
+elif rt_transport_source != "shm_ring":
     classification = "transport_bottleneck"
 elif rt_deadline_miss > 0.0 or rt_max_gap_ms > 1.2:
     classification = "backend_dt_jitter"
@@ -308,6 +404,7 @@ elif rt_deadline_miss > 0.0 or rt_max_gap_ms > 1.2:
 print(
     f"rt_1khz_stress: FAIL samples={samples} avg_hz={avg_hz:.3f} "
     f"p95_ms={p95_ms:.3f} p99_ms={p99_ms:.3f} "
+    f"mode={stress_mode} "
     f"transport={rt_transport_source} scheduler={rt_scheduler_state} "
     f"rt_deadline_miss={rt_deadline_miss:.0f} rt_max_gap_ms={rt_max_gap_ms:.3f} "
     f"classification={classification}",

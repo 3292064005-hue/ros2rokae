@@ -45,7 +45,7 @@ TEST(RegisterSemantics, SemanticTopicsUpdateTypedRtSnapshotWithoutReparsingAtRea
   EXPECT_EQ(semantic.catalog_provenance, "runtime_authoritative");
 }
 
-#if ROKAE_ENABLE_INTERNAL_SURFACE
+#if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
 TEST(RegisterSemantics, IoProgramFacadeRejectsEmptyRegisterKeysAndNames) {
   rt::SessionState session_state;
   rt::DataStoreState data_store;
