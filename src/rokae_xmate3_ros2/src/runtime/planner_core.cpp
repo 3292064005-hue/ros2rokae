@@ -930,6 +930,8 @@ bool blend_joint_segment_pair(PlannedSegment &current, PlannedSegment &next) {
   }
 
   current.joint_trajectory = std::move(merged_current);
+  current.joint_velocity_trajectory.clear();
+  current.joint_acceleration_trajectory.clear();
   current.trajectory_dt = effective_dt;
   current.trajectory_total_time =
       (current.joint_trajectory.size() > 1) ? (current.joint_trajectory.size() - 1) * current.trajectory_dt : 0.0;
@@ -937,6 +939,8 @@ bool blend_joint_segment_pair(PlannedSegment &current, PlannedSegment &next) {
   current.blend_to_next = true;
 
   next.joint_trajectory = std::move(trimmed_next);
+  next.joint_velocity_trajectory.clear();
+  next.joint_acceleration_trajectory.clear();
   next.trajectory_dt = effective_dt;
   next.trajectory_total_time =
       (next.joint_trajectory.size() > 1) ? (next.joint_trajectory.size() - 1) * next.trajectory_dt : 0.0;

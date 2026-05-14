@@ -477,15 +477,9 @@ UnifiedRetimerLimits makeUnifiedRetimerLimits(double max_velocity,
                                               double max_acceleration,
                                               double blend_radius,
                                               RetimerPolicy policy) {
-  const auto planner_config = ::gazebo::TrajectoryPlanner::config();
-  const double min_velocity_limit =
-      *std::min_element(planner_config.joint_speed_limits_rad_per_sec.begin(),
-                        planner_config.joint_speed_limits_rad_per_sec.end());
-  const double min_acceleration_limit =
-      *std::min_element(planner_config.joint_acc_limits_rad_per_sec2.begin(),
-                        planner_config.joint_acc_limits_rad_per_sec2.end());
-  const double velocity = std::max(max_velocity, min_velocity_limit);
-  const double acceleration = std::max(max_acceleration, min_acceleration_limit);
+  constexpr double kMinimumRequestedLimit = 1e-6;
+  const double velocity = std::max(std::abs(max_velocity), kMinimumRequestedLimit);
+  const double acceleration = std::max(std::abs(max_acceleration), kMinimumRequestedLimit);
   const double blend_scale = 1.0 / (1.0 + 0.5 * std::max(blend_radius, 0.0));
   double velocity_scale = blend_scale;
   double acceleration_scale = blend_scale;
@@ -496,8 +490,8 @@ UnifiedRetimerLimits makeUnifiedRetimerLimits(double max_velocity,
     velocity_scale *= 0.70;
     acceleration_scale *= 0.55;
   }
-  return {uniform_axis_limits(velocity * velocity_scale, min_velocity_limit),
-          uniform_axis_limits(acceleration * acceleration_scale, min_acceleration_limit)};
+  return {uniform_axis_limits(velocity * velocity_scale, kMinimumRequestedLimit),
+          uniform_axis_limits(acceleration * acceleration_scale, kMinimumRequestedLimit)};
 }
 
 RetimerValidationReport validateUnifiedRetimerInput(

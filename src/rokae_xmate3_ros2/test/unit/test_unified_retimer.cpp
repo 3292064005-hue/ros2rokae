@@ -1,13 +1,75 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <string>
 #include <vector>
 
 #include "runtime/unified_retimer.hpp"
+#include "rokae_xmate3_ros2/runtime/strict_jerk_profile.hpp"
 
 namespace rt = rokae_xmate3_ros2::runtime;
+
+namespace {
+
+void expectFiniteVectorSamples(const std::vector<std::vector<double>> &samples,
+                               const char *label) {
+  ASSERT_FALSE(samples.empty()) << label << " samples must not be empty";
+  for (std::size_t sample_index = 0; sample_index < samples.size(); ++sample_index) {
+    ASSERT_EQ(samples[sample_index].size(), 6u) << label << " sample width mismatch at " << sample_index;
+    for (std::size_t axis = 0; axis < samples[sample_index].size(); ++axis) {
+      EXPECT_TRUE(std::isfinite(samples[sample_index][axis]))
+          << label << " non-finite at sample " << sample_index << " axis " << axis;
+    }
+  }
+}
+
+void expectSmoothCanonicalSamples(const rt::CanonicalTrajectorySamples &samples,
+                                  const std::array<double, 6> &velocity_limits,
+                                  const std::array<double, 6> &acceleration_limits,
+                                  double endpoint_tolerance,
+                                  double acceleration_jump_scale) {
+  expectFiniteVectorSamples(samples.positions, "position");
+  expectFiniteVectorSamples(samples.velocities, "velocity");
+  expectFiniteVectorSamples(samples.accelerations, "acceleration");
+  ASSERT_EQ(samples.velocities.size(), samples.positions.size());
+  ASSERT_EQ(samples.accelerations.size(), samples.positions.size());
+
+  for (std::size_t axis = 0; axis < 6; ++axis) {
+    EXPECT_NEAR(samples.velocities.front()[axis], 0.0, endpoint_tolerance)
+        << "start velocity not smooth at joint " << axis;
+    EXPECT_NEAR(samples.velocities.back()[axis], 0.0, endpoint_tolerance)
+        << "end velocity not smooth at joint " << axis;
+    EXPECT_NEAR(samples.accelerations.front()[axis], 0.0, endpoint_tolerance)
+        << "start acceleration not smooth at joint " << axis;
+    EXPECT_NEAR(samples.accelerations.back()[axis], 0.0, endpoint_tolerance)
+        << "end acceleration not smooth at joint " << axis;
+  }
+
+  for (std::size_t sample_index = 0; sample_index < samples.positions.size(); ++sample_index) {
+    for (std::size_t axis = 0; axis < 6; ++axis) {
+      EXPECT_LE(std::fabs(samples.velocities[sample_index][axis]),
+                velocity_limits[axis] * 1.05 + 1e-9)
+          << "velocity limit regression at sample " << sample_index << " axis " << axis;
+      EXPECT_LE(std::fabs(samples.accelerations[sample_index][axis]),
+                acceleration_limits[axis] * 1.10 + 1e-9)
+          << "acceleration limit regression at sample " << sample_index << " axis " << axis;
+    }
+  }
+
+  for (std::size_t sample_index = 1; sample_index < samples.accelerations.size(); ++sample_index) {
+    for (std::size_t axis = 0; axis < 6; ++axis) {
+      const double jump = std::fabs(samples.accelerations[sample_index][axis] -
+                                   samples.accelerations[sample_index - 1][axis]);
+      EXPECT_LE(jump, acceleration_limits[axis] * acceleration_jump_scale + 1e-9)
+          << "acceleration jump spike at sample " << sample_index << " axis " << axis;
+    }
+  }
+}
+
+}  // namespace
 
 // ============================================================================
 // Basic Retiming Tests
@@ -83,6 +145,35 @@ TEST(UnifiedRetimerTest, MetadataDurationMatchesSamples) {
   EXPECT_DOUBLE_EQ(result.metadata.sample_dt, result.samples.sample_dt);
 }
 
+TEST(UnifiedRetimerTest, StrictJerkScalarProfileIsFiniteAndEndpointSmooth) {
+  constexpr double kVelocityLimit = 1.0;
+  constexpr double kAccelerationLimit = 2.0;
+  rt::StrictJerkLimitedScalarProfile profile;
+  profile.configure(0.42, kVelocityLimit, kAccelerationLimit, kAccelerationLimit);
+
+  ASSERT_GT(profile.total_time(), 0.0);
+  constexpr int kSamples = 200;
+  for (int index = 0; index <= kSamples; ++index) {
+    const double t = profile.total_time() * static_cast<double>(index) / static_cast<double>(kSamples);
+    const auto sample = profile.sample(t);
+    EXPECT_TRUE(std::isfinite(sample.position));
+    EXPECT_TRUE(std::isfinite(sample.velocity));
+    EXPECT_TRUE(std::isfinite(sample.acceleration));
+    EXPECT_GE(sample.position, -1e-12);
+    EXPECT_LE(sample.position, profile.distance() + 1e-12);
+    EXPECT_LE(std::fabs(sample.velocity), kVelocityLimit * 1.05);
+    EXPECT_LE(std::fabs(sample.acceleration), kAccelerationLimit * 1.05);
+  }
+
+  const auto start = profile.sample(0.0);
+  const auto end = profile.sample(profile.total_time());
+  EXPECT_NEAR(start.velocity, 0.0, 1e-12);
+  EXPECT_NEAR(start.acceleration, 0.0, 1e-12);
+  EXPECT_NEAR(end.velocity, 0.0, 1e-12);
+  EXPECT_NEAR(end.acceleration, 0.0, 1e-12);
+  EXPECT_NEAR(end.position, profile.distance(), 1e-12);
+}
+
 // ============================================================================
 // Path Retiming Tests
 // ============================================================================
@@ -115,6 +206,38 @@ TEST(UnifiedRetimerTest, PathRetimingSizeConsistency) {
   ASSERT_FALSE(result.empty());
   EXPECT_EQ(result.samples.velocities.size(), result.samples.positions.size());
   EXPECT_EQ(result.samples.accelerations.size(), result.samples.positions.size());
+}
+
+TEST(UnifiedRetimerTest, PointToPointRetimingPassesStrictSmoothnessGate) {
+  const std::vector<double> start = {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926};
+  const std::vector<double> target = {0.12, 0.25, 1.40, 0.04, 1.20, 3.00};
+  const std::array<double, 6> velocity_limits = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  const std::array<double, 6> acceleration_limits = {2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
+
+  const auto result = rt::retimeJointWithUnifiedLimits(
+      start, target, 0.01, velocity_limits, acceleration_limits);
+
+  ASSERT_FALSE(result.empty()) << result.samples.error_message;
+  EXPECT_TRUE(result.metadata.jerk_constrained);
+  expectSmoothCanonicalSamples(result.samples, velocity_limits, acceleration_limits, 1e-3, 1.25);
+}
+
+TEST(UnifiedRetimerTest, MultiWaypointPathRetimingPassesStrictSmoothnessGate) {
+  const std::vector<std::vector<double>> waypoints = {
+      {0.0, 0.15, 1.55, 0.0, 1.35, 3.1415926},
+      {0.03, 0.19, 1.50, 0.01, 1.30, 3.10},
+      {0.07, 0.24, 1.43, 0.03, 1.23, 3.04},
+      {0.10, 0.28, 1.37, 0.05, 1.18, 2.98},
+  };
+  const std::array<double, 6> velocity_limits = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  const std::array<double, 6> acceleration_limits = {2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
+
+  const auto result = rt::retimeJointPathWithUnifiedLimits(
+      waypoints, 0.01, velocity_limits, acceleration_limits);
+
+  ASSERT_FALSE(result.empty()) << result.samples.error_message;
+  EXPECT_TRUE(result.metadata.jerk_constrained);
+  expectSmoothCanonicalSamples(result.samples, velocity_limits, acceleration_limits, 1e-3, 2.10);
 }
 
 // ============================================================================

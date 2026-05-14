@@ -327,7 +327,7 @@ class RuntimeTelemetryMixin:
         self._telemetry_latest_operation_state = msg.state
 
     def _telemetry_rosout_callback(self, msg: Log) -> None:
-        if msg.name != "xcore_gazebo_controller" or "[runtime]" not in msg.msg:
+        if msg.name not in {"xcore_gazebo_controller", "rokae_sim_runtime"} or "[runtime]" not in msg.msg:
             return
         entry = self._parse_runtime_log(msg.msg, time.monotonic())
         if entry is None:

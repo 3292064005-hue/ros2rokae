@@ -76,7 +76,7 @@ public:
     const double s_phase1 = peak_velocity_ * peak_velocity_ / (6.0 * accel_limit_);
     const double s_accel = accel_distance_;
     const double s_cruise_end = s_accel + peak_velocity_ * cruise_time_;
-    const double s_mid_decel = s_cruise_end + peak_velocity_ * peak_velocity_ / (3.0 * decel_limit_);
+    const double s_mid_decel = s_cruise_end + 5.0 * peak_velocity_ * peak_velocity_ / (6.0 * decel_limit_);
 
     auto apply_sign = [&](double position, double velocity, double acceleration) {
       sample_out.position = sign_ * std::clamp(position, 0.0, distance_);

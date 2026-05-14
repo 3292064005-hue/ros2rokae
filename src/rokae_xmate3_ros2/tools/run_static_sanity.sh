@@ -18,6 +18,8 @@ PYTHONPYCACHEPREFIX="${TMP_PYCACHE}" "${PYTHON_BIN}" -B -m py_compile \
   "${PKG_ROOT}"/launch/_simulation_support.py \
   "${PKG_ROOT}"/tools/render_robot_description.py \
   "${PKG_ROOT}"/tools/check_gazebo_jtc_readiness.py \
+  "${PKG_ROOT}"/test/harness/nrt_path_latency_probe.py \
+  "${PKG_ROOT}"/test/harness/nrt_path_smoothness_probe.py \
   "${PKG_ROOT}"/test/harness/check_repo_contract.py \
   "${PKG_ROOT}"/test/harness/check_render_robot_description_install_tree.py \
   "${PKG_ROOT}"/test/harness/check_provider_boundary.py \
@@ -34,6 +36,8 @@ PYTHONPYCACHEPREFIX="${TMP_PYCACHE}" "${PYTHON_BIN}" -B -m py_compile \
   "${PKG_ROOT}"/test/harness/check_runtime_source_integrity.py \
   "${PKG_ROOT}"/test/harness/check_full_source_build_gate_contract.py \
   "${PKG_ROOT}"/test/harness/check_target_env_acceptance_report_contract.py \
+  "${PKG_ROOT}"/test/harness/check_nrt_path_latency_gate_contract.py \
+  "${PKG_ROOT}"/test/harness/check_nrt_path_smoothness_gate_contract.py \
   "${PKG_ROOT}"/tools/verify_target_env_acceptance_report.py
 
 for script in "${PKG_ROOT}"/tools/*.sh; do
@@ -56,6 +60,8 @@ done
 "${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_runtime_source_integrity.py"
 "${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_full_source_build_gate_contract.py"
 "${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_target_env_acceptance_report_contract.py"
+"${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_nrt_path_latency_gate_contract.py"
+"${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_nrt_path_smoothness_gate_contract.py"
 "${PYTHON_BIN}" "${PKG_ROOT}/test/harness/check_release_gate_workflow.py"
 
 "${PYTHON_BIN}" - "${PKG_ROOT}" <<'PY'

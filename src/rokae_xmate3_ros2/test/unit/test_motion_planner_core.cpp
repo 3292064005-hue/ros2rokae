@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -11,6 +12,69 @@
 #include "rokae_xmate3_ros2/gazebo/kinematics.hpp"
 
 namespace rt = rokae_xmate3_ros2::runtime;
+
+namespace {
+
+void expectFinitePlannerTrajectory(const rt::PlannedSegment &segment) {
+  ASSERT_EQ(segment.joint_velocity_trajectory.size(), segment.joint_trajectory.size());
+  ASSERT_EQ(segment.joint_acceleration_trajectory.size(), segment.joint_trajectory.size());
+  for (std::size_t sample_index = 0; sample_index < segment.joint_trajectory.size(); ++sample_index) {
+    ASSERT_EQ(segment.joint_trajectory[sample_index].size(), 6u);
+    ASSERT_EQ(segment.joint_velocity_trajectory[sample_index].size(), 6u);
+    ASSERT_EQ(segment.joint_acceleration_trajectory[sample_index].size(), 6u);
+    for (std::size_t axis = 0; axis < 6; ++axis) {
+      EXPECT_TRUE(std::isfinite(segment.joint_trajectory[sample_index][axis]));
+      EXPECT_TRUE(std::isfinite(segment.joint_velocity_trajectory[sample_index][axis]));
+      EXPECT_TRUE(std::isfinite(segment.joint_acceleration_trajectory[sample_index][axis]));
+    }
+  }
+}
+
+void expectPlannerSegmentSmoothness(const rt::PlannedSegment &segment,
+                                    const std::array<double, 6> &velocity_limits,
+                                    const std::array<double, 6> &acceleration_limits) {
+  expectFinitePlannerTrajectory(segment);
+  ASSERT_FALSE(segment.joint_velocity_trajectory.empty());
+  ASSERT_FALSE(segment.joint_acceleration_trajectory.empty());
+  for (std::size_t sample_index = 0; sample_index < segment.joint_trajectory.size(); ++sample_index) {
+    for (std::size_t axis = 0; axis < 6; ++axis) {
+      EXPECT_LE(std::fabs(segment.joint_velocity_trajectory[sample_index][axis]),
+                velocity_limits[axis] * 1.05 + 1e-9)
+          << "planner velocity limit regression at sample " << sample_index << " axis " << axis;
+      EXPECT_LE(std::fabs(segment.joint_acceleration_trajectory[sample_index][axis]),
+                acceleration_limits[axis] * 1.10 + 1e-9)
+          << "planner acceleration limit regression at sample " << sample_index << " axis " << axis;
+    }
+  }
+  for (std::size_t sample_index = 1; sample_index < segment.joint_acceleration_trajectory.size(); ++sample_index) {
+    for (std::size_t axis = 0; axis < 6; ++axis) {
+      const double jump = std::fabs(segment.joint_acceleration_trajectory[sample_index][axis] -
+                                   segment.joint_acceleration_trajectory[sample_index - 1][axis]);
+      EXPECT_LE(jump, acceleration_limits[axis] * 2.10 + 1e-9)
+          << "planner acceleration jump spike at sample " << sample_index << " axis " << axis;
+    }
+  }
+}
+
+void expectPlannerSegmentJoinSmoothness(const rt::PlannedSegment &first,
+                                        const rt::PlannedSegment &second) {
+  ASSERT_FALSE(first.joint_trajectory.empty());
+  ASSERT_FALSE(second.joint_trajectory.empty());
+  for (std::size_t axis = 0; axis < 6; ++axis) {
+    EXPECT_NEAR(first.joint_trajectory.back()[axis], second.joint_trajectory.front()[axis], 1e-6)
+        << "planner position join discontinuity at joint " << axis;
+    EXPECT_NEAR(first.joint_velocity_trajectory.back()[axis],
+                second.joint_velocity_trajectory.front()[axis],
+                1e-3)
+        << "planner velocity join discontinuity at joint " << axis;
+    EXPECT_NEAR(first.joint_acceleration_trajectory.back()[axis],
+                second.joint_acceleration_trajectory.front()[axis],
+                1e-3)
+        << "planner acceleration join discontinuity at joint " << axis;
+  }
+}
+
+}  // namespace
 
 TEST(MotionPlannerCoreTest, PlansReachableCartesianLookaheadSequence) {
   gazebo::xMateER3Kinematics kinematics;
@@ -197,6 +261,47 @@ TEST(MotionPlannerCoreTest, AppliesJointZoneBlendAndPreservesTimingMetadata) {
   }
   EXPECT_EQ(plan.segments.front().joint_velocity_trajectory.size(), plan.segments.front().joint_trajectory.size());
   EXPECT_EQ(plan.segments.back().joint_velocity_trajectory.size(), plan.segments.back().joint_trajectory.size());
+}
+
+TEST(MotionPlannerCoreTest, PlannerOutputPassesStrictSmoothnessGateAcrossSegmentJoin) {
+  const auto original_config = gazebo::TrajectoryPlanner::config();
+  auto config = original_config;
+  config.joint_speed_limits_rad_per_sec = {1.5, 1.5, 1.5, 1.5, 1.5, 1.5};
+  config.joint_acc_limits_rad_per_sec2 = {3.0, 3.0, 3.0, 3.0, 3.0, 3.0};
+  gazebo::TrajectoryPlanner::setConfig(config);
+
+  rt::MotionRequest request;
+  request.request_id = "planner_strict_smoothness_gate";
+  request.start_joints = {0.0, 0.10, 1.45, 0.0, 1.30, 3.1415926};
+  request.default_speed = 280;
+  request.default_zone = 10;
+  request.trajectory_dt = 0.01;
+
+  rt::MotionCommandSpec first;
+  first.kind = rt::MotionKind::move_absj;
+  first.speed = 260;
+  first.zone = 10;
+  first.target_joints = {0.08, 0.18, 1.40, 0.03, 1.26, 3.10};
+
+  rt::MotionCommandSpec second;
+  second.kind = rt::MotionKind::move_absj;
+  second.speed = 240;
+  second.zone = 0;
+  second.target_joints = {0.14, 0.23, 1.34, 0.05, 1.20, 3.03};
+  request.commands = {first, second};
+
+  rt::MotionPlanner planner;
+  const auto plan = planner.plan(request);
+  gazebo::TrajectoryPlanner::setConfig(original_config);
+
+  ASSERT_TRUE(plan.valid()) << plan.error_message;
+  ASSERT_EQ(plan.segments.size(), 2u);
+  EXPECT_EQ(plan.retimer_family, "unified");
+  expectPlannerSegmentSmoothness(
+      plan.segments.front(), config.joint_speed_limits_rad_per_sec, config.joint_acc_limits_rad_per_sec2);
+  expectPlannerSegmentSmoothness(
+      plan.segments.back(), config.joint_speed_limits_rad_per_sec, config.joint_acc_limits_rad_per_sec2);
+  expectPlannerSegmentJoinSmoothness(plan.segments.front(), plan.segments.back());
 }
 
 

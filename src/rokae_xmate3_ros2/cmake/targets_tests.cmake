@@ -327,6 +327,20 @@ add_test(
 set_tests_properties(public_internal_boundary PROPERTIES LABELS "quick_gate;contract_gate")
 rokae_disable_test_python_bytecode(public_internal_boundary)
 
+add_test(
+  NAME nrt_path_latency_gate_contract
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_nrt_path_latency_gate_contract.py"
+)
+set_tests_properties(nrt_path_latency_gate_contract PROPERTIES LABELS "quick_gate;semantic_gate;contract_gate")
+rokae_disable_test_python_bytecode(nrt_path_latency_gate_contract)
+
+add_test(
+  NAME nrt_path_smoothness_gate_contract
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/harness/check_nrt_path_smoothness_gate_contract.py"
+)
+set_tests_properties(nrt_path_smoothness_gate_contract PROPERTIES LABELS "quick_gate;semantic_gate;contract_gate")
+rokae_disable_test_python_bytecode(nrt_path_smoothness_gate_contract)
+
   if(TARGET test_controller_state)
     target_include_directories(test_controller_state
       PRIVATE
