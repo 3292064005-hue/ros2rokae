@@ -81,9 +81,12 @@ class RuntimeControlBridge {
   std::array<double, 6> last_torque_command_{};
   std::array<double, 6> last_joint_target_{};
   std::array<double, 6> last_cartesian_target_{};
+  std::array<double, 6> force_control_integral_{};
+  std::array<double, 6> filtered_force_error_{};
   bool has_last_torque_command_ = false;
   bool has_last_joint_target_ = false;
   bool has_last_cartesian_target_ = false;
+  bool has_filtered_force_error_ = false;
   std::chrono::steady_clock::time_point last_rt_fast_received_at_{};
 };
 

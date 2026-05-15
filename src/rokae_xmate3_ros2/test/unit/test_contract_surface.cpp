@@ -273,6 +273,8 @@ TEST(ContractSurface, RtConfigSurfaceValidatesRangesBeforePublishing) {
   EXPECT_NE(rt_cpp.find("jointFrequency < 1.0 || jointFrequency > 1000.0"), std::string::npos);
   EXPECT_NE(rt_cpp.find("std::fabs(torque[i]) > kDesiredWrenchLimit[i]"), std::string::npos);
   EXPECT_NE(rt_cpp.find("valid_force_control_type(type)"), std::string::npos);
+  EXPECT_NE(rt_cpp.find("setCartesianForceControl"), std::string::npos);
+  EXPECT_NE(rt_cpp.find("kConfigCartesianForceControl"), std::string::npos);
   EXPECT_NE(rt_cpp.find("std::make_error_code(std::errc::invalid_argument)"), std::string::npos);
 }
 

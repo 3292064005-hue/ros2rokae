@@ -45,6 +45,57 @@ TEST(RegisterSemantics, SemanticTopicsUpdateTypedRtSnapshotWithoutReparsingAtRea
   EXPECT_EQ(semantic.catalog_provenance, "runtime_authoritative");
 }
 
+TEST(RegisterSemantics, CartesianForceControlConfigUpdatesTypedRtSnapshot) {
+  rt::DataStoreState data_store;
+  data_store.setCustomData(
+      rokae_xmate3_ros2::runtime::rt_topics::kConfigCartesianForceControl,
+      "enabled=1;kp=1,2,3,4,5,6;ki=0.1,0.2,0.3,0.4,0.5,0.6;"
+      "deadband=0.01,0.02,0.03,0.04,0.05,0.06;"
+      "max_feedback_wrench=7,8,9,10,11,12;cutoff_frequency_hz=25;"
+      "integral_limit=0.7,0.8,0.9,1.0,1.1,1.2");
+
+  const auto control = data_store.rtControlSnapshot().cartesian_force_control;
+  EXPECT_TRUE(control.configured);
+  EXPECT_TRUE(control.enabled);
+  EXPECT_DOUBLE_EQ(control.kp[0], 1.0);
+  EXPECT_DOUBLE_EQ(control.ki[5], 0.6);
+  EXPECT_DOUBLE_EQ(control.deadband[2], 0.03);
+  EXPECT_DOUBLE_EQ(control.max_feedback_wrench[4], 11.0);
+  EXPECT_DOUBLE_EQ(control.cutoff_frequency_hz, 25.0);
+  EXPECT_DOUBLE_EQ(control.integral_limit[3], 1.0);
+
+  data_store.setCustomData(
+      rokae_xmate3_ros2::runtime::rt_topics::kConfigCartesianForceControl,
+      "enabled=1;kp=1,nan,3,4,5,6");
+  const auto invalid = data_store.rtControlSnapshot().cartesian_force_control;
+  EXPECT_FALSE(invalid.configured);
+  EXPECT_FALSE(invalid.enabled);
+}
+
+TEST(RegisterSemantics, ExternalWrenchTopicUpdatesTypedRtSnapshot) {
+  rt::DataStoreState data_store;
+  data_store.setCustomData(
+      rokae_xmate3_ros2::runtime::rt_topics::kSensorExternalWrench,
+      "timestamp=42.5;type=" + std::to_string(static_cast<int>(rokae::FrameType::tool)) +
+          ";values=1,2,3,4,5,6;frame=1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1");
+
+  const auto wrench = data_store.rtControlSnapshot().external_wrench;
+  EXPECT_TRUE(wrench.present);
+  EXPECT_TRUE(wrench.valid);
+  EXPECT_DOUBLE_EQ(wrench.wrench[0], 1.0);
+  EXPECT_DOUBLE_EQ(wrench.wrench[5], 6.0);
+  EXPECT_DOUBLE_EQ(wrench.timestamp_sec, 42.5);
+  EXPECT_EQ(wrench.frame.type, rokae::FrameType::tool);
+  EXPECT_TRUE(wrench.frame.configured);
+  EXPECT_DOUBLE_EQ(wrench.frame.frame[15], 1.0);
+
+  data_store.setCustomData(rokae_xmate3_ros2::runtime::rt_topics::kSensorExternalWrench,
+                           "timestamp=bad;values=1,2,3,4,5,6");
+  const auto invalid = data_store.rtControlSnapshot().external_wrench;
+  EXPECT_TRUE(invalid.present);
+  EXPECT_FALSE(invalid.valid);
+}
+
 #if ROKAE_ENABLE_INTERNAL_SURFACE && ROKAE_ENABLE_NON_TARGET_INTERNAL_MODULES
 TEST(RegisterSemantics, IoProgramFacadeRejectsEmptyRegisterKeysAndNames) {
   rt::SessionState session_state;

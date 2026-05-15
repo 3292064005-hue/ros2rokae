@@ -380,6 +380,16 @@ struct Load {
   std::array<double, 3> inertia{};
 };
 
+struct CartesianForceControlParam {
+  bool enabled = false;
+  std::array<double, 6> kp{{0.25, 0.25, 0.25, 0.05, 0.05, 0.05}};
+  std::array<double, 6> ki{{0.0, 0.0, 0.0, 0.0, 0.0, 0.0}};
+  std::array<double, 6> deadband{{0.20, 0.20, 0.20, 0.02, 0.02, 0.02}};
+  std::array<double, 6> max_feedback_wrench{{10.0, 10.0, 10.0, 3.0, 3.0, 3.0}};
+  double cutoff_frequency_hz = 30.0;
+  std::array<double, 6> integral_limit{{5.0, 5.0, 5.0, 1.0, 1.0, 1.0}};
+};
+
 struct Toolset {
   Load load{};
   Frame end{};

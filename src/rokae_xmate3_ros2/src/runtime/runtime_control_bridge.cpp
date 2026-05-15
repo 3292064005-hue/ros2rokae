@@ -29,6 +29,7 @@ constexpr double kRtDeadlineWarnSec = 0.0012;
 constexpr std::array<double, 6> kCollisionRetreatEffort = {18.0, 18.0, 16.0, 8.0, 5.0, 3.0};
 constexpr double kDefaultCollisionRetreatDistance = 0.04;
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kExternalWrenchFreshnessSec = 0.10;
 
 constexpr std::array<double, 16> kIdentityMatrix16 = {1.0, 0.0, 0.0, 0.0,
                                                        0.0, 1.0, 0.0, 0.0,
@@ -97,6 +98,96 @@ std::array<double, 6> transform_wrench_to_base(const DataStoreState::RtForceCont
     transformed[i] = wrench_out(static_cast<int>(i));
   }
   return transformed;
+}
+
+Eigen::Matrix<double, 6, 1> array_to_vector6(const std::array<double, 6> &values) {
+  Eigen::Matrix<double, 6, 1> out;
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    out(static_cast<int>(i)) = values[i];
+  }
+  return out;
+}
+
+std::array<double, 6> vector6_to_array(const Eigen::Matrix<double, 6, 1> &values) {
+  std::array<double, 6> out{};
+  for (std::size_t i = 0; i < out.size(); ++i) {
+    out[i] = values(static_cast<int>(i));
+  }
+  return out;
+}
+
+std::array<double, 6> estimate_wrench_from_joint_residual(
+    const RobotSnapshot &snapshot,
+    const Eigen::MatrixXd &jacobian,
+    const rokae_xmate3_ros2::gazebo_model::LoadContext &load_context,
+    ::gazebo::xMateER3Kinematics &kinematics) {
+  const auto model_facade = rokae_xmate3_ros2::gazebo_model::makeModelFacade(kinematics, {}, load_context);
+  const auto expected_torque = model_facade.expectedTorque(snapshot.joint_position, snapshot.joint_velocity);
+  Eigen::Matrix<double, 6, 1> residual = Eigen::Matrix<double, 6, 1>::Zero();
+  for (std::size_t i = 0; i < snapshot.joint_torque.size(); ++i) {
+    residual(static_cast<int>(i)) = snapshot.joint_torque[i] - expected_torque[i];
+  }
+  const Eigen::Matrix<double, 6, 1> wrench =
+      jacobian.transpose().completeOrthogonalDecomposition().solve(residual);
+  return vector6_to_array(wrench);
+}
+
+struct MeasuredWrench {
+  std::array<double, 6> wrench_base{};
+  std::string source{"sim_approx"};
+};
+
+MeasuredWrench select_measured_wrench(
+    const DataStoreState::RtControlSnapshot &rt_snapshot,
+    const RobotSnapshot &snapshot,
+    const Eigen::MatrixXd &jacobian,
+    const rokae_xmate3_ros2::gazebo_model::LoadContext &load_context,
+    const std::array<double, 16> &end_effector_frame,
+    const std::array<double, 16> &flange_pose,
+    const std::chrono::steady_clock::time_point now,
+    ::gazebo::xMateER3Kinematics &kinematics) {
+  const auto &external = rt_snapshot.external_wrench;
+  if (external.present && external.valid) {
+    const double age_sec = std::chrono::duration<double>(now - external.updated_at).count();
+    if (age_sec <= kExternalWrenchFreshnessSec) {
+      return {transform_wrench_to_base(external.frame, end_effector_frame, flange_pose, external.wrench),
+              "external_ft"};
+    }
+    return {estimate_wrench_from_joint_residual(snapshot, jacobian, load_context, kinematics),
+            "sim_approx_external_stale"};
+  }
+  if (external.present && !external.valid) {
+    return {estimate_wrench_from_joint_residual(snapshot, jacobian, load_context, kinematics),
+            "sim_approx_external_invalid"};
+  }
+  return {estimate_wrench_from_joint_residual(snapshot, jacobian, load_context, kinematics),
+          "sim_approx"};
+}
+
+std::array<double, 6> apply_force_deadband(const std::array<double, 6> &error,
+                                           const std::array<double, 6> &deadband) {
+  std::array<double, 6> out{};
+  for (std::size_t i = 0; i < out.size(); ++i) {
+    const double magnitude = std::fabs(error[i]);
+    if (magnitude <= deadband[i]) {
+      out[i] = 0.0;
+    } else {
+      out[i] = std::copysign(magnitude - deadband[i], error[i]);
+    }
+  }
+  return out;
+}
+
+void add_joint_wrench_bias(ControlCommand &command,
+                           const Eigen::MatrixXd &jacobian,
+                           const std::array<double, 6> &wrench) {
+  const auto joint_bias = jacobian.transpose() * array_to_vector6(wrench);
+  for (std::size_t i = 0; i < 6; ++i) {
+    command.effort[i] = std::clamp(
+        command.effort[i] + joint_bias(static_cast<int>(i)),
+        -rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i],
+        rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i]);
+  }
 }
 
 Eigen::Matrix4d array16_to_matrix(const std::array<double, 16> &values) {
@@ -651,11 +742,13 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
     }
 
     if (direct_command_fresh) {
+      const auto direct_tick_time = std::chrono::steady_clock::now();
       if (runtime_context_.currentRuntimeView().busy()) {
         motion_runtime.stop("rt direct control engaged");
       }
       backend.setControlOwner(ControlOwner::effort);
       ControlCommand direct_effort;
+      std::string force_wrench_source;
       auto joint_kp = configured_or(
           rt_snapshot.joint_impedance_configured,
           rt_snapshot.joint_impedance,
@@ -750,16 +843,55 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
                 std::array<double, 6>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
             const auto desired_wrench = transform_wrench_to_base(fc_frame, ee_frame, flange_pose_matrix, desired_wrench_local);
             const auto jacobian = kinematics_.computeJacobian(current_joints);
-            Eigen::Matrix<double, 6, 1> wrench;
-            for (std::size_t i = 0; i < 6; ++i) {
-              wrench(static_cast<int>(i)) = desired_wrench[i];
-            }
-            const auto joint_bias = jacobian.transpose() * wrench;
-            for (std::size_t i = 0; i < 6; ++i) {
-              direct_effort.effort[i] = std::clamp(
-                  direct_effort.effort[i] + joint_bias(static_cast<int>(i)),
-                  -rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i],
-                  rokae_xmate3_ros2::spec::xmate_er3_truth::kDirectTorqueLimit[i]);
+            add_joint_wrench_bias(direct_effort, jacobian, desired_wrench);
+            if (rt_snapshot.cartesian_force_control.enabled) {
+              const auto measured = select_measured_wrench(
+                  rt_snapshot,
+                  snapshot,
+                  jacobian,
+                  load_context,
+                  ee_frame,
+                  flange_pose_matrix,
+                  direct_tick_time,
+                  kinematics_);
+              force_wrench_source = measured.source;
+              std::array<double, 6> raw_error{};
+              for (std::size_t i = 0; i < raw_error.size(); ++i) {
+                raw_error[i] = desired_wrench[i] - measured.wrench_base[i];
+              }
+              const auto deadband_error = apply_force_deadband(raw_error, rt_snapshot.cartesian_force_control.deadband);
+              const double cutoff_hz = rt_snapshot.cartesian_force_control.cutoff_frequency_hz;
+              const double alpha = cutoff_hz > 0.0
+                  ? std::clamp(2.0 * kPi * cutoff_hz * std::max(dt, 1e-6), 0.0, 1.0)
+                  : 1.0;
+              for (std::size_t i = 0; i < filtered_force_error_.size(); ++i) {
+                if (has_filtered_force_error_) {
+                  filtered_force_error_[i] =
+                      filtered_force_error_[i] + alpha * (deadband_error[i] - filtered_force_error_[i]);
+                } else {
+                  filtered_force_error_[i] = deadband_error[i];
+                }
+                force_control_integral_[i] = std::clamp(
+                    force_control_integral_[i] + filtered_force_error_[i] * std::max(dt, 0.0),
+                    -rt_snapshot.cartesian_force_control.integral_limit[i],
+                    rt_snapshot.cartesian_force_control.integral_limit[i]);
+              }
+              has_filtered_force_error_ = true;
+              std::array<double, 6> feedback_wrench{};
+              for (std::size_t i = 0; i < feedback_wrench.size(); ++i) {
+                const double feedback =
+                    rt_snapshot.cartesian_force_control.kp[i] * filtered_force_error_[i] +
+                    rt_snapshot.cartesian_force_control.ki[i] * force_control_integral_[i];
+                feedback_wrench[i] = std::clamp(
+                    feedback,
+                    -rt_snapshot.cartesian_force_control.max_feedback_wrench[i],
+                    rt_snapshot.cartesian_force_control.max_feedback_wrench[i]);
+              }
+              add_joint_wrench_bias(direct_effort, jacobian, feedback_wrench);
+            } else {
+              has_filtered_force_error_ = false;
+              force_control_integral_.fill(0.0);
+              filtered_force_error_.fill(0.0);
             }
           }
         } else {
@@ -794,6 +926,10 @@ ControlTickResult RuntimeControlBridge::tick(BackendInterface &backend,
           rt_transport_source,
           rt_fast_snapshot.rx_latency_us,
           rt_fast_snapshot.queue_depth);
+      if (!force_wrench_source.empty()) {
+        runtime_context_.diagnosticsState().setRtStateSource(
+            std::string{"wrench_source="} + force_wrench_source);
+      }
       if (direct_command.finished) {
         backend.setControlOwner(ControlOwner::none);
         backend.clearControl();

@@ -332,6 +332,15 @@ std::vector<RuntimeOptionCatalogEntry> buildRuntimeOptionCatalog(const MotionOpt
     option.source = "rt_snapshot";
     entries.push_back(std::move(option));
   }
+  if (rt_snapshot.cartesian_force_control.configured) {
+    RuntimeOptionCatalogEntry option;
+    option.name = "cartesian_force_control";
+    option.value = std::string{"enabled="} + bool_text(rt_snapshot.cartesian_force_control.enabled) +
+                   ",cutoff=" + double_text(rt_snapshot.cartesian_force_control.cutoff_frequency_hz);
+    option.mutability = "runtime";
+    option.source = "rt_snapshot";
+    entries.push_back(std::move(option));
+  }
   if (rt_snapshot.collision_thresholds_configured) {
     RuntimeOptionCatalogEntry option;
     option.name = "collision_behaviour_thresholds";

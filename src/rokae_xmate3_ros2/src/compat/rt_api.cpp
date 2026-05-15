@@ -62,6 +62,18 @@ std::string build_cartesian_limit_payload(const std::array<double, 3> &lengths,
   return oss.str();
 }
 
+std::string build_cartesian_force_control_payload(const CartesianForceControlParam &param) {
+  std::ostringstream oss;
+  oss << "enabled=" << bool_text(param.enabled)
+      << ";kp=" << serialize_values(param.kp)
+      << ";ki=" << serialize_values(param.ki)
+      << ";deadband=" << serialize_values(param.deadband)
+      << ";max_feedback_wrench=" << serialize_values(param.max_feedback_wrench)
+      << ";cutoff_frequency_hz=" << param.cutoff_frequency_hz
+      << ";integral_limit=" << serialize_values(param.integral_limit);
+  return oss.str();
+}
+
 std::array<double, 6> posture_to_array(const CartesianPosition &pose) {
   return {pose.x, pose.y, pose.z, pose.rx, pose.ry, pose.rz};
 }
@@ -91,6 +103,17 @@ bool finite_non_negative_array6(const std::array<double, 6> &values) {
     }
   }
   return true;
+}
+
+bool valid_cartesian_force_control_param(const CartesianForceControlParam &param) {
+  return finite_non_negative_array6(param.kp) &&
+         finite_non_negative_array6(param.ki) &&
+         finite_non_negative_array6(param.deadband) &&
+         finite_non_negative_array6(param.max_feedback_wrench) &&
+         finite_non_negative_array6(param.integral_limit) &&
+         std::isfinite(param.cutoff_frequency_hz) &&
+         param.cutoff_frequency_hz >= 0.0 &&
+         param.cutoff_frequency_hz <= 1000.0;
 }
 
 bool finite_array3_non_negative(const std::array<double, 3> &values) {
@@ -639,6 +662,18 @@ void RtMotionControlCobot<6>::setCartesianImpedance(const std::array<double, 6> 
   }
   impl_->cartesian_impedance = factor;
   publish_custom(*impl_->robot, rokae_xmate3_ros2::runtime::rt_topics::kConfigCartesianImpedance, serialize_values(factor), ec);
+}
+
+void RtMotionControlCobot<6>::setCartesianForceControl(const CartesianForceControlParam &param, error_code &ec) noexcept {
+  if (!valid_cartesian_force_control_param(param)) {
+    ec = std::make_error_code(std::errc::invalid_argument);
+    return;
+  }
+  impl_->cartesian_force_control = param;
+  publish_custom(*impl_->robot,
+                 rokae_xmate3_ros2::runtime::rt_topics::kConfigCartesianForceControl,
+                 build_cartesian_force_control_payload(param),
+                 ec);
 }
 
 void RtMotionControlCobot<6>::setCollisionBehaviour(const std::array<double, 6> &torqueThresholds, error_code &ec) noexcept {

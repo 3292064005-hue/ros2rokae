@@ -430,6 +430,35 @@ inline std::string build_load_payload(const Load &load) {
   return oss.str();
 }
 
+inline std::string build_cartesian_force_control_payload(const CartesianForceControlParam &param) {
+  std::ostringstream oss;
+  oss << "enabled=" << serialize_bool(param.enabled)
+      << ";kp=" << serialize_numeric_container(param.kp)
+      << ";ki=" << serialize_numeric_container(param.ki)
+      << ";deadband=" << serialize_numeric_container(param.deadband)
+      << ";max_feedback_wrench=" << serialize_numeric_container(param.max_feedback_wrench)
+      << ";cutoff_frequency_hz=" << format_double(param.cutoff_frequency_hz)
+      << ";integral_limit=" << serialize_numeric_container(param.integral_limit);
+  return oss.str();
+}
+
+inline bool finite_non_negative_array6(const std::array<double, 6> &values) {
+  return std::all_of(values.begin(), values.end(), [](double value) {
+    return std::isfinite(value) && value >= 0.0;
+  });
+}
+
+inline bool valid_cartesian_force_control_param(const CartesianForceControlParam &param) {
+  return finite_non_negative_array6(param.kp) &&
+         finite_non_negative_array6(param.ki) &&
+         finite_non_negative_array6(param.deadband) &&
+         finite_non_negative_array6(param.max_feedback_wrench) &&
+         finite_non_negative_array6(param.integral_limit) &&
+         std::isfinite(param.cutoff_frequency_hz) &&
+         param.cutoff_frequency_hz >= 0.0 &&
+         param.cutoff_frequency_hz <= 1000.0;
+}
+
 inline WorkToolInfo make_default_tool_info() {
   WorkToolInfo tool;
   tool.name = "tool0";
@@ -1318,6 +1347,18 @@ public:
                                 detail::serialize_numeric_container(factor), ec);
   }
 
+  void setCartesianForceControl(const CartesianForceControlParam &param, error_code &ec) noexcept {
+    if (!detail::valid_cartesian_force_control_param(param)) {
+      ec = std::make_error_code(std::errc::invalid_argument);
+      detail::remember_error(this->session_, ec);
+      return;
+    }
+    cartesian_force_control_ = param;
+    ec.clear();
+    detail::publish_custom_data(this->session_, rokae_xmate3_ros2::runtime::rt_topics::kConfigCartesianForceControl,
+                                detail::build_cartesian_force_control_payload(param), ec);
+  }
+
   void setFilterFrequency(double jointFrequency, double cartesianFrequency, double torqueFrequency, error_code &ec) noexcept {
     filter_frequencies_ = {jointFrequency, cartesianFrequency, torqueFrequency};
     ec.clear();
@@ -1385,6 +1426,7 @@ private:
   std::array<double, DoF> joint_impedance_{};
   std::array<double, DoF> collision_thresholds_{};
   std::array<double, 6> cartesian_impedance_{};
+  CartesianForceControlParam cartesian_force_control_{};
   std::array<double, 3> filter_frequencies_{};
   std::array<double, 6> desired_cartesian_torque_{};
   double torque_cutoff_frequency_ = 0.0;

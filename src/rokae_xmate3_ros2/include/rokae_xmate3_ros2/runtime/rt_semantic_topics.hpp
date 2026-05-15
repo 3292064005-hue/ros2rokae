@@ -17,6 +17,7 @@ inline constexpr const char *kConfigRtNetworkTolerance = "rt/config/network_tole
 inline constexpr const char *kConfigUseRciClient = "rt/config/use_rci_client";
 inline constexpr const char *kConfigJointImpedance = "rt/config/joint_impedance";
 inline constexpr const char *kConfigCartesianImpedance = "rt/config/cartesian_impedance";
+inline constexpr const char *kConfigCartesianForceControl = "rt/config/cartesian_force_control";
 inline constexpr const char *kConfigFilterFrequency = "rt/config/filter_frequency";
 inline constexpr const char *kConfigFilterLimit = "rt/config/filter_limit";
 inline constexpr const char *kConfigCartesianDesiredWrench = "rt/config/cartesian_desired_wrench";
@@ -26,6 +27,7 @@ inline constexpr const char *kConfigForceControlFrame = "rt/config/fc_frame";
 inline constexpr const char *kConfigCartesianLimit = "rt/config/cartesian_limit";
 inline constexpr const char *kConfigEndEffectorFrame = "rt/config/end_effector_frame";
 inline constexpr const char *kConfigLoad = "rt/config/load";
+inline constexpr const char *kSensorExternalWrench = "rt/sensor/external_wrench";
 inline constexpr const char *kCatalogProvenance = "runtime/catalog/provenance";
 
 }  // namespace rokae_xmate3_ros2::runtime::rt_topics

@@ -96,6 +96,9 @@ bool parseArrayCsv(const std::string &csv, std::array<double, 6> &out) {
     } catch (...) {
       return false;
     }
+    if (!std::isfinite(out[i])) {
+      return false;
+    }
   }
   return true;
 }
@@ -109,6 +112,9 @@ bool parseArrayCsv(const std::string &csv, std::array<double, 3> &out) {
     try {
       out[i] = std::stod(trimCopy(parts[i]));
     } catch (...) {
+      return false;
+    }
+    if (!std::isfinite(out[i])) {
       return false;
     }
   }
@@ -126,6 +132,9 @@ bool parseArrayCsv(const std::string &csv, std::array<double, 16> &out) {
     } catch (...) {
       return false;
     }
+    if (!std::isfinite(out[i])) {
+      return false;
+    }
   }
   return true;
 }
@@ -139,6 +148,19 @@ bool parseBool(const std::string &raw, bool fallback = false) {
     return false;
   }
   return fallback;
+}
+
+bool finiteNonNegativeArray(const std::array<double, 6> &values) {
+  return std::all_of(values.begin(), values.end(), [](double value) {
+    return std::isfinite(value) && value >= 0.0;
+  });
+}
+
+bool validWrenchFrameType(rokae::FrameType type) {
+  return type == rokae::FrameType::base ||
+         type == rokae::FrameType::world ||
+         type == rokae::FrameType::tool ||
+         type == rokae::FrameType::path;
 }
 
 void updateDirectCommandSnapshot(const DataStoreState::CustomDataEntry &entry,
@@ -324,6 +346,132 @@ void updateLoadContext(const std::string &value, DataStoreState::RtLoadSnapshot 
   }
 }
 
+bool updateArray6FieldIfPresent(const std::string &value,
+                                const std::string &field,
+                                std::array<double, 6> &target) {
+  const auto raw = findField(value, field);
+  if (!raw.has_value()) {
+    return true;
+  }
+  std::array<double, 6> parsed{};
+  if (!parseArrayCsv(*raw, parsed) || !finiteNonNegativeArray(parsed)) {
+    return false;
+  }
+  target = parsed;
+  return true;
+}
+
+void updateCartesianForceControl(const std::string &value,
+                                 DataStoreState::RtCartesianForceControlSnapshot &control) {
+  control = {};
+  if (value.empty()) {
+    return;
+  }
+
+  if (const auto raw_enabled = findField(value, "enabled"); raw_enabled.has_value()) {
+    control.enabled = parseBool(*raw_enabled, false);
+    control.configured = true;
+  }
+  if (!updateArray6FieldIfPresent(value, "kp", control.kp) ||
+      !updateArray6FieldIfPresent(value, "ki", control.ki) ||
+      !updateArray6FieldIfPresent(value, "deadband", control.deadband) ||
+      !updateArray6FieldIfPresent(value, "max_feedback_wrench", control.max_feedback_wrench) ||
+      !updateArray6FieldIfPresent(value, "integral_limit", control.integral_limit)) {
+    control = {};
+    return;
+  }
+  if (findField(value, "kp").has_value() ||
+      findField(value, "ki").has_value() ||
+      findField(value, "deadband").has_value() ||
+      findField(value, "max_feedback_wrench").has_value() ||
+      findField(value, "integral_limit").has_value()) {
+    control.configured = true;
+  }
+  if (const auto raw_cutoff = findField(value, "cutoff_frequency_hz"); raw_cutoff.has_value()) {
+    try {
+      control.cutoff_frequency_hz = std::stod(*raw_cutoff);
+      if (!std::isfinite(control.cutoff_frequency_hz) || control.cutoff_frequency_hz < 0.0 ||
+          control.cutoff_frequency_hz > 1000.0) {
+        control = {};
+        return;
+      }
+      control.configured = true;
+    } catch (...) {
+      control = {};
+      return;
+    }
+  } else if (const auto raw_cutoff = findField(value, "cutoff_frequency"); raw_cutoff.has_value()) {
+    try {
+      control.cutoff_frequency_hz = std::stod(*raw_cutoff);
+      if (!std::isfinite(control.cutoff_frequency_hz) || control.cutoff_frequency_hz < 0.0 ||
+          control.cutoff_frequency_hz > 1000.0) {
+        control = {};
+        return;
+      }
+      control.configured = true;
+    } catch (...) {
+      control = {};
+      return;
+    }
+  }
+}
+
+void updateExternalWrench(const DataStoreState::CustomDataEntry &entry,
+                          DataStoreState::RtExternalWrenchSnapshot &wrench) {
+  wrench = {};
+  wrench.present = entry.valid;
+  wrench.updated_at = entry.updated_at;
+  if (!entry.valid || entry.value.empty()) {
+    return;
+  }
+
+  std::array<double, 6> parsed_wrench{};
+  if (const auto raw_values = findField(entry.value, "values");
+      raw_values.has_value() && parseArrayCsv(*raw_values, parsed_wrench)) {
+    wrench.wrench = parsed_wrench;
+    wrench.valid = true;
+  } else if (parseArrayCsv(entry.value, parsed_wrench)) {
+    wrench.wrench = parsed_wrench;
+    wrench.valid = true;
+  }
+  if (!wrench.valid) {
+    return;
+  }
+
+  wrench.frame.type = rokae::FrameType::base;
+  if (const auto raw_type = findField(entry.value, "type"); raw_type.has_value()) {
+    try {
+      wrench.frame.type = static_cast<rokae::FrameType>(std::stoi(*raw_type));
+      if (!validWrenchFrameType(wrench.frame.type)) {
+        wrench.valid = false;
+        return;
+      }
+    } catch (...) {
+      wrench.valid = false;
+      return;
+    }
+  }
+  if (const auto raw_frame = findField(entry.value, "frame"); raw_frame.has_value()) {
+    std::array<double, 16> parsed_frame{};
+    if (!parseArrayCsv(*raw_frame, parsed_frame)) {
+      wrench.valid = false;
+      return;
+    }
+    wrench.frame.frame = parsed_frame;
+    wrench.frame.configured = true;
+  }
+  if (const auto raw_timestamp = findField(entry.value, "timestamp"); raw_timestamp.has_value()) {
+    try {
+      wrench.timestamp_sec = std::stod(*raw_timestamp);
+      if (!std::isfinite(wrench.timestamp_sec)) {
+        wrench.valid = false;
+      }
+    } catch (...) {
+      wrench.valid = false;
+    }
+  }
+}
+
 void updateRtNetworkTolerance(const std::string &value, DataStoreState::RtControlSnapshot &snapshot) {
   snapshot.rt_network_tolerance_configured = false;
   snapshot.rt_command_timeout_sec = kDefaultRtCommandTimeoutSec;
@@ -410,6 +558,10 @@ void updateRtSnapshotForTopic(const std::string &topic,
     updateArray6Topic(entry.value, snapshot.cartesian_impedance_configured, snapshot.cartesian_impedance, std::string{"values"});
     return;
   }
+  if (topic == rt_topics::kConfigCartesianForceControl) {
+    updateCartesianForceControl(entry.value, snapshot.cartesian_force_control);
+    return;
+  }
   if (topic == rt_topics::kConfigCartesianDesiredWrench) {
     updateArray6Topic(entry.value, snapshot.cartesian_desired_wrench_configured, snapshot.cartesian_desired_wrench);
     return;
@@ -436,6 +588,10 @@ void updateRtSnapshotForTopic(const std::string &topic,
   }
   if (topic == rt_topics::kConfigLoad) {
     updateLoadContext(entry.value, snapshot.load);
+    return;
+  }
+  if (topic == rt_topics::kSensorExternalWrench) {
+    updateExternalWrench(entry, snapshot.external_wrench);
     return;
   }
   if (topic == rt_topics::kControlJointPosition) {

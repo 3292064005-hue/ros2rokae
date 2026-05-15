@@ -158,6 +158,7 @@ class XCORE_API RtMotionControlCobot<6> : public RtMotionControl<WorkType::colla
  public:
   void setJointImpedance(const std::array<double, 6> &factor, error_code &ec) noexcept;
   void setCartesianImpedance(const std::array<double, 6> &factor, error_code &ec) noexcept;
+  void setCartesianForceControl(const CartesianForceControlParam &param, error_code &ec) noexcept;
   void setFilterFrequency(double jointFrequency,
                           double cartesianFrequency,
                           double torqueFrequency,

@@ -63,6 +63,26 @@ class DataStoreState {
     std::array<double, 3> inertia{{0.0, 0.0, 0.0}};
   };
 
+  struct RtCartesianForceControlSnapshot {
+    bool configured = false;
+    bool enabled = false;
+    std::array<double, 6> kp{{0.25, 0.25, 0.25, 0.05, 0.05, 0.05}};
+    std::array<double, 6> ki{{0.0, 0.0, 0.0, 0.0, 0.0, 0.0}};
+    std::array<double, 6> deadband{{0.20, 0.20, 0.20, 0.02, 0.02, 0.02}};
+    std::array<double, 6> max_feedback_wrench{{10.0, 10.0, 10.0, 3.0, 3.0, 3.0}};
+    double cutoff_frequency_hz = 30.0;
+    std::array<double, 6> integral_limit{{5.0, 5.0, 5.0, 1.0, 1.0, 1.0}};
+  };
+
+  struct RtExternalWrenchSnapshot {
+    bool present = false;
+    bool valid = false;
+    std::array<double, 6> wrench{};
+    RtForceControlFrameSnapshot frame{};
+    double timestamp_sec = 0.0;
+    std::chrono::steady_clock::time_point updated_at{};
+  };
+
   struct RtSemanticSnapshot {
     std::string control_surface{"sdk_shim"};
     std::string dispatch_mode{"idle"};
@@ -86,6 +106,8 @@ class DataStoreState {
     bool cartesian_impedance_configured = false;
     std::array<double, 6> cartesian_desired_wrench{};
     bool cartesian_desired_wrench_configured = false;
+    RtCartesianForceControlSnapshot cartesian_force_control{};
+    RtExternalWrenchSnapshot external_wrench{};
     std::array<double, 6> collision_thresholds{};
     bool collision_thresholds_configured = false;
     double torque_cutoff_frequency = 80.0;

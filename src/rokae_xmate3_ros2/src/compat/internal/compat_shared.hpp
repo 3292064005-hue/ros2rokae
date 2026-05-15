@@ -88,6 +88,7 @@ struct CompatRtControllerHandle6 {
   std::shared_ptr<CompatLoopState> loop;
   std::array<double, 6> joint_impedance{};
   std::array<double, 6> cartesian_impedance{};
+  CartesianForceControlParam cartesian_force_control{};
   std::array<double, 6> collision_thresholds{};
   std::array<double, 3> filter_frequencies{};
   std::array<double, 6> desired_cartesian_torque{};
